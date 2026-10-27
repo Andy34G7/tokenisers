@@ -1,0 +1,520 @@
+{
+  "bpe_frequency": {
+    "en": {
+      "bytes_per_token": 1.8031206975676917,
+      "subword_fertility": 3.791208791208791,
+      "continued_word_rate": 80.21978021978022,
+      "unique_tokens": 108
+    },
+    "de": {
+      "bytes_per_token": 1.3695652173913044,
+      "subword_fertility": 5.416666666666667,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 36
+    },
+    "fr": {
+      "bytes_per_token": 1.2105263157894737,
+      "subword_fertility": 3.658536585365854,
+      "continued_word_rate": 87.8048780487805,
+      "unique_tokens": 27
+    },
+    "ru": {
+      "bytes_per_token": 1.2261904761904763,
+      "subword_fertility": 8.152173913043478,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 38
+    },
+    "zh": {
+      "bytes_per_token": 1.3432835820895523,
+      "subword_fertility": 2.2333333333333334,
+      "continued_word_rate": 63.33333333333333,
+      "unique_tokens": 30
+    },
+    "ja": {
+      "bytes_per_token": 1.4666666666666666,
+      "subword_fertility": 2.0,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 33
+    },
+    "ar": {
+      "bytes_per_token": 1.2395833333333333,
+      "subword_fertility": 5.774647887323944,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 35
+    },
+    "hi": {
+      "bytes_per_token": 2.0636363636363635,
+      "subword_fertility": 5.406976744186046,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 35
+    },
+    "hu": {
+      "bytes_per_token": 1.2280701754385965,
+      "subword_fertility": 6.944444444444445,
+      "continued_word_rate": 86.11111111111111,
+      "unique_tokens": 34
+    },
+    "fi": {
+      "bytes_per_token": 1.280701754385965,
+      "subword_fertility": 5.217391304347826,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 29
+    },
+    "code": {
+      "bytes_per_token": 1.6003201707577375,
+      "subword_fertility": 2.1824817518248176,
+      "continued_word_rate": 39.416058394160586,
+      "unique_tokens": 103
+    },
+    "macro_avg": {
+      "bytes_per_token": 1.4392422502951965,
+      "subword_fertility": 4.616169220158654,
+      "continued_word_rate": 86.98956010065143,
+      "unique_tokens": 508
+    }
+  },
+  "wordpiece_pmi": {
+    "en": {
+      "bytes_per_token": 1.0025516713447309,
+      "subword_fertility": 7.615384615384615,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 39
+    },
+    "de": {
+      "bytes_per_token": 1.0862068965517242,
+      "subword_fertility": 7.083333333333333,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 30
+    },
+    "fr": {
+      "bytes_per_token": 1.0,
+      "subword_fertility": 4.634146341463414,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 28
+    },
+    "ru": {
+      "bytes_per_token": 1.355263157894737,
+      "subword_fertility": 7.282608695652174,
+      "continued_word_rate": 86.95652173913044,
+      "unique_tokens": 32
+    },
+    "zh": {
+      "bytes_per_token": 11.25,
+      "subword_fertility": 2.033333333333333,
+      "continued_word_rate": 56.666666666666664,
+      "unique_tokens": 7
+    },
+    "ja": {
+      "bytes_per_token": 1.0185185185185186,
+      "subword_fertility": 2.942857142857143,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 34
+    },
+    "ar": {
+      "bytes_per_token": 1.0,
+      "subword_fertility": 7.394366197183099,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 34
+    },
+    "hi": {
+      "bytes_per_token": 1.0225225225225225,
+      "subword_fertility": 11.918604651162791,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 31
+    },
+    "hu": {
+      "bytes_per_token": 1.206896551724138,
+      "subword_fertility": 7.083333333333333,
+      "continued_word_rate": 86.11111111111111,
+      "unique_tokens": 27
+    },
+    "fi": {
+      "bytes_per_token": 1.0,
+      "subword_fertility": 6.956521739130435,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 21
+    },
+    "code": {
+      "bytes_per_token": 1.0563578724903135,
+      "subword_fertility": 3.489051094890511,
+      "continued_word_rate": 44.52554744525548,
+      "unique_tokens": 62
+    },
+    "macro_avg": {
+      "bytes_per_token": 1.9998470173678804,
+      "subword_fertility": 6.22123095252038,
+      "continued_word_rate": 88.56907699656034,
+      "unique_tokens": 345
+    }
+  },
+  "mdl_bits": {
+    "en": {
+      "bytes_per_token": 1.4087486554320545,
+      "subword_fertility": 5.131868131868132,
+      "continued_word_rate": 85.71428571428571,
+      "unique_tokens": 67
+    },
+    "de": {
+      "bytes_per_token": 1.2857142857142858,
+      "subword_fertility": 5.833333333333333,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 37
+    },
+    "fr": {
+      "bytes_per_token": 1.069767441860465,
+      "subword_fertility": 4.2682926829268295,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 27
+    },
+    "ru": {
+      "bytes_per_token": 1.3205128205128205,
+      "subword_fertility": 7.5,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 39
+    },
+    "zh": {
+      "bytes_per_token": 1.9565217391304348,
+      "subword_fertility": 2.0,
+      "continued_word_rate": 56.666666666666664,
+      "unique_tokens": 28
+    },
+    "ja": {
+      "bytes_per_token": 1.4666666666666666,
+      "subword_fertility": 2.0,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 33
+    },
+    "ar": {
+      "bytes_per_token": 1.3837209302325582,
+      "subword_fertility": 5.070422535211268,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 36
+    },
+    "hi": {
+      "bytes_per_token": 2.292929292929293,
+      "subword_fertility": 4.767441860465116,
+      "continued_word_rate": 82.55813953488372,
+      "unique_tokens": 36
+    },
+    "hu": {
+      "bytes_per_token": 1.2962962962962963,
+      "subword_fertility": 6.527777777777778,
+      "continued_word_rate": 86.11111111111111,
+      "unique_tokens": 29
+    },
+    "fi": {
+      "bytes_per_token": 1.028169014084507,
+      "subword_fertility": 6.739130434782608,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 23
+    },
+    "code": {
+      "bytes_per_token": 1.313047285464098,
+      "subword_fertility": 2.576642335766423,
+      "continued_word_rate": 35.03649635036496,
+      "unique_tokens": 77
+    },
+    "macro_avg": {
+      "bytes_per_token": 1.43837222075668,
+      "subword_fertility": 4.764991735648317,
+      "continued_word_rate": 86.00788176157383,
+      "unique_tokens": 432
+    }
+  },
+  "length_penalized": {
+    "en": {
+      "bytes_per_token": 1.7469986660738106,
+      "subword_fertility": 3.9450549450549453,
+      "continued_word_rate": 78.02197802197803,
+      "unique_tokens": 97
+    },
+    "de": {
+      "bytes_per_token": 1.2352941176470589,
+      "subword_fertility": 6.111111111111111,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 37
+    },
+    "fr": {
+      "bytes_per_token": 1.15,
+      "subword_fertility": 3.902439024390244,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 27
+    },
+    "ru": {
+      "bytes_per_token": 1.0404040404040404,
+      "subword_fertility": 9.782608695652174,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 39
+    },
+    "zh": {
+      "bytes_per_token": 1.2328767123287672,
+      "subword_fertility": 2.433333333333333,
+      "continued_word_rate": 73.33333333333333,
+      "unique_tokens": 31
+    },
+    "ja": {
+      "bytes_per_token": 1.4666666666666666,
+      "subword_fertility": 2.0,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 33
+    },
+    "ar": {
+      "bytes_per_token": 1.202020202020202,
+      "subword_fertility": 5.985915492957746,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 36
+    },
+    "hi": {
+      "bytes_per_token": 2.3645833333333335,
+      "subword_fertility": 4.593023255813954,
+      "continued_word_rate": 82.55813953488372,
+      "unique_tokens": 37
+    },
+    "hu": {
+      "bytes_per_token": 1.1290322580645162,
+      "subword_fertility": 7.638888888888889,
+      "continued_word_rate": 86.11111111111111,
+      "unique_tokens": 32
+    },
+    "fi": {
+      "bytes_per_token": 1.1967213114754098,
+      "subword_fertility": 5.6521739130434785,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 27
+    },
+    "code": {
+      "bytes_per_token": 1.6905298759864713,
+      "subword_fertility": 2.0437956204379564,
+      "continued_word_rate": 33.57664233576642,
+      "unique_tokens": 96
+    },
+    "macro_avg": {
+      "bytes_per_token": 1.4050115621818433,
+      "subword_fertility": 4.917122207334893,
+      "continued_word_rate": 86.69101857609752,
+      "unique_tokens": 492
+    }
+  },
+  "super_bpe": {
+    "en": {
+      "bytes_per_token": 1.8763132760267431,
+      "subword_fertility": 4.571428571428571,
+      "continued_word_rate": 92.3076923076923,
+      "unique_tokens": 113
+    },
+    "de": {
+      "bytes_per_token": 1.4,
+      "subword_fertility": 5.694444444444445,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 36
+    },
+    "fr": {
+      "bytes_per_token": 1.4375,
+      "subword_fertility": 3.902439024390244,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 28
+    },
+    "ru": {
+      "bytes_per_token": 1.3037974683544304,
+      "subword_fertility": 8.478260869565217,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 41
+    },
+    "zh": {
+      "bytes_per_token": 1.2857142857142858,
+      "subword_fertility": 2.3333333333333335,
+      "continued_word_rate": 73.33333333333333,
+      "unique_tokens": 30
+    },
+    "ja": {
+      "bytes_per_token": 1.5492957746478873,
+      "subword_fertility": 2.0,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 34
+    },
+    "ar": {
+      "bytes_per_token": 1.2526315789473683,
+      "subword_fertility": 6.549295774647887,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 38
+    },
+    "hi": {
+      "bytes_per_token": 2.3402061855670104,
+      "subword_fertility": 5.813953488372093,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 35
+    },
+    "hu": {
+      "bytes_per_token": 1.2727272727272727,
+      "subword_fertility": 7.361111111111111,
+      "continued_word_rate": 86.11111111111111,
+      "unique_tokens": 36
+    },
+    "fi": {
+      "bytes_per_token": 1.3518518518518519,
+      "subword_fertility": 5.434782608695652,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 33
+    },
+    "code": {
+      "bytes_per_token": 1.6487080813633865,
+      "subword_fertility": 2.335766423357664,
+      "continued_word_rate": 46.715328467153284,
+      "unique_tokens": 107
+    },
+    "macro_avg": {
+      "bytes_per_token": 1.519885979563658,
+      "subword_fertility": 4.952255968122383,
+      "continued_word_rate": 90.76976956539,
+      "unique_tokens": 531
+    }
+  },
+  "morpheme_bpe": {
+    "en": {
+      "bytes_per_token": 1.7202276707530648,
+      "subword_fertility": 4.021978021978022,
+      "continued_word_rate": 84.61538461538461,
+      "unique_tokens": 112
+    },
+    "de": {
+      "bytes_per_token": 1.3125,
+      "subword_fertility": 5.694444444444445,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 34
+    },
+    "fr": {
+      "bytes_per_token": 1.2105263157894737,
+      "subword_fertility": 3.658536585365854,
+      "continued_word_rate": 87.8048780487805,
+      "unique_tokens": 27
+    },
+    "ru": {
+      "bytes_per_token": 1.1839080459770115,
+      "subword_fertility": 8.478260869565217,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 39
+    },
+    "zh": {
+      "bytes_per_token": 1.2857142857142858,
+      "subword_fertility": 2.3333333333333335,
+      "continued_word_rate": 73.33333333333333,
+      "unique_tokens": 30
+    },
+    "ja": {
+      "bytes_per_token": 1.4666666666666666,
+      "subword_fertility": 2.0,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 33
+    },
+    "ar": {
+      "bytes_per_token": 1.202020202020202,
+      "subword_fertility": 5.985915492957746,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 34
+    },
+    "hi": {
+      "bytes_per_token": 1.9075630252100841,
+      "subword_fertility": 5.930232558139535,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 34
+    },
+    "hu": {
+      "bytes_per_token": 1.320754716981132,
+      "subword_fertility": 6.388888888888889,
+      "continued_word_rate": 86.11111111111111,
+      "unique_tokens": 35
+    },
+    "fi": {
+      "bytes_per_token": 1.3035714285714286,
+      "subword_fertility": 5.108695652173913,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 30
+    },
+    "code": {
+      "bytes_per_token": 1.5077928607340372,
+      "subword_fertility": 2.3503649635036497,
+      "continued_word_rate": 41.605839416058394,
+      "unique_tokens": 100
+    },
+    "macro_avg": {
+      "bytes_per_token": 1.4019313834924896,
+      "subword_fertility": 4.7227864373046,
+      "continued_word_rate": 88.49732241133346,
+      "unique_tokens": 508
+    }
+  },
+  "unigram_lm": {
+    "en": {
+      "bytes_per_token": 1.894406943105111,
+      "subword_fertility": 3.5604395604395602,
+      "continued_word_rate": 76.92307692307693,
+      "unique_tokens": 103
+    },
+    "de": {
+      "bytes_per_token": 1.26,
+      "subword_fertility": 5.972222222222222,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 34
+    },
+    "fr": {
+      "bytes_per_token": 1.2105263157894737,
+      "subword_fertility": 3.658536585365854,
+      "continued_word_rate": 87.8048780487805,
+      "unique_tokens": 26
+    },
+    "ru": {
+      "bytes_per_token": 1.355263157894737,
+      "subword_fertility": 7.282608695652174,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 40
+    },
+    "zh": {
+      "bytes_per_token": 2.142857142857143,
+      "subword_fertility": 1.8666666666666667,
+      "continued_word_rate": 43.333333333333336,
+      "unique_tokens": 26
+    },
+    "ja": {
+      "bytes_per_token": 1.5068493150684932,
+      "subword_fertility": 2.0,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 33
+    },
+    "ar": {
+      "bytes_per_token": 1.5063291139240507,
+      "subword_fertility": 4.577464788732394,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 36
+    },
+    "hi": {
+      "bytes_per_token": 2.3402061855670104,
+      "subword_fertility": 4.651162790697675,
+      "continued_word_rate": 82.55813953488372,
+      "unique_tokens": 38
+    },
+    "hu": {
+      "bytes_per_token": 1.25,
+      "subword_fertility": 6.805555555555555,
+      "continued_word_rate": 86.11111111111111,
+      "unique_tokens": 30
+    },
+    "fi": {
+      "bytes_per_token": 1.2372881355932204,
+      "subword_fertility": 5.434782608695652,
+      "continued_word_rate": 100.0,
+      "unique_tokens": 26
+    },
+    "code": {
+      "bytes_per_token": 1.7196100917431192,
+      "subword_fertility": 2.102189781021898,
+      "continued_word_rate": 32.11678832116788,
+      "unique_tokens": 91
+    },
+    "macro_avg": {
+      "bytes_per_token": 1.583939672867487,
+      "subword_fertility": 4.355602659549969,
+      "continued_word_rate": 82.62248429748668,
+      "unique_tokens": 483
+    }
+  }
+}

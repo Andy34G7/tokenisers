@@ -4,7 +4,10 @@ Extended Intrinsic Tokenizer Evaluation Suite.
 
 from __future__ import annotations
 
+import csv
+import json
 import math
+from pathlib import Path
 import re
 import time
 from typing import Any, Dict, List, Optional, Set, Union
@@ -305,6 +308,116 @@ class IntrinsicEvaluator:
             "encode_mb_per_sec": max(0.1, mb / t_enc),
             "decode_mb_per_sec": max(0.1, mb / t_dec),
         }
+
+    def evaluate_suite(
+        self,
+        models: Dict[str, Any],
+        text_sample: str,
+        gold_annotations: List[Dict[str, Any]],
+        output_dir: Optional[Union[str, Path]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Runs the complete extended intrinsic suite across multiple tokenizers and
+        exports JSON, CSV, and Markdown leaderboards when output_dir is provided.
+        """
+        results: Dict[str, Dict[str, Any]] = {}
+        raw_bytes = len(text_sample.encode("utf-8"))
+        words = [w for w in text_sample.split() if w]
+        num_words = max(1, len(words))
+
+        for name, tok in models.items():
+            tids = tok.encode(text_sample)
+            n_toks = max(1, len(tids))
+            bpt = raw_bytes / n_toks
+            fertility = sum(len(tok.encode(w)) for w in words) / num_words
+
+            renyi = self.compute_renyi_efficiency(tok, text_sample)
+            util = self.compute_vocab_utilization(tok, text_sample)
+            morph = self.compute_morphological_f1(tok, gold_annotations)
+            struct = self.compute_structural_diagnostics(tok)
+            speed = self.benchmark_throughput(tok, text_sample, num_warmup=2)
+
+            results[name] = {
+                "vocab_size": getattr(tok, "vocab_size", 256),
+                "bytes_per_token": bpt,
+                "fertility": fertility,
+                "renyi_e_1_0": renyi["e_1_0"],
+                "renyi_e_2_0": renyi["e_2_0"],
+                "renyi_e_2_5": renyi["e_2_5"],
+                "active_fraction": util["active_fraction"],
+                "dead_tokens": util["dead_tokens"],
+                "gini_coefficient": util["gini_coefficient"],
+                "morph_precision": morph["precision"],
+                "morph_recall": morph["recall"],
+                "morph_f1": morph["f1"],
+                "identifier_f1": struct["identifier_f1"],
+                "number_fertility": struct["number_fertility"],
+                "encode_mb_per_sec": speed["encode_mb_per_sec"],
+                "decode_mb_per_sec": speed["decode_mb_per_sec"],
+            }
+
+        if output_dir is not None:
+            out_dir = Path(output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with open(out_dir / "intrinsic_leaderboard.json", "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=2)
+
+            fieldnames = [
+                "tokenizer",
+                "vocab_size",
+                "bytes_per_token",
+                "fertility",
+                "renyi_e_1_0",
+                "renyi_e_2_0",
+                "renyi_e_2_5",
+                "active_fraction",
+                "morph_f1",
+                "identifier_f1",
+                "number_fertility",
+                "encode_mb_per_sec",
+                "decode_mb_per_sec",
+            ]
+            with open(out_dir / "intrinsic_leaderboard.csv", "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(fieldnames)
+                for m_name, vals in results.items():
+                    writer.writerow([
+                        m_name,
+                        vals["vocab_size"],
+                        f"{vals['bytes_per_token']:.4f}",
+                        f"{vals['fertility']:.4f}",
+                        f"{vals['renyi_e_1_0']:.4f}",
+                        f"{vals['renyi_e_2_0']:.4f}",
+                        f"{vals['renyi_e_2_5']:.4f}",
+                        f"{vals['active_fraction']:.4f}",
+                        f"{vals['morph_f1']:.4f}",
+                        f"{vals['identifier_f1']:.4f}",
+                        f"{vals['number_fertility']:.2f}",
+                        f"{vals['encode_mb_per_sec']:.2f}",
+                        f"{vals['decode_mb_per_sec']:.2f}",
+                    ])
+
+            md_lines = [
+                "# Extended Intrinsic Tokenizer Evaluation Leaderboard",
+                "",
+                "| Tokenizer | Bytes/Token (↑) | Fertility (↓) | Rényi $E_{1.0}$ | Rényi $E_{2.0}$ | Rényi $E_{2.5}$ | Morph F1 (↑) | Ident F1 (↑) | Encode (MB/s) | Decode (MB/s) |",
+                "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+            sorted_rows = sorted(
+                results.items(),
+                key=lambda kv: kv[1]["renyi_e_2_0"],
+                reverse=True,
+            )
+            for m_name, vals in sorted_rows:
+                md_lines.append(
+                    f"| `{m_name}` | {vals['bytes_per_token']:.3f} | {vals['fertility']:.3f} | "
+                    f"{vals['renyi_e_1_0']:.3f} | {vals['renyi_e_2_0']:.3f} | {vals['renyi_e_2_5']:.3f} | "
+                    f"{vals['morph_f1']:.3f} | {vals['identifier_f1']:.3f} | "
+                    f"{vals['encode_mb_per_sec']:.1f} | {vals['decode_mb_per_sec']:.1f} |"
+                )
+            (out_dir / "intrinsic_leaderboard.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+
+        return results
 
 
 __all__ = ["IntrinsicEvaluator", "extract_identifier_cuts", "DEFAULT_CODE_IDENTIFIERS"]
