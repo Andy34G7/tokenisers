@@ -82,9 +82,19 @@ def test_tier3_bpe_frequency_with_hf_wrapper(require_tokenisers, sample_english_
     transformers = pytest.importorskip("transformers")
     tok = tokenisers.BpeTokenizer.train(corpus=[sample_english_text], vocab_size=275)
     wrapper = tokenisers.DynamicResearchTokenizer(tok)
-    batch = wrapper([sample_english_text, "Short text"], padding=True, truncation=True, max_length=128)
+
+    # 1. Pipeline roundtrip when max_length accommodates input (182 tokens <= 256)
+    batch = wrapper([sample_english_text, "Short text"], padding=True, truncation=True, max_length=256)
     assert "input_ids" in batch
+    assert "attention_mask" in batch
+    assert len(batch["input_ids"][0]) == len(batch["input_ids"][1])
     assert wrapper.decode(batch["input_ids"][0]) == sample_english_text
+
+    # 2. Strict truncation enforcement when input exceeds max_length (182 tokens truncated to 64)
+    batch_trunc = wrapper([sample_english_text, "Short text"], padding=True, truncation=True, max_length=64)
+    assert len(batch_trunc["input_ids"][0]) == 64
+    assert len(batch_trunc["input_ids"][1]) == 64
+    assert sample_english_text.startswith(wrapper.decode(batch_trunc["input_ids"][0]))
 
 
 def test_tier3_superbpe_with_hf_export(require_tokenisers, sample_english_text, tmp_path):
