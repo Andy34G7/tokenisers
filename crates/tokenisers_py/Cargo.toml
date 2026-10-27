@@ -1,0 +1,17 @@
+[package]
+name = "tokenisers_py"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "PyO3 bindings for tokenisers_core exposed to Python."
+
+[lib]
+name = "_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tokenisers_core = { path = "../tokenisers_core" }
+pyo3 = { workspace = true }
+log = { workspace = true }

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["maturin>=1.15.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "tokenisers"
+version = "0.1.0"
+description = "Modular Rust & Python Research and Benchmarking Platform for Tokenizers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT OR Apache-2.0" }
+dependencies = [
+    "transformers>=4.40.0",
+    "torch>=2.0.0",
+    "datasets>=2.18.0",
+    "numpy>=1.24.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-benchmark>=4.0.0",
+    "maturin>=1.15.0",
+]
+
+[tool.maturin]
+python-source = "python"
+manifest-path = "crates/tokenisers_py/Cargo.toml"
+module-name = "tokenisers._core"
+features = ["pyo3/extension-module"]

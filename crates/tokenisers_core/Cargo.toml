@@ -1,0 +1,22 @@
+[package]
+name = "tokenisers_core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Pure Rust core tokenizer training, data structures, curricula, and inference engines."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rayon = { workspace = true }
+parking_lot = { workspace = true }
+ahash = { workspace = true }
+fastrand = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+env_logger = { workspace = true }
