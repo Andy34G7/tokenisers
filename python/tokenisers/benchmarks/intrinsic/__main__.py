@@ -33,6 +33,9 @@ def main() -> None:
     models = {
         "bpe_frequency": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="frequency"),
         "wordpiece_pmi": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wordpiece"),
+        "wp_bpe_base": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-base"),
+        "wp_bpe_ft": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-ft", min_frequency=2),
+        "wp_bpe_pig": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-pig"),
         "mdl_bits": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="mdl"),
         "length_penalized": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="length_penalized", beta=0.5),
         "super_bpe": SuperBpeTokenizer.train(corpus=morph_corpus, v_switch=v_switch, v_final=v_size),

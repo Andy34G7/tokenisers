@@ -44,6 +44,9 @@ A high-performance **Rust (`PyO3` / `maturin`) + Python** research and benchmark
 | :--- | :--- | :--- |
 | **Bottom-Up Merge** | `bpe_frequency` | Standard Byte-Level BPE: $\text{score}(u, v) = \text{count}(uv)$ |
 | **Bottom-Up Merge** | `wordpiece_pmi` | Pointwise Mutual Information / WordPiece likelihood: $\frac{\text{count}(uv)}{\text{count}(u)\text{count}(v)}$ |
+| **Bottom-Up Merge** | `wp_bpe_base` | **wp-bpe-base**: Uncalibrated PMI BPE merges without frequency cutoff |
+| **Bottom-Up Merge** | `wp_bpe_ft` | **wp-bpe-ft**: Frequency-Thresholded PMI BPE merges ($\text{freq}(uv) \ge 2$) |
+| **Bottom-Up Merge** | `wp_bpe_pig` | **wp-bpe-pig**: Pointwise Information Gain BPE: $\text{freq}(uv) \cdot \text{PMI}(u, v)$ |
 | **Bottom-Up Merge** | `mdl_bits` | Minimum Description Length ($\Delta\text{Bits}$): corpus compression gain minus codebook overhead |
 | **Bottom-Up Merge** | `length_penalized` | Length-Penalized BPE: $\text{count}(uv) / (|u| + |v|)^\beta$ |
 | **Curriculum BPE** | `super_bpe` | **Two-Stage SuperBPE**: enforces whitespace pre-tokenization up to $V_{\text{switch}}$, then lifts whitespace barriers up to $V_{\text{final}}$ |
@@ -95,10 +98,13 @@ Full artifacts: [`benchmarks/results/tokka/`](benchmarks/results/tokka/)
 | Tokenizer Variant | Macro Bytes/Token (↑) | Macro Fertility (↓) | Continued Word Rate % (↓) | Total Unique Tokens (↑) |
 | :--- | ---: | ---: | ---: | ---: |
 | `wordpiece_pmi` | 2.000 | 6.221 | 88.57% | 345 |
-| `unigram_lm` | 1.584 | 4.356 | 82.62% | 483 |
+| `wp_bpe_ft` | 2.000 | 6.221 | 88.57% | 345 |
+| `wp_bpe_base` | 1.993 | 6.266 | 88.57% | 345 |
+| `unigram_lm` | 1.569 | 4.418 | 82.85% | 488 |
 | `super_bpe` | 1.520 | 4.952 | 90.77% | 531 |
 | `bpe_frequency` | 1.439 | 4.616 | 86.99% | 508 |
 | `mdl_bits` | 1.438 | 4.765 | 86.01% | 432 |
+| `wp_bpe_pig` | 1.437 | 4.829 | 87.26% | 456 |
 | `length_penalized` | 1.405 | 4.917 | 86.69% | 492 |
 | `morpheme_bpe` | 1.402 | 4.723 | 88.50% | 508 |
 
@@ -107,13 +113,16 @@ Full artifacts: [`benchmarks/results/intrinsic/`](benchmarks/results/intrinsic/)
 
 | Tokenizer | Bytes/Token (↑) | Fertility (↓) | Rényi $E_{1.0}$ | Rényi $E_{2.0}$ | Rényi $E_{2.5}$ | Morph F1 (↑) | Ident F1 (↑) | Encode (MB/s) | Decode (MB/s) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `super_bpe` | 1.827 | 4.789 | **0.879** | **0.822** | **0.794** | 0.468 | 0.397 | 0.1 | 54.4 |
-| `morpheme_bpe` | 1.586 | 4.608 | 0.799 | 0.588 | 0.515 | **0.503** | **0.477** | 0.1 | 55.5 |
-| `bpe_frequency` | 1.667 | 4.331 | 0.801 | 0.577 | 0.502 | 0.442 | 0.419 | 0.1 | 58.8 |
-| `length_penalized` | 1.632 | 4.448 | 0.781 | 0.577 | 0.506 | 0.423 | 0.442 | 0.1 | 49.3 |
-| `mdl_bits` | 1.514 | 4.773 | 0.724 | 0.543 | 0.486 | 0.414 | 0.398 | 0.1 | 60.3 |
-| `unigram_lm` | 1.810 | **3.879** | 0.779 | 0.541 | 0.471 | 0.102 | 0.429 | **23.4** | **77.2** |
-| `wordpiece_pmi` | 1.072 | 7.230 | 0.635 | 0.539 | 0.513 | 0.329 | 0.340 | 0.4 | 60.4 |
+| `super_bpe` | 1.827 | 4.789 | **0.879** | **0.822** | **0.794** | 0.468 | 0.397 | 0.1 | 61.3 |
+| `morpheme_bpe` | 1.586 | 4.608 | 0.799 | 0.588 | 0.515 | **0.503** | **0.477** | 0.1 | 55.4 |
+| `bpe_frequency` | 1.667 | 4.331 | 0.801 | 0.577 | 0.502 | 0.442 | 0.419 | 0.1 | 56.0 |
+| `length_penalized` | 1.632 | 4.448 | 0.781 | 0.577 | 0.506 | 0.423 | 0.442 | 0.1 | 50.2 |
+| `wp_bpe_pig` | 1.600 | 4.557 | 0.757 | 0.570 | 0.507 | 0.428 | 0.401 | 0.1 | 61.5 |
+| `mdl_bits` | 1.514 | 4.773 | 0.724 | 0.543 | 0.486 | 0.414 | 0.398 | 0.1 | 58.8 |
+| `unigram_lm` | 1.820 | **3.852** | 0.781 | 0.541 | 0.470 | 0.102 | 0.443 | **23.0** | **76.2** |
+| `wp_bpe_base` | 1.070 | 7.241 | 0.635 | 0.540 | 0.513 | 0.329 | 0.340 | 0.4 | 64.6 |
+| `wordpiece_pmi` | 1.072 | 7.230 | 0.635 | 0.539 | 0.513 | 0.329 | 0.340 | 0.4 | 64.6 |
+| `wp_bpe_ft` | 1.072 | 7.230 | 0.635 | 0.539 | 0.513 | 0.329 | 0.340 | 0.4 | 61.8 |
 
 ### 3. Extrinsic Proxy-LM Validation Bits-Per-Byte (BPB) Leaderboard
 Full artifacts: [`benchmarks/results/colab/`](benchmarks/results/colab/) (`150,000` fixed UTF-8 byte training budget per tokenizer)
@@ -121,10 +130,13 @@ Full artifacts: [`benchmarks/results/colab/`](benchmarks/results/colab/) (`150,0
 | Tokenizer Variant | Train Bytes/Token | Tokens Trained (FLOPs proxy) | English BPB (↓) | Multilingual BPB (↓) | Code BPB (↓) | Macro Val BPB (↓) |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `super_bpe` | 1.840 | 81,920 | **1.938** | 2.277 | 3.502 | **2.572** |
-| `unigram_lm` | 1.808 | 82,944 | 2.204 | **2.268** | **3.388** | **2.620** |
+| `unigram_lm` | 1.793 | 83,968 | 2.251 | 2.515 | **3.034** | **2.600** |
 | `bpe_frequency` | 1.674 | 90,112 | 2.207 | 2.590 | 3.417 | **2.738** |
 | `bpe_dropout_p0.1` | 1.673 | 90,112 | 2.228 | 2.615 | 3.516 | **2.786** |
 | `morpheme_bpe` | 1.622 | 92,672 | 2.331 | 2.300 | 3.749 | **2.793** |
 | `length_penalized` | 1.649 | 91,136 | 2.197 | 2.602 | 3.614 | **2.804** |
+| `wp_bpe_pig` | 1.588 | 94,720 | 2.659 | **2.212** | 3.565 | **2.812** |
 | `mdl_bits` | 1.506 | 99,840 | 2.980 | 2.435 | 3.962 | **3.126** |
 | `wordpiece_pmi` | 1.066 | 140,800 | 3.791 | 2.680 | 4.231 | **3.567** |
+| `wp_bpe_ft` | 1.066 | 140,800 | 3.791 | 2.680 | 4.231 | **3.567** |
+| `wp_bpe_base` | 1.066 | 140,800 | 3.911 | 2.715 | 4.276 | **3.634** |

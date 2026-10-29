@@ -152,6 +152,56 @@ class WordPieceTokenizer(BpeTokenizer):
         return super().train(corpus=corpus, vocab_size=vocab_size, scorer="wordpiece", **kwargs)
 
 
+class WpBpeBaseTokenizer(BpeTokenizer):
+    """
+    wp-bpe-base: BPE merge rules learned using uncalibrated Pointwise Mutual Information (PMI).
+    Picks pairs by raw PMI = freq(uv) / (freq(u) * freq(v)) without frequency thresholding.
+    """
+
+    @classmethod
+    def train(cls, corpus: List[str], vocab_size: int = 300, **kwargs: Any) -> WpBpeBaseTokenizer:
+        return super().train(corpus=corpus, vocab_size=vocab_size, scorer="wp-bpe-base", **kwargs)
+
+
+class WpBpeFtTokenizer(BpeTokenizer):
+    """
+    wp-bpe-ft: BPE merge rules learned using Frequency-Thresholded PMI.
+    Filters out noise/singletons before computing PMI, balancing cohesion with statistical significance.
+    """
+
+    @classmethod
+    def train(
+        cls, corpus: List[str], vocab_size: int = 300, min_frequency: int = 2, alpha: float = 1.0, **kwargs: Any
+    ) -> WpBpeFtTokenizer:
+        return super().train(
+            corpus=corpus,
+            vocab_size=vocab_size,
+            scorer="wp-bpe-ft",
+            min_frequency=min_frequency,
+            alpha=alpha,
+            **kwargs,
+        )
+
+
+class WpBpePigTokenizer(BpeTokenizer):
+    """
+    wp-bpe-pig: BPE merge rules learned using Pointwise Information Gain (PIG).
+    Score = freq(uv) * PMI(u, v), directly measuring total corpus information gain of the merge.
+    """
+
+    @classmethod
+    def train(
+        cls, corpus: List[str], vocab_size: int = 300, min_frequency: int = 1, **kwargs: Any
+    ) -> WpBpePigTokenizer:
+        return super().train(
+            corpus=corpus,
+            vocab_size=vocab_size,
+            scorer="wp-bpe-pig",
+            min_frequency=min_frequency,
+            **kwargs,
+        )
+
+
 class MdlTokenizer(BpeTokenizer):
     """BPE Tokenizer configured with Minimum Description Length (MDL / Delta-Bits) scoring."""
 

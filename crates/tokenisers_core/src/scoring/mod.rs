@@ -2,6 +2,7 @@ pub mod frequency;
 pub mod pmi;
 pub mod mdl;
 pub mod length_penalized;
+pub mod wp_bpe;
 
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -11,6 +12,7 @@ pub use frequency::BpeScorer;
 pub use pmi::WordPieceScorer;
 pub use mdl::MdlScorer;
 pub use length_penalized::LengthPenalizedScorer;
+pub use wp_bpe::{WpBpeBaseScorer, WpBpeFtScorer, WpBpePigScorer};
 
 /// Snapshot of active corpus and pair statistics supplied to `PairScorer::score`.
 #[derive(Clone, Copy, Debug)]

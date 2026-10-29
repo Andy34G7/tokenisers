@@ -15,7 +15,8 @@ use tokenisers_core::inference::bpe_dropout::BpeDropoutEncoder;
 use tokenisers_core::inference::byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 use tokenisers_core::scoring::{
-    BpeScorer, LengthPenalizedScorer, MdlScorer, WordPieceScorer,
+    BpeScorer, LengthPenalizedScorer, MdlScorer, WordPieceScorer, WpBpeBaseScorer, WpBpeFtScorer,
+    WpBpePigScorer,
 };
 use tokenisers_core::vocab::{TokenId, Vocabulary, BASE_VOCAB_SIZE};
 
@@ -445,7 +446,10 @@ pub fn train_bpe(
     }
     let scorer_norm = scorer_type.to_lowercase();
     match scorer_norm.as_str() {
-        "frequency" | "bpe" | "wordpiece" | "pmi" | "mdl" | "length_penalized" => {}
+        "frequency" | "bpe" | "wordpiece" | "pmi" | "mdl" | "length_penalized"
+        | "wp-bpe-base" | "wp_bpe_base"
+        | "wp-bpe-ft" | "wp_bpe_ft"
+        | "wp-bpe-pig" | "wp_bpe_pig" => {}
         unknown => {
             return Err(PyValueError::new_err(format!(
                 "Unknown scorer type: {unknown}"
@@ -483,6 +487,27 @@ pub fn train_bpe(
             }
             "length_penalized" => {
                 let scorer = LengthPenalizedScorer::new(beta, min_freq);
+                BottomUpTrainer::new(&scorer, vocab_size)
+                    .with_min_frequency(min_freq)
+                    .train(&word_counts)
+                    .map_err(|e| e.to_string())?
+            }
+            "wp-bpe-base" | "wp_bpe_base" => {
+                let scorer = WpBpeBaseScorer::new();
+                BottomUpTrainer::new(&scorer, vocab_size)
+                    .with_min_frequency(1)
+                    .train(&word_counts)
+                    .map_err(|e| e.to_string())?
+            }
+            "wp-bpe-ft" | "wp_bpe_ft" => {
+                let scorer = WpBpeFtScorer::new(min_freq.max(2), alpha);
+                BottomUpTrainer::new(&scorer, vocab_size)
+                    .with_min_frequency(min_freq.max(2))
+                    .train(&word_counts)
+                    .map_err(|e| e.to_string())?
+            }
+            "wp-bpe-pig" | "wp_bpe_pig" => {
+                let scorer = WpBpePigScorer::new(min_freq);
                 BottomUpTrainer::new(&scorer, vocab_size)
                     .with_min_frequency(min_freq)
                     .train(&word_counts)

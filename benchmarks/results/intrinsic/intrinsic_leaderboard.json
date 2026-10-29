@@ -15,7 +15,7 @@
     "identifier_f1": 0.4186813186813187,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 58.827872120820146
+    "decode_mb_per_sec": 56.048730806500956
   },
   "wordpiece_pmi": {
     "vocab_size": 400,
@@ -32,8 +32,62 @@
     "morph_f1": 0.3286052162410858,
     "identifier_f1": 0.3396491228070176,
     "number_fertility": 10.0,
-    "encode_mb_per_sec": 0.3762788379385889,
-    "decode_mb_per_sec": 60.396507524617185
+    "encode_mb_per_sec": 0.3739664416838665,
+    "decode_mb_per_sec": 64.62165508557767
+  },
+  "wp_bpe_base": {
+    "vocab_size": 400,
+    "bytes_per_token": 1.0700477598362519,
+    "fertility": 7.241379310344827,
+    "renyi_e_1_0": 0.6354814077548526,
+    "renyi_e_2_0": 0.5396779768170035,
+    "renyi_e_2_5": 0.5132450460420271,
+    "active_fraction": 0.3675,
+    "dead_tokens": 253,
+    "gini_coefficient": 0.909387650670912,
+    "morph_precision": 0.19759071457342872,
+    "morph_recall": 1.0,
+    "morph_f1": 0.3286052162410858,
+    "identifier_f1": 0.3396491228070176,
+    "number_fertility": 10.0,
+    "encode_mb_per_sec": 0.36264289519827475,
+    "decode_mb_per_sec": 64.60538043494202
+  },
+  "wp_bpe_ft": {
+    "vocab_size": 400,
+    "bytes_per_token": 1.071509906627192,
+    "fertility": 7.2298850574712645,
+    "renyi_e_1_0": 0.6350481966659399,
+    "renyi_e_2_0": 0.5392720998599496,
+    "renyi_e_2_5": 0.5128776039931316,
+    "active_fraction": 0.3675,
+    "dead_tokens": 253,
+    "gini_coefficient": 0.9096088590298338,
+    "morph_precision": 0.19759071457342872,
+    "morph_recall": 1.0,
+    "morph_f1": 0.3286052162410858,
+    "identifier_f1": 0.3396491228070176,
+    "number_fertility": 10.0,
+    "encode_mb_per_sec": 0.38112948848849615,
+    "decode_mb_per_sec": 61.78323013649553
+  },
+  "wp_bpe_pig": {
+    "vocab_size": 400,
+    "bytes_per_token": 1.6003401360544218,
+    "fertility": 4.556513409961686,
+    "renyi_e_1_0": 0.7565394737829707,
+    "renyi_e_2_0": 0.570080029894698,
+    "renyi_e_2_5": 0.5066748531048535,
+    "active_fraction": 0.5875,
+    "dead_tokens": 165,
+    "gini_coefficient": 0.7790527210884354,
+    "morph_precision": 0.2904670503354714,
+    "morph_recall": 0.8958333333333334,
+    "morph_f1": 0.42837144632357393,
+    "identifier_f1": 0.40095238095238095,
+    "number_fertility": 10.0,
+    "encode_mb_per_sec": 0.1,
+    "decode_mb_per_sec": 61.509660016800375
   },
   "mdl_bits": {
     "vocab_size": 400,
@@ -51,7 +105,7 @@
     "identifier_f1": 0.39849624060150374,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 60.34898841272041
+    "decode_mb_per_sec": 58.7827995994303
   },
   "length_penalized": {
     "vocab_size": 400,
@@ -69,7 +123,7 @@
     "identifier_f1": 0.44249084249084253,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 49.28860170970118
+    "decode_mb_per_sec": 50.176262278948016
   },
   "super_bpe": {
     "vocab_size": 400,
@@ -87,7 +141,7 @@
     "identifier_f1": 0.3969747899159664,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 54.41142512084541
+    "decode_mb_per_sec": 61.338552650136755
   },
   "morpheme_bpe": {
     "vocab_size": 400,
@@ -105,24 +159,24 @@
     "identifier_f1": 0.47677655677655684,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 55.527841276827324
+    "decode_mb_per_sec": 55.3746713133852
   },
   "unigram_lm": {
     "vocab_size": 400,
-    "bytes_per_token": 1.8096153846153846,
-    "fertility": 3.8793103448275863,
-    "renyi_e_1_0": 0.7789167945181669,
-    "renyi_e_2_0": 0.540588092325802,
-    "renyi_e_2_5": 0.4705695245710668,
-    "active_fraction": 0.675,
-    "dead_tokens": 130,
-    "gini_coefficient": 0.7123711538461538,
+    "bytes_per_token": 1.8197640688454844,
+    "fertility": 3.8515325670498086,
+    "renyi_e_1_0": 0.7813114084879653,
+    "renyi_e_2_0": 0.5408129336092264,
+    "renyi_e_2_5": 0.4698080245598627,
+    "active_fraction": 0.6725,
+    "dead_tokens": 131,
+    "gini_coefficient": 0.7088653065171147,
     "morph_precision": 0.07223349567099567,
     "morph_recall": 0.1903198653198653,
     "morph_f1": 0.10230353490727408,
-    "identifier_f1": 0.42857142857142855,
+    "identifier_f1": 0.4428571428571429,
     "number_fertility": 10.0,
-    "encode_mb_per_sec": 23.431251397264454,
-    "decode_mb_per_sec": 77.22224504004528
+    "encode_mb_per_sec": 23.009623545019284,
+    "decode_mb_per_sec": 76.18514499413935
   }
 }
