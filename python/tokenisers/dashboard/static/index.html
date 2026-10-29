@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tokenisers Lab — Algorithmic Benchmark Intelligence</title>
+  <meta name="description" content="Artificial Analysis-inspired benchmark intelligence dashboard for subword tokenization algorithms, featuring extrinsic LM validation BPB, Tokka-Bench 11-language compression, intrinsic information metrics, and live tokenizer playground." />
+
+  <!-- daisyUI 5 + Tailwind CSS 4 -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+  <!-- Chart.js 4 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+  <!-- KaTeX for formula rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body);"></script>
+
+  <style>
+    /* Custom refined styling compatible with Tailwind CSS 4 & daisyUI 5 */
+    .token-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.15rem 0.45rem;
+      margin: 0.12rem;
+      border-radius: 0.375rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8125rem;
+      border-width: 1px;
+      cursor: pointer;
+      user-select: text;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+    .token-pill:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25);
+    }
+    .token-space {
+      opacity: 0.5;
+      font-weight: 600;
+    }
+    .heatmap-cell {
+      transition: background-color 0.2s ease;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .quadrant-box {
+      border: 1px dashed rgba(255, 255, 255, 0.15);
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(150, 150, 150, 0.3);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="bg-base-200 text-base-content min-h-screen flex flex-col font-sans antialiased">
+
+  <!-- Header / Navbar -->
+  <header class="border-b border-base-content/10 bg-base-100 sticky top-0 z-40 backdrop-blur-md bg-base-100/90 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <!-- Brand & Title -->
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-primary-content font-black text-xl shadow-md">
+            TL
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-extrabold text-lg sm:text-xl tracking-tight">Tokenisers Lab</span>
+              <span class="badge badge-primary badge-sm font-semibold">Intelligence</span>
+              <span class="badge badge-soft badge-info badge-sm hidden md:inline-flex">Pareto Frontier</span>
+            </div>
+            <p class="text-xs text-base-content/60 hidden sm:block">Artificial Analysis Architecture & Benchmark Intelligence Matrix</p>
+          </div>
+        </div>
+
+        <!-- Controls: Refresh, Theme, API Status -->
+        <div class="flex items-center space-x-2 sm:space-x-3">
+          <div class="hidden lg:flex items-center space-x-2 text-xs px-2.5 py-1 rounded-full bg-base-200 border border-base-content/10">
+            <span class="w-2 h-2 rounded-full bg-success animate-pulse"></span>
+            <span class="text-base-content/80 font-mono">14 Tokenizers • 11 Languages</span>
+          </div>
+
+          <button id="refresh-btn" class="btn btn-sm btn-ghost gap-1" title="Refresh Benchmark Data">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span class="hidden sm:inline">Refresh</span>
+          </button>
+
+          <!-- Theme Selector -->
+          <div class="dropdown dropdown-end">
+            <div tabindex="0" role="button" class="btn btn-sm btn-outline gap-1">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+              <span class="hidden sm:inline">Theme</span>
+            </div>
+            <ul tabindex="0" class="dropdown-content z-50 menu p-2 shadow-2xl bg-base-100 rounded-box w-36 border border-base-content/10">
+              <li><button onclick="setTheme('dark')" class="active:bg-primary">Dark</button></li>
+              <li><button onclick="setTheme('night')">Night</button></li>
+              <li><button onclick="setTheme('dim')">Dim</button></li>
+              <li><button onclick="setTheme('light')">Light</button></li>
+              <li><button onclick="setTheme('cupcake')">Cupcake</button></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="border-t border-base-content/10 py-1">
+        <div role="tablist" class="tabs tabs-box bg-base-200/50 p-1 rounded-xl flex overflow-x-auto custom-scroll text-sm">
+          <button role="tab" id="tab-nav-overview" class="tab tab-active font-medium" onclick="switchTab('overview')">
+            Overview & Quadrant
+          </button>
+          <button role="tab" id="tab-nav-extrinsic" class="tab font-medium" onclick="switchTab('extrinsic')">
+            Extrinsic LM & BPB Curves
+          </button>
+          <button role="tab" id="tab-nav-tokka" class="tab font-medium" onclick="switchTab('tokka')">
+            Tokka-Bench 11-Lang
+          </button>
+          <button role="tab" id="tab-nav-intrinsic" class="tab font-medium" onclick="switchTab('intrinsic')">
+            Intrinsic & Morphology
+          </button>
+          <button role="tab" id="tab-nav-wpbpe" class="tab font-medium" onclick="switchTab('wpbpe')">
+            WP-BPE Deep Dive & Radar
+          </button>
+          <button role="tab" id="tab-nav-playground" class="tab font-medium" onclick="switchTab('playground')">
+            <span class="flex items-center gap-1.5">
+              <span>Interactive Playground</span>
+              <span class="badge badge-accent badge-xs">Live</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+
+    <!-- KPI Summary Strip (stats component) -->
+    <section>
+      <div class="stats stats-vertical lg:stats-horizontal shadow-md w-full bg-base-100 border border-base-content/10 rounded-2xl overflow-hidden divide-y lg:divide-y-0 lg:divide-x divide-base-content/10">
+        <!-- KPI 1 -->
+        <div class="stat px-4 py-3">
+          <div class="stat-figure text-primary">
+            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
+          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Downstream LM Quality</div>
+          <div id="kpi-bpb-val" class="stat-value text-xl sm:text-2xl text-primary font-mono font-bold">--</div>
+          <div id="kpi-bpb-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Macro Val BPB (Lowest)</div>
+        </div>
+
+        <!-- KPI 2 -->
+        <div class="stat px-4 py-3">
+          <div class="stat-figure text-secondary">
+            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          </div>
+          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Info Efficiency</div>
+          <div id="kpi-renyi-val" class="stat-value text-xl sm:text-2xl text-secondary font-mono font-bold">--</div>
+          <div id="kpi-renyi-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Highest Rényi E_2.0</div>
+        </div>
+
+        <!-- KPI 3 -->
+        <div class="stat px-4 py-3">
+          <div class="stat-figure text-accent">
+            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
+          </div>
+          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Morphology F1</div>
+          <div id="kpi-morph-val" class="stat-value text-xl sm:text-2xl text-accent font-mono font-bold">--</div>
+          <div id="kpi-morph-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Sigmorphon Boundary F1</div>
+        </div>
+
+        <!-- KPI 4 -->
+        <div class="stat px-4 py-3">
+          <div class="stat-figure text-info">
+            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          </div>
+          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Raw Compression</div>
+          <div id="kpi-bpt-val" class="stat-value text-xl sm:text-2xl text-info font-mono font-bold">--</div>
+          <div id="kpi-bpt-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Bytes / Token (Higher = Better)</div>
+        </div>
+
+        <!-- KPI 5 -->
+        <div class="stat px-4 py-3">
+          <div class="stat-figure text-success">
+            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Decode Throughput</div>
+          <div id="kpi-speed-val" class="stat-value text-xl sm:text-2xl text-success font-mono font-bold">--</div>
+          <div id="kpi-speed-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Decode MB/s</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 1: Overview & Quadrant -->
+    <div id="tab-overview" class="space-y-6">
+      <!-- Quadrant Analysis Card -->
+      <div class="card bg-base-100 shadow-md border border-base-content/10">
+        <div class="card-body p-5 sm:p-6 space-y-4">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-base-content/10">
+            <div>
+              <h2 class="card-title text-lg font-bold flex items-center gap-2">
+                <span>Artificial Analysis Pareto Frontier Quadrant</span>
+                <span class="badge badge-primary badge-sm font-semibold">Executive View</span>
+              </h2>
+              <p class="text-xs text-base-content/70">
+                Explore the trade-off space between Token Compression and Downstream LM bits-per-byte (BPB). Points in the top-right represent the optimal Pareto frontier.
+              </p>
+            </div>
+
+            <!-- Axis Selectors -->
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="font-semibold text-base-content/70">X-Axis:</span>
+                <select id="quadrant-x-select" class="select select-sm select-bordered text-xs rounded-lg">
+                  <option value="bytes_per_token" selected>Bytes / Token (Compression)</option>
+                  <option value="renyi_e_2_0">Rényi E_2.0 (Entropy)</option>
+                  <option value="morph_f1">Morphological F1</option>
+                  <option value="decode_mb_per_sec">Decode Speed (MB/s)</option>
+                </select>
+              </div>
+
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="font-semibold text-base-content/70">Y-Axis:</span>
+                <select id="quadrant-y-select" class="select select-sm select-bordered text-xs rounded-lg">
+                  <option value="macro_val_bpb" selected>Macro Val BPB (Inverted: Higher = Better)</option>
+                  <option value="english_bpb">English Val BPB (Inverted)</option>
+                  <option value="multilingual_bpb">Multilingual Val BPB (Inverted)</option>
+                  <option value="code_bpb">Code Val BPB (Inverted)</option>
+                  <option value="renyi_e_2_0">Rényi E_2.0</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Scatter Canvas & Quadrant Info -->
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 items-center">
+            <div class="lg:col-span-3 relative h-80 sm:h-96 w-full bg-base-200/40 rounded-xl p-2 border border-base-content/5">
+              <canvas id="quadrant-chart"></canvas>
+            </div>
+
+            <!-- Quadrant Guide Cards -->
+            <div class="space-y-3 text-xs">
+              <div class="quadrant-box bg-success/10 border-success/30">
+                <div class="font-bold text-success flex items-center gap-1">
+                  <span>★ Top-Right: Optimal Frontier</span>
+                </div>
+                <p class="text-base-content/80 mt-1">
+                  Dominant sweet spot: Maximum bytes per token combined with superior downstream language model perplexity.
+                </p>
+              </div>
+
+              <div class="quadrant-box bg-info/10 border-info/30">
+                <div class="font-bold text-info flex items-center gap-1">
+                  <span>▲ Top-Left: High LM Quality</span>
+                </div>
+                <p class="text-base-content/80 mt-1">
+                  High model validation accuracy, but conservative subword lengths (lower compression ratio).
+                </p>
+              </div>
+
+              <div class="quadrant-box bg-warning/10 border-warning/30">
+                <div class="font-bold text-warning flex items-center gap-1">
+                  <span>► Bottom-Right: High Compression</span>
+                </div>
+                <p class="text-base-content/80 mt-1">
+                  Aggressive token merging yields long subwords but sacrifices linguistic boundaries or LM training loss.
+                </p>
+              </div>
+
+              <div class="quadrant-box bg-base-300/60 border-base-content/10">
+                <div class="font-bold text-base-content/70">
+                  <span>▼ Bottom-Left: Sub-Optimal</span>
+                </div>
+                <p class="text-base-content/60 mt-1">
+                  Poor downstream BPB and low compression; typically affected by noise or lack of calibration.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Unified Leaderboard Table -->
+      <div class="card bg-base-100 shadow-md border border-base-content/10">
+        <div class="card-body p-5 sm:p-6 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="card-title text-base font-bold flex items-center gap-2">
+                <span>Executive Algorithmic Leaderboard</span>
+                <span class="badge badge-neutral badge-sm" id="leaderboard-count-badge">14 Models</span>
+              </h3>
+              <p class="text-xs text-base-content/70">
+                Unified ranking combining extrinsic downstream validation BPB, Tokka compression, and Sigmorphon morphology.
+              </p>
+            </div>
+
+            <!-- Family Filter Pills -->
+            <div class="flex flex-wrap items-center gap-1.5" id="family-filter-container">
+              <button class="btn btn-xs btn-primary family-filter-btn" data-family="ALL">All Families</button>
+              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Information-Theoretic">Info-Theoretic</button>
+              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Frequency BPE">Frequency BPE</button>
+              <button class="btn btn-xs btn-outline family-filter-btn" data-family="EM / Probabilistic">EM / Unigram</button>
+              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Structural / Multi-Stage">Structural</button>
+              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Morphology / Guided">Morphology</button>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
+            <table class="table table-zebra table-sm w-full text-xs" id="leaderboard-table">
+              <thead class="bg-base-200/80 uppercase font-semibold text-base-content/70">
+                <tr>
+                  <th class="w-12 text-center">Rank</th>
+                  <th>Tokenizer Architecture</th>
+                  <th>Family</th>
+                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('macro_val_bpb')">Macro Val BPB ▾</th>
+                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('bytes_per_token')">Bytes / Token ▾</th>
+                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('renyi_e_2_0')">Rényi E_2.0 ▾</th>
+                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('morph_f1')">Morph F1 ▾</th>
+                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('decode_mb_per_sec')">Decode MB/s ▾</th>
+                  <th class="text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboard-tbody" class="divide-y divide-base-content/5">
+                <!-- Injected via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: Extrinsic LM & BPB Curves -->
+    <div id="tab-extrinsic" class="space-y-6 hidden">
+      <!-- Domain BPB Breakdown Card -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Chart 1: Grouped Bar by Domain -->
+        <div class="card bg-base-100 shadow-md border border-base-content/10">
+          <div class="card-body p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="card-title text-base font-bold">Downstream Proxy-LM Validation BPB by Domain</h3>
+                <p class="text-xs text-base-content/70">Trained on byte-matched budget across English, Code, and Multilingual corpora. Lower BPB is superior.</p>
+              </div>
+              <span class="badge badge-primary badge-sm">176 Steps</span>
+            </div>
+            <div class="relative h-80 w-full">
+              <canvas id="extrinsic-bar-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chart 2: Convergence Curves -->
+        <div class="card bg-base-100 shadow-md border border-base-content/10">
+          <div class="card-body p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="card-title text-base font-bold">Training Loss / BPB Convergence Curves</h3>
+                <p class="text-xs text-base-content/70">Trajectory of training BPB as bytes are ingested from step 1 to 176.</p>
+              </div>
+              <span class="badge badge-accent badge-sm">Step-by-Step</span>
+            </div>
+            <div class="relative h-80 w-full">
+              <canvas id="extrinsic-curve-chart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Extrinsic Domain Table -->
+      <div class="card bg-base-100 shadow-md border border-base-content/10">
+        <div class="card-body p-5 space-y-3">
+          <h3 class="card-title text-base font-bold">Proxy-LM Domain Bits-Per-Byte Leaderboard</h3>
+          <p class="text-xs text-base-content/70">
+            Detailed validation loss in nats and converted Bits-Per-Byte across domains. Delta shows reduction relative to Frequency BPE baseline.
+          </p>
+          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
+            <table class="table table-zebra table-sm w-full text-xs" id="extrinsic-table">
+              <thead class="bg-base-200/80 uppercase font-semibold">
+                <tr>
+                  <th>Architecture</th>
+                  <th>Family</th>
+                  <th>English BPB</th>
+                  <th>Multilingual BPB</th>
+                  <th>Code BPB</th>
+                  <th class="font-bold text-primary">Macro Val BPB</th>
+                  <th>Delta vs BPE</th>
+                </tr>
+              </thead>
+              <tbody id="extrinsic-tbody">
+                <!-- Injected via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Tokka-Bench 11-Language Matrix -->
+    <div id="tab-tokka" class="space-y-6 hidden">
+      <div class="card bg-base-100 shadow-md border border-base-content/10">
+        <div class="card-body p-5 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="card-title text-base font-bold flex items-center gap-2">
+                <span>Tokka-Bench 11-Script Compression Matrix</span>
+                <span class="badge badge-secondary badge-sm">11 Languages</span>
+              </h3>
+              <p class="text-xs text-base-content/70">
+                Evaluation across European (EN, DE, FR), Slavic (RU), CJK (ZH, JA), Semitic (AR), Indic (HI), Uralic (HU, FI), and Source Code.
+              </p>
+            </div>
+
+            <!-- Metric Switcher -->
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold text-base-content/70">Metric:</span>
+              <div class="join">
+                <button class="btn btn-xs join-item btn-primary tokka-metric-btn" data-metric="bytes_per_token">Bytes / Token</button>
+                <button class="btn btn-xs join-item btn-outline tokka-metric-btn" data-metric="subword_fertility">Fertility</button>
+                <button class="btn btn-xs join-item btn-outline tokka-metric-btn" data-metric="continued_word_rate">Continued %</button>
+                <button class="btn btn-xs join-item btn-outline tokka-metric-btn" data-metric="unique_tokens">Unique Tokens</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Heatmap Table -->
+          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
+            <table class="table table-zebra table-xs w-full" id="tokka-heatmap-table">
+              <thead class="bg-base-200/80 font-bold uppercase text-center">
+                <tr>
+                  <th class="text-left">Architecture</th>
+                  <th>EN</th>
+                  <th>DE</th>
+                  <th>FR</th>
+                  <th>RU</th>
+                  <th>ZH</th>
+                  <th>JA</th>
+                  <th>AR</th>
+                  <th>HI</th>
+                  <th>HU</th>
+                  <th>FI</th>
+                  <th>Code</th>
+                  <th class="bg-primary/20 text-primary">Macro Avg</th>
+                </tr>
+              </thead>
+              <tbody id="tokka-heatmap-tbody">
+                <!-- Injected via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Grouped Chart for Tokka -->
+          <div class="pt-4 border-t border-base-content/10">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-base-content/70 mb-2">Multi-Language Performance Comparison</h4>
+            <div class="relative h-80 w-full">
+              <canvas id="tokka-bar-chart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Intrinsic & Morphology Leaderboard -->
+    <div id="tab-intrinsic" class="space-y-6 hidden">
+      <div class="card bg-base-100 shadow-md border border-base-content/10">
+        <div class="card-body p-5 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="card-title text-base font-bold">Intrinsic Structural & Information-Theoretic Metrics</h3>
+              <p class="text-xs text-base-content/70">
+                Detailed decomposition of Rényi entropy (orders 1.0, 2.0, 2.5), Gini vocabulary inequality, active token fraction, and Sigmorphon morphology alignment.
+              </p>
+            </div>
+            <input type="text" id="intrinsic-search" placeholder="Filter architecture..." class="input input-xs input-bordered w-48 rounded-lg" />
+          </div>
+
+          <!-- Full Intrinsic Table -->
+          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
+            <table class="table table-zebra table-xs w-full text-xs" id="intrinsic-full-table">
+              <thead class="bg-base-200/80 uppercase font-semibold">
+                <tr>
+                  <th>Architecture</th>
+                  <th>Vocab Size</th>
+                  <th>Bytes / Tok</th>
+                  <th>Fertility</th>
+                  <th>Rényi E_1.0</th>
+                  <th class="text-primary font-bold">Rényi E_2.0</th>
+                  <th>Rényi E_2.5</th>
+                  <th>Gini Coeff</th>
+                  <th>Active Frac</th>
+                  <th>Morph Prec</th>
+                  <th>Morph Rec</th>
+                  <th class="text-accent font-bold">Morph F1</th>
+                  <th>Ident F1</th>
+                  <th>Encode MB/s</th>
+                  <th>Decode MB/s</th>
+                </tr>
+              </thead>
+              <tbody id="intrinsic-tbody">
+                <!-- Injected via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: WP-BPE Deep Dive & Radar -->
+    <div id="tab-wpbpe" class="space-y-6 hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <!-- Multi-Axis Radar Chart -->
+        <div class="card bg-base-100 shadow-md border border-base-content/10">
+          <div class="card-body p-5 space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="card-title text-base font-bold">6-Axis Normalized Radar Comparison</h3>
+                <p class="text-xs text-base-content/70">Normalized across [0, 1] for balanced multi-objective comparison.</p>
+              </div>
+            </div>
+
+            <!-- Model Selection Pills for Radar -->
+            <div class="flex flex-wrap gap-1.5" id="radar-toggles">
+              <!-- Dynamically populated checkboxes -->
+            </div>
+
+            <div class="relative h-80 sm:h-96 w-full">
+              <canvas id="radar-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- WP-BPE Evolution & Theoretical Deep Dive -->
+        <div class="card bg-base-100 shadow-md border border-base-content/10">
+          <div class="card-body p-5 space-y-4">
+            <div>
+              <h3 class="card-title text-base font-bold flex items-center gap-2">
+                <span>The WP-BPE Algorithmic Family Evolution</span>
+                <span class="badge badge-accent badge-sm">Information Theory</span>
+              </h3>
+              <p class="text-xs text-base-content/70">
+                Mathematical evolution from uncalibrated Pointwise Mutual Information to calibrated, bounded, and length-penalized information gain objectives.
+              </p>
+            </div>
+
+            <div class="space-y-4 text-xs">
+              <!-- Gen 1: Base -->
+              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-sm text-base-content">1. WP-BPE Base (Uncalibrated PMI)</span>
+                  <span class="badge badge-error badge-xs">Vulnerable</span>
+                </div>
+                <div class="font-mono bg-base-300 p-2 rounded text-xs overflow-x-auto">
+                  $$\mathrm{score}(u, v) = \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$
+                </div>
+                <p class="text-base-content/80">
+                  <strong>Theoretical Flaw:</strong> If $u$ and $v$ appear together exactly once in the entire corpus, their joint probability is $1/N$ and denominator is $(1/N)^2$, yielding score $N$. This catastrophic singleton bias merges rare noise before frequent morphemes.
+                </p>
+              </div>
+
+              <!-- Gen 1: FT -->
+              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-sm text-base-content">2. WP-BPE FT (Frequency-Thresholded PMI)</span>
+                  <span class="badge badge-success badge-xs">Calibrated</span>
+                </div>
+                <div class="font-mono bg-base-300 p-2 rounded text-xs overflow-x-auto">
+                  $$\mathrm{score}(u, v) = \begin{cases} \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u)^\alpha \cdot \mathrm{freq}(v)^\alpha} & \text{if } \mathrm{freq}(uv) \ge \theta \\ -\infty & \text{otherwise} \end{cases}$$
+                </div>
+                <p class="text-base-content/80">
+                  <strong>The Fix:</strong> Imposes hard frequency cutoffs ($\theta \ge 2$) and alpha-smoothing ($0.75 \le \alpha \le 1.0$) to suppress low-support singletons. Achieves high morphological boundary precision.
+                </p>
+              </div>
+
+              <!-- Gen 1: PIG -->
+              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-sm text-base-content">3. WP-BPE PIG (Pointwise Information Gain)</span>
+                  <span class="badge badge-primary badge-xs">Optimal LM Quality</span>
+                </div>
+                <div class="font-mono bg-base-300 p-2 rounded text-xs overflow-x-auto">
+                  $$\mathrm{score}(u, v) = \mathrm{freq}(uv) \cdot \log_2 \frac{\mathrm{freq}(uv) \cdot N}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$
+                </div>
+                <p class="text-base-content/80">
+                  <strong>Information Theoretic Grounding:</strong> Weights PMI by candidate frequency, measuring net bits saved across the entire corpus. Dominates downstream proxy-LM bits-per-byte benchmarks.
+                </p>
+              </div>
+
+              <!-- Gen 2: SCP, NPMI, PPIG -->
+              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-sm text-accent">4. Next-Gen Objectives: SCP, NPMI, and Penalized PIG</span>
+                  <span class="badge badge-accent badge-xs">Gen 2</span>
+                </div>
+                <div class="grid grid-cols-1 gap-2 text-xs">
+                  <div class="p-2 rounded bg-base-300">
+                    <span class="font-bold">Symmetric Conditional Probability (SCP):</span>
+                    <div class="font-mono mt-0.5">$$\mathrm{SCP}(u, v) = \frac{P(uv)^2}{P(u)P(v)} = P(u \mid v) \cdot P(v \mid u)$$</div>
+                    <span class="text-base-content/70">Eliminates directional affix bias in agglutinative words.</span>
+                  </div>
+
+                  <div class="p-2 rounded bg-base-300">
+                    <span class="font-bold">Normalized PMI (NPMI):</span>
+                    <div class="font-mono mt-0.5">$$\mathrm{NPMI}(u, v) = \frac{\log \frac{P(uv)}{P(u)P(v)}}{-\log P(uv)} \in [-1, 1]$$</div>
+                    <span class="text-base-content/70">Self-normalizing in range [-1, +1] eliminating manual frequency tuning.</span>
+                  </div>
+
+                  <div class="p-2 rounded bg-base-300">
+                    <span class="font-bold">Penalized PIG (PPIG):</span>
+                    <div class="font-mono mt-0.5">$$\mathrm{score}(u,v) = \mathrm{freq}(uv) \cdot \mathrm{PMI}(u,v) \cdot (|u|+|v|)^{-\beta} \cdot \mathcal{H}(u,v)$$</div>
+                    <span class="text-base-content/70">Combines information gain with length penalty and Markov transition entropy.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 6: Live Interactive Tokenizer Playground -->
+    <div id="tab-playground" class="space-y-6 hidden">
+      <div class="card bg-base-100 shadow-md border border-base-content/10">
+        <div class="card-body p-5 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="card-title text-base font-bold flex items-center gap-2">
+                <span>Interactive Live Tokenizer Playground</span>
+                <span class="badge badge-accent badge-sm animate-pulse">Live Inference</span>
+              </h3>
+              <p class="text-xs text-base-content/70">
+                Observe side-by-side subword boundaries across all tokenization algorithms in real time. Hover any token pill to inspect its Token ID and byte length.
+              </p>
+            </div>
+
+            <!-- Presets -->
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-xs font-semibold text-base-content/60">Presets:</span>
+              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('morphology')">English Morphology</button>
+              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('code')">Rust / Python Code</button>
+              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('multilingual')">Multilingual UTF-8</button>
+              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('agglutinative')">Agglutinative</button>
+            </div>
+          </div>
+
+          <!-- Input Form -->
+          <div class="space-y-3">
+            <textarea id="playground-input" rows="3" class="textarea textarea-bordered w-full font-mono text-xs sm:text-sm focus:textarea-primary" placeholder="Type or paste any text to inspect live tokenization..."></textarea>
+
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <label class="text-xs font-semibold text-base-content/80 flex items-center gap-1.5">
+                  <span>Vocab Size:</span>
+                  <input type="number" id="playground-vocab-input" class="input input-xs input-bordered w-20 text-center font-mono" min="260" max="1000" value="400" />
+                </label>
+                <input type="range" id="playground-vocab-slider" min="260" max="600" value="400" class="range range-xs range-primary w-32 hidden sm:inline-block" />
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button id="playground-tokenize-btn" class="btn btn-sm btn-primary gap-1.5" onclick="runLiveTokenize()">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                  <span>Tokenize</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tokenizer Output Container -->
+          <div id="playground-loading" class="hidden py-8 text-center text-xs text-base-content/60 space-y-2">
+            <span class="loading loading-spinner loading-md text-primary"></span>
+            <div>Tokenizing across 10+ algorithms...</div>
+          </div>
+
+          <div id="playground-results-container" class="space-y-4 pt-2">
+            <!-- Dynamically populated comparison cards -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-base-content/10 bg-base-100 py-6 mt-12 text-xs text-base-content/60">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-2">
+        <span class="font-bold text-base-content">Tokenisers Lab</span>
+        <span>•</span>
+        <span>Executive Benchmark Intelligence Engine</span>
+      </div>
+      <div>
+        <span>Inspired by Artificial Analysis architecture matrices</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

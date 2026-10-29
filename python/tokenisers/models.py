@@ -69,6 +69,12 @@ class BpeTokenizer:
         if "entry_cost" in kwargs:
             penalty = float(kwargs["entry_cost"])
 
+        if "discount" in kwargs:
+            alpha = float(kwargs["discount"])
+
+        if "length_penalty" in kwargs:
+            penalty = float(kwargs["length_penalty"])
+
         if "beta" in kwargs:
             b_val = kwargs["beta"]
             if not isinstance(b_val, (int, float)) or (isinstance(b_val, float) and math.isnan(b_val)):
@@ -198,6 +204,81 @@ class WpBpePigTokenizer(BpeTokenizer):
             vocab_size=vocab_size,
             scorer="wp-bpe-pig",
             min_frequency=min_frequency,
+            **kwargs,
+        )
+
+
+class WpBpeScpTokenizer(BpeTokenizer):
+    """
+    wp-bpe-scp: BPE merge rules learned using Symmetric Conditional Probability /
+    Geometric-Mean Calibrated PMI with discounting.
+    """
+
+    @classmethod
+    def train(
+        cls,
+        corpus: List[str],
+        vocab_size: int = 300,
+        min_frequency: int = 2,
+        discount: float = 0.75,
+        **kwargs: Any,
+    ) -> WpBpeScpTokenizer:
+        return super().train(
+            corpus=corpus,
+            vocab_size=vocab_size,
+            scorer="wp-bpe-scp",
+            min_frequency=min_frequency,
+            alpha=discount,
+            **kwargs,
+        )
+
+
+class WpBpeNpmiTokenizer(BpeTokenizer):
+    """
+    wp-bpe-npmi: BPE merge rules learned using Normalized Pointwise Mutual Information (Bouma 2009)
+    weighted by sub-linear frequency support.
+    """
+
+    @classmethod
+    def train(
+        cls,
+        corpus: List[str],
+        vocab_size: int = 300,
+        min_frequency: int = 2,
+        alpha: float = 0.5,
+        **kwargs: Any,
+    ) -> WpBpeNpmiTokenizer:
+        return super().train(
+            corpus=corpus,
+            vocab_size=vocab_size,
+            scorer="wp-bpe-npmi",
+            min_frequency=min_frequency,
+            alpha=alpha,
+            **kwargs,
+        )
+
+
+class WpBpePpigTokenizer(BpeTokenizer):
+    """
+    wp-bpe-ppig: BPE merge rules learned using Positive Length-Regularized Pointwise Information Gain (PIG).
+    Score = freq(uv) * PositivePMI(u, v) / (len_u + len_v)^length_penalty.
+    """
+
+    @classmethod
+    def train(
+        cls,
+        corpus: List[str],
+        vocab_size: int = 300,
+        min_frequency: int = 2,
+        length_penalty: float = 0.35,
+        **kwargs: Any,
+    ) -> WpBpePpigTokenizer:
+        return super().train(
+            corpus=corpus,
+            vocab_size=vocab_size,
+            scorer="wp-bpe-ppig",
+            min_frequency=min_frequency,
+            penalty=length_penalty,
             **kwargs,
         )
 

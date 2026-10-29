@@ -12,7 +12,10 @@ pub use frequency::BpeScorer;
 pub use pmi::WordPieceScorer;
 pub use mdl::MdlScorer;
 pub use length_penalized::LengthPenalizedScorer;
-pub use wp_bpe::{WpBpeBaseScorer, WpBpeFtScorer, WpBpePigScorer};
+pub use wp_bpe::{
+    WpBpeBaseScorer, WpBpeFtScorer, WpBpeNpmiScorer, WpBpePigScorer, WpBpePpigScorer,
+    WpBpeScpScorer,
+};
 
 /// Snapshot of active corpus and pair statistics supplied to `PairScorer::score`.
 #[derive(Clone, Copy, Debug)]

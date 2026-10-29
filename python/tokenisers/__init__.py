@@ -16,6 +16,9 @@ from tokenisers.models import (
     WpBpeBaseTokenizer,
     WpBpeFtTokenizer,
     WpBpePigTokenizer,
+    WpBpeScpTokenizer,
+    WpBpeNpmiTokenizer,
+    WpBpePpigTokenizer,
 )
 from tokenisers.wrapper import DynamicResearchTokenizer
 
@@ -31,6 +34,9 @@ __all__ = [
     "WpBpeBaseTokenizer",
     "WpBpeFtTokenizer",
     "WpBpePigTokenizer",
+    "WpBpeScpTokenizer",
+    "WpBpeNpmiTokenizer",
+    "WpBpePpigTokenizer",
     "MdlTokenizer",
     "LengthPenalizedTokenizer",
     "SuperBpeTokenizer",

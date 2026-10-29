@@ -15,7 +15,7 @@
     "identifier_f1": 0.4186813186813187,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 56.048730806500956
+    "decode_mb_per_sec": 60.284122456585585
   },
   "wordpiece_pmi": {
     "vocab_size": 400,
@@ -32,8 +32,8 @@
     "morph_f1": 0.3286052162410858,
     "identifier_f1": 0.3396491228070176,
     "number_fertility": 10.0,
-    "encode_mb_per_sec": 0.3739664416838665,
-    "decode_mb_per_sec": 64.62165508557767
+    "encode_mb_per_sec": 0.3730615612251683,
+    "decode_mb_per_sec": 65.10926651135588
   },
   "wp_bpe_base": {
     "vocab_size": 400,
@@ -50,8 +50,8 @@
     "morph_f1": 0.3286052162410858,
     "identifier_f1": 0.3396491228070176,
     "number_fertility": 10.0,
-    "encode_mb_per_sec": 0.36264289519827475,
-    "decode_mb_per_sec": 64.60538043494202
+    "encode_mb_per_sec": 0.38033791207371803,
+    "decode_mb_per_sec": 60.701267046573875
   },
   "wp_bpe_ft": {
     "vocab_size": 400,
@@ -68,8 +68,8 @@
     "morph_f1": 0.3286052162410858,
     "identifier_f1": 0.3396491228070176,
     "number_fertility": 10.0,
-    "encode_mb_per_sec": 0.38112948848849615,
-    "decode_mb_per_sec": 61.78323013649553
+    "encode_mb_per_sec": 0.37658853089925987,
+    "decode_mb_per_sec": 65.83819605174007
   },
   "wp_bpe_pig": {
     "vocab_size": 400,
@@ -87,7 +87,61 @@
     "identifier_f1": 0.40095238095238095,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 61.509660016800375
+    "decode_mb_per_sec": 61.20176031644766
+  },
+  "wp_bpe_scp": {
+    "vocab_size": 400,
+    "bytes_per_token": 1.2755862816863224,
+    "fertility": 5.884099616858237,
+    "renyi_e_1_0": 0.6540569568302321,
+    "renyi_e_2_0": 0.5365943490575599,
+    "renyi_e_2_5": 0.5008443898519491,
+    "active_fraction": 0.4275,
+    "dead_tokens": 229,
+    "gini_coefficient": 0.8932692829063305,
+    "morph_precision": 0.23196977579839215,
+    "morph_recall": 0.9722222222222222,
+    "morph_f1": 0.37025798912065516,
+    "identifier_f1": 0.3396491228070176,
+    "number_fertility": 10.0,
+    "encode_mb_per_sec": 0.1239366974858561,
+    "decode_mb_per_sec": 61.814718048983664
+  },
+  "wp_bpe_npmi": {
+    "vocab_size": 400,
+    "bytes_per_token": 1.5024748523072011,
+    "fertility": 4.817049808429119,
+    "renyi_e_1_0": 0.7189815148710924,
+    "renyi_e_2_0": 0.5438675013222051,
+    "renyi_e_2_5": 0.4876225681180329,
+    "active_fraction": 0.53,
+    "dead_tokens": 188,
+    "gini_coefficient": 0.8237414178508702,
+    "morph_precision": 0.28208120921535557,
+    "morph_recall": 0.8958333333333334,
+    "morph_f1": 0.41860061507120333,
+    "identifier_f1": 0.3784962406015038,
+    "number_fertility": 10.0,
+    "encode_mb_per_sec": 0.1,
+    "decode_mb_per_sec": 61.32890932648538
+  },
+  "wp_bpe_ppig": {
+    "vocab_size": 400,
+    "bytes_per_token": 1.598980458793543,
+    "fertility": 4.561302681992337,
+    "renyi_e_1_0": 0.7603207449536349,
+    "renyi_e_2_0": 0.5719947803063233,
+    "renyi_e_2_5": 0.5075125885300087,
+    "active_fraction": 0.58,
+    "dead_tokens": 168,
+    "gini_coefficient": 0.7737540356839422,
+    "morph_precision": 0.29013975155279503,
+    "morph_recall": 0.8958333333333334,
+    "morph_f1": 0.4281629019129019,
+    "identifier_f1": 0.38252100840336134,
+    "number_fertility": 10.0,
+    "encode_mb_per_sec": 0.1,
+    "decode_mb_per_sec": 53.7546816077378
   },
   "mdl_bits": {
     "vocab_size": 400,
@@ -105,7 +159,7 @@
     "identifier_f1": 0.39849624060150374,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 58.7827995994303
+    "decode_mb_per_sec": 59.83195534872665
   },
   "length_penalized": {
     "vocab_size": 400,
@@ -123,7 +177,7 @@
     "identifier_f1": 0.44249084249084253,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 50.176262278948016
+    "decode_mb_per_sec": 63.7766437018409
   },
   "super_bpe": {
     "vocab_size": 400,
@@ -141,7 +195,7 @@
     "identifier_f1": 0.3969747899159664,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 61.338552650136755
+    "decode_mb_per_sec": 62.868759373879705
   },
   "morpheme_bpe": {
     "vocab_size": 400,
@@ -159,24 +213,24 @@
     "identifier_f1": 0.47677655677655684,
     "number_fertility": 10.0,
     "encode_mb_per_sec": 0.1,
-    "decode_mb_per_sec": 55.3746713133852
+    "decode_mb_per_sec": 56.71896926566519
   },
   "unigram_lm": {
     "vocab_size": 400,
-    "bytes_per_token": 1.8197640688454844,
-    "fertility": 3.8515325670498086,
-    "renyi_e_1_0": 0.7813114084879653,
-    "renyi_e_2_0": 0.5408129336092264,
-    "renyi_e_2_5": 0.4698080245598627,
+    "bytes_per_token": 1.8211728275595123,
+    "fertility": 3.8477011494252875,
+    "renyi_e_1_0": 0.78172082732085,
+    "renyi_e_2_0": 0.5406187176633239,
+    "renyi_e_2_5": 0.4695800822553315,
     "active_fraction": 0.6725,
     "dead_tokens": 131,
-    "gini_coefficient": 0.7088653065171147,
-    "morph_precision": 0.07223349567099567,
-    "morph_recall": 0.1903198653198653,
-    "morph_f1": 0.10230353490727408,
-    "identifier_f1": 0.4428571428571429,
+    "gini_coefficient": 0.7074583897813045,
+    "morph_precision": 0.06558366402116401,
+    "morph_recall": 0.15698653198653198,
+    "morph_f1": 0.09087360681067931,
+    "identifier_f1": 0.4463003663003663,
     "number_fertility": 10.0,
-    "encode_mb_per_sec": 23.009623545019284,
-    "decode_mb_per_sec": 76.18514499413935
+    "encode_mb_per_sec": 23.812503500827226,
+    "decode_mb_per_sec": 78.18841484678605
   }
 }

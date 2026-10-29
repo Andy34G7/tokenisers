@@ -29,6 +29,7 @@ tokenisers-data = "tokenisers.data.__main__:main"
 tokenisers-tokka = "tokenisers.benchmarks.tokka.__main__:main"
 tokenisers-intrinsic = "tokenisers.benchmarks.intrinsic.__main__:main"
 tokenisers-colab = "tokenisers.benchmarks.colab.__main__:main"
+tokenisers-dashboard = "tokenisers.dashboard.__main__:main"
 
 [tool.maturin]
 python-source = "python"
