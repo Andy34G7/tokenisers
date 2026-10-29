@@ -1,15 +1,14 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tokenisers Lab — Algorithmic Benchmark Intelligence</title>
-  <meta name="description" content="Artificial Analysis-inspired benchmark intelligence dashboard for subword tokenization algorithms, featuring extrinsic LM validation BPB, Tokka-Bench 11-language compression, intrinsic information metrics, and live tokenizer playground." />
+  <title>Tokenisers Lab</title>
+  <meta name="description" content="Benchmark dashboard for subword tokenisation algorithms: downstream LM bits-per-byte, Tokka-Bench 11-language compression, intrinsic information metrics, and a live tokeniser playground." />
 
-  <!-- daisyUI 5 + Tailwind CSS 4 -->
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
   <!-- Chart.js 4 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -17,691 +16,742 @@
   <!-- KaTeX for formula rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body);"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" onload="renderMath()"></script>
 
   <style>
-    /* Custom refined styling compatible with Tailwind CSS 4 & daisyUI 5 */
-    .token-pill {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.15rem 0.45rem;
-      margin: 0.12rem;
-      border-radius: 0.375rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.8125rem;
-      border-width: 1px;
-      cursor: pointer;
-      user-select: text;
-      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    /* ---------- Tokens ---------- */
+    :root {
+      color-scheme: light;
+      --bg: #f6f6f4;
+      --surface: #ffffff;
+      --surface-2: #f3f3f0;
+      --border: rgba(11, 11, 11, 0.09);
+      --border-strong: rgba(11, 11, 11, 0.16);
+      --text: #111110;
+      --text-2: #52514e;
+      --muted: #898781;
+      --grid: #ebeae5;
+      --accent: #2a78d6;
+      --good: #006300;
+      --bad: #d03b3b;
+      --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 1px 1px rgba(11, 11, 11, 0.02);
+
+      /* Family palette, fixed order (validated categorical slots) */
+      --fam-1: #2a78d6;
+      --fam-2: #eb6834;
+      --fam-3: #1baf7a;
+      --fam-4: #eda100;
+      --fam-5: #e87ba4;
+      --fam-6: #008300;
+      --fam-7: #6250d6;
+      --fam-8: #898781;
+
+      --radius: 12px;
+      --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    .token-pill:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25);
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0f0f0e;
+        --surface: #1a1a19;
+        --surface-2: #222220;
+        --border: rgba(255, 255, 255, 0.08);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --text: #f0efec;
+        --text-2: #c3c2b7;
+        --muted: #898781;
+        --grid: #2c2c2a;
+        --accent: #3987e5;
+        --good: #0ca30c;
+        --bad: #e66767;
+        --shadow: none;
+        --fam-1: #3987e5;
+        --fam-2: #d95926;
+        --fam-3: #199e70;
+        --fam-4: #c98500;
+        --fam-5: #d55181;
+        --fam-6: #008300;
+        --fam-7: #9085e9;
+      }
     }
-    .token-space {
-      opacity: 0.5;
-      font-weight: 600;
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0f0f0e;
+      --surface: #1a1a19;
+      --surface-2: #222220;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text: #f0efec;
+      --text-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --accent: #3987e5;
+      --good: #0ca30c;
+      --bad: #e66767;
+      --shadow: none;
+      --fam-1: #3987e5;
+      --fam-2: #d95926;
+      --fam-3: #199e70;
+      --fam-4: #c98500;
+      --fam-5: #d55181;
+      --fam-6: #008300;
+      --fam-7: #9085e9;
     }
-    .heatmap-cell {
-      transition: background-color 0.2s ease;
-      text-align: center;
-      font-variant-numeric: tabular-nums;
+
+    /* ---------- Base ---------- */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 var(--sans);
+      -webkit-font-smoothing: antialiased;
     }
-    .quadrant-box {
-      border: 1px dashed rgba(255, 255, 255, 0.15);
-      border-radius: 0.5rem;
-      padding: 0.75rem;
+    h1, h2, h3, h4, p { margin: 0; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .mono { font-family: var(--mono); font-size: 0.92em; }
+    /* Ligatures would hide the raw characters being tokenised (e.g. -> becomes an arrow) */
+    textarea, .tokens, .heat td.cell { font-variant-ligatures: none; }
+    .num { font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+    .hidden { display: none !important; }
+
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    @media (max-width: 640px) { .wrap { padding: 0 16px; } }
+
+    /* ---------- Header ---------- */
+    header {
+      position: sticky; top: 0; z-index: 20;
+      background: color-mix(in srgb, var(--bg) 88%, transparent);
+      backdrop-filter: saturate(1.4) blur(10px);
+      border-bottom: 1px solid var(--border);
     }
-    .custom-scroll::-webkit-scrollbar {
-      height: 6px;
-      width: 6px;
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 30px; height: 30px; flex: none; border-radius: 8px;
+      display: grid; place-items: center;
+      background: var(--text); color: var(--bg);
+      font: 600 13px/1 var(--mono);
     }
-    .custom-scroll::-webkit-scrollbar-thumb {
-      background: rgba(150, 150, 150, 0.3);
-      border-radius: 3px;
+    .brand h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+    .brand p { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .actions { display: flex; gap: 6px; }
+    .icon-btn {
+      display: inline-grid; place-items: center;
+      width: 32px; height: 32px; border-radius: 8px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-2);
+      transition: background 0.15s, color 0.15s;
     }
+    .icon-btn:hover { background: var(--surface); color: var(--text); }
+    .icon-btn svg { width: 16px; height: 16px; }
+    .icon-btn.spinning svg { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .theme-icon-dark { display: none; }
+    :root[data-theme="dark"] .theme-icon-dark { display: block; }
+    :root[data-theme="dark"] .theme-icon-light { display: none; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .theme-icon-dark { display: block; }
+      :root:not([data-theme="light"]) .theme-icon-light { display: none; }
+    }
+
+    nav.tabs { display: flex; gap: 2px; margin-top: 14px; overflow-x: auto; scrollbar-width: none; }
+    nav.tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      flex: none; padding: 10px 12px; border: 0; background: none;
+      color: var(--muted); font-size: 13.5px; font-weight: 500;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+
+    /* ---------- Layout ---------- */
+    main { padding: 28px 0 64px; }
+    .stack > * + * { margin-top: 20px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+    @media (max-width: 960px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px 24px;
+      min-width: 0;
+    }
+    @media (max-width: 640px) { .card { padding: 18px 16px; } }
+    .card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; margin-bottom: 18px; }
+    .card-head h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+    .card-head p { font-size: 13px; color: var(--text-2); margin-top: 4px; max-width: 62ch; }
+    .eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+
+    /* ---------- KPI strip ---------- */
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+    @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; min-width: 0; }
+    .kpi-value { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin-top: 6px; line-height: 1.15; }
+    .kpi-unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
+    .kpi-model { font-size: 12.5px; color: var(--text-2); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .kpi-note { font-size: 11.5px; color: var(--muted); }
+
+    /* ---------- Controls ---------- */
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+    .field { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+    select, .input {
+      height: 32px; padding: 0 10px; border-radius: 8px;
+      background-color: var(--surface); border: 1px solid var(--border-strong);
+      font-size: 13px; color: var(--text);
+    }
+    select { padding-right: 28px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23898781' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
+    .segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--border); flex-wrap: wrap; }
+    .segmented button {
+      border: 0; background: none; padding: 5px 11px; border-radius: 6px;
+      font-size: 12.5px; font-weight: 500; color: var(--text-2);
+      transition: background 0.15s, color 0.15s;
+    }
+    .segmented button:hover { color: var(--text); }
+    .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border-strong); }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 5px 11px; border-radius: 999px;
+      background: transparent; border: 1px solid var(--border-strong);
+      font-size: 12.5px; color: var(--text-2);
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .chip:hover { color: var(--text); background: var(--surface-2); }
+    .chip[aria-pressed="true"] { color: var(--text); background: var(--surface-2); border-color: var(--text-2); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      height: 34px; padding: 0 16px; border-radius: 8px; border: 0;
+      background: var(--text); color: var(--bg);
+      font-size: 13px; font-weight: 600;
+    }
+    .btn-primary:hover { opacity: 0.88; }
+    .btn-primary:disabled { opacity: 0.5; cursor: progress; }
+    .link-btn { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+    .link-btn:hover { text-decoration: underline; }
+
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--c, var(--muted)); }
+    .fam { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); white-space: nowrap; }
+    .tag {
+      display: inline-block; padding: 1px 7px; border-radius: 999px;
+      font-size: 11px; font-weight: 500; color: var(--text-2);
+      background: var(--surface-2); border: 1px solid var(--border);
+      vertical-align: 1px;
+    }
+
+    /* ---------- Tables ---------- */
+    .table-wrap { overflow-x: auto; margin: 0 -24px; padding: 0 24px; }
+    @media (max-width: 640px) { .table-wrap { margin: 0 -16px; padding: 0 16px; } }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; font-weight: 500; font-size: 12px; color: var(--muted);
+      padding: 0 12px 10px; border-bottom: 1px solid var(--border-strong);
+      white-space: nowrap;
+    }
+    td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    th:first-child, td:first-child { padding-left: 0; }
+    th:last-child, td:last-child { padding-right: 0; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background-color: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+    td.r, th.r { text-align: right; }
+    td.c, th.c { text-align: center; }
+    td.num, td.mono { white-space: nowrap; }
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: var(--text); }
+    th.sortable::after { content: "↕"; margin-left: 5px; opacity: 0.35; }
+    th[aria-sort="ascending"]::after { content: "↑"; opacity: 1; }
+    th[aria-sort="descending"]::after { content: "↓"; opacity: 1; }
+    th[aria-sort] { color: var(--text); }
+    th.group { text-align: center; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; padding: 0 12px 8px; border-bottom: 1px solid var(--border); }
+    th.group:not(:empty) { box-shadow: inset 0 -1px 0 var(--border-strong); }
+    .model-name { font-weight: 500; color: var(--text); }
+    .model-desc { font-size: 12px; color: var(--muted); max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #leaderboard-table .fam, #extrinsic-table .fam { white-space: normal; }
+    #intrinsic-full-table td:not(:first-child), #intrinsic-full-table th:not(:first-child) { padding-left: 7px; padding-right: 7px; }
+    #intrinsic-full-table .fam { white-space: normal; align-items: baseline; }
+    .rank { color: var(--muted); width: 28px; }
+    .hl { font-weight: 600; color: var(--text); }
+    .bar-cell { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+    .bar { width: 56px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; flex: none; }
+    .bar > i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+    .delta-good { color: var(--good); }
+    .delta-bad { color: var(--bad); }
+
+    .heat td.cell { text-align: center; font-family: var(--mono); font-size: 12px; padding: 9px 6px; border-left: 2px solid var(--surface); }
+    .heat th.c { padding-left: 6px; padding-right: 6px; }
+    .heat td.avg { font-weight: 600; border-left-width: 8px; }
+    .heat tbody tr:hover td.cell { filter: brightness(0.96); }
+
+    .legend-scale { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+    .legend-scale .ramp { width: 96px; height: 8px; border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 4%, var(--surface)), color-mix(in srgb, var(--accent) 55%, var(--surface))); }
+
+    /* ---------- Charts ---------- */
+    .chart { position: relative; height: 340px; }
+    .chart.tall { height: 420px; }
+    .chart.xtall { height: 560px; }
+    @media (max-width: 640px) { .chart, .chart.tall { height: 300px; } .chart.xtall { height: 480px; } }
+    .divider { border-top: 1px solid var(--border); margin: 24px -24px 0; padding: 22px 24px 0; }
+    @media (max-width: 640px) { .divider { margin: 20px -16px 0; padding: 18px 16px 0; } }
+
+    .quadrant-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: center; }
+    @media (max-width: 960px) { .quadrant-layout { grid-template-columns: 1fr; } }
+    .quad-guide { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .quad { padding: 12px; border-radius: 10px; background: var(--surface-2); font-size: 12px; color: var(--text-2); line-height: 1.45; }
+    .quad strong { display: block; color: var(--text); font-weight: 600; font-size: 12.5px; margin-bottom: 3px; }
+    .quad.best { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+    .quad-axes { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); text-align: center; margin-top: 2px; }
+
+    /* ---------- WP-BPE formulas ---------- */
+    .steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+    .steps > li { position: relative; padding: 0 0 24px 40px; counter-increment: step; }
+    .steps > li:last-child { padding-bottom: 0; }
+    .steps > li::before {
+      content: counter(step);
+      position: absolute; left: 0; top: -1px;
+      width: 24px; height: 24px; border-radius: 50%;
+      display: grid; place-items: center;
+      font: 600 11.5px/1 var(--mono);
+      background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text-2);
+    }
+    .steps > li:not(:last-child)::after { content: ""; position: absolute; left: 11.5px; top: 30px; bottom: 6px; width: 1px; background: var(--border-strong); }
+    .step-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-weight: 600; font-size: 13.5px; }
+    .step-body { font-size: 13px; color: var(--text-2); margin-top: 6px; }
+    .formula { margin: 10px 0 0; padding: 2px 14px; border-radius: 8px; background: var(--surface-2); overflow-x: auto; font-size: 13px; }
+    .formula .katex-display { margin: 0.7em 0; }
+    .sub-formula { margin-top: 16px; }
+    .sub-formula b { font-weight: 600; color: var(--text); font-size: 12.5px; }
+    .status { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: var(--text-2); }
+    .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--sc); }
+
+    /* ---------- Playground ---------- */
+    textarea {
+      display: block; width: 100%; min-height: 96px; resize: vertical;
+      padding: 12px 14px; border-radius: 10px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      font: 13px/1.6 var(--mono);
+    }
+    textarea:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+    .pg-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+    input[type="range"] { accent-color: var(--text); width: 140px; }
+    .input.num-input { width: 72px; text-align: center; font-family: var(--mono); }
+
+    .tok-list { margin-top: 20px; border-top: 1px solid var(--border); }
+    .tok-row { padding: 16px 0; border-bottom: 1px solid var(--border); transition: background 0.4s; scroll-margin-top: 140px; }
+    .tok-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .tok-row.flash { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+    .tok-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin-bottom: 10px; }
+    .tok-head .left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .tok-stats { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
+    .tok-stats b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+    .tokens { font: 13px/2.2 var(--mono); word-break: break-word; }
+    .tk {
+      padding: 2px 1px; border-radius: 3px; margin-right: 2px;
+      background: color-mix(in srgb, var(--fam-1) 13%, transparent);
+      box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--fam-1) 45%, transparent);
+    }
+    .tk:nth-child(even) {
+      background: color-mix(in srgb, var(--fam-2) 13%, transparent);
+      box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--fam-2) 45%, transparent);
+    }
+    .tk:hover { background: color-mix(in srgb, var(--text) 16%, transparent); }
+    .tk .ws { color: var(--muted); }
+    .loading { padding: 32px 0; text-align: center; color: var(--muted); font-size: 13px; }
+    .error { padding: 12px 14px; border-radius: 8px; background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); font-size: 13px; margin-top: 16px; }
+
+    footer { border-top: 1px solid var(--border); padding: 20px 0 28px; font-size: 12px; color: var(--muted); }
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
   </style>
 </head>
-<body class="bg-base-200 text-base-content min-h-screen flex flex-col font-sans antialiased">
+<body>
 
-  <!-- Header / Navbar -->
-  <header class="border-b border-base-content/10 bg-base-100 sticky top-0 z-40 backdrop-blur-md bg-base-100/90 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
-        <!-- Brand & Title -->
-        <div class="flex items-center space-x-3">
-          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-primary-content font-black text-xl shadow-md">
-            TL
-          </div>
-          <div>
-            <div class="flex items-center space-x-2">
-              <span class="font-extrabold text-lg sm:text-xl tracking-tight">Tokenisers Lab</span>
-              <span class="badge badge-primary badge-sm font-semibold">Intelligence</span>
-              <span class="badge badge-soft badge-info badge-sm hidden md:inline-flex">Pareto Frontier</span>
-            </div>
-            <p class="text-xs text-base-content/60 hidden sm:block">Artificial Analysis Architecture & Benchmark Intelligence Matrix</p>
+  <header>
+    <div class="wrap">
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">Tk</div>
+          <div style="min-width: 0">
+            <h1>Tokenisers Lab</h1>
+            <p id="brand-sub">Benchmarks for subword tokenisation algorithms</p>
           </div>
         </div>
-
-        <!-- Controls: Refresh, Theme, API Status -->
-        <div class="flex items-center space-x-2 sm:space-x-3">
-          <div class="hidden lg:flex items-center space-x-2 text-xs px-2.5 py-1 rounded-full bg-base-200 border border-base-content/10">
-            <span class="w-2 h-2 rounded-full bg-success animate-pulse"></span>
-            <span class="text-base-content/80 font-mono">14 Tokenizers • 11 Languages</span>
-          </div>
-
-          <button id="refresh-btn" class="btn btn-sm btn-ghost gap-1" title="Refresh Benchmark Data">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            <span class="hidden sm:inline">Refresh</span>
+        <div class="actions">
+          <button id="refresh-btn" class="icon-btn" title="Refresh benchmark data" aria-label="Refresh benchmark data">
+            <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/></svg>
           </button>
-
-          <!-- Theme Selector -->
-          <div class="dropdown dropdown-end">
-            <div tabindex="0" role="button" class="btn btn-sm btn-outline gap-1">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-              <span class="hidden sm:inline">Theme</span>
-            </div>
-            <ul tabindex="0" class="dropdown-content z-50 menu p-2 shadow-2xl bg-base-100 rounded-box w-36 border border-base-content/10">
-              <li><button onclick="setTheme('dark')" class="active:bg-primary">Dark</button></li>
-              <li><button onclick="setTheme('night')">Night</button></li>
-              <li><button onclick="setTheme('dim')">Dim</button></li>
-              <li><button onclick="setTheme('light')">Light</button></li>
-              <li><button onclick="setTheme('cupcake')">Cupcake</button></li>
-            </ul>
-          </div>
+          <button id="theme-btn" class="icon-btn" title="Toggle light / dark" aria-label="Toggle light or dark theme">
+            <svg class="theme-icon-light" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>
+            <svg class="theme-icon-dark" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path stroke-linecap="round" d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          </button>
         </div>
       </div>
 
-      <!-- Navigation Tabs -->
-      <div class="border-t border-base-content/10 py-1">
-        <div role="tablist" class="tabs tabs-box bg-base-200/50 p-1 rounded-xl flex overflow-x-auto custom-scroll text-sm">
-          <button role="tab" id="tab-nav-overview" class="tab tab-active font-medium" onclick="switchTab('overview')">
-            Overview & Quadrant
-          </button>
-          <button role="tab" id="tab-nav-extrinsic" class="tab font-medium" onclick="switchTab('extrinsic')">
-            Extrinsic LM & BPB Curves
-          </button>
-          <button role="tab" id="tab-nav-tokka" class="tab font-medium" onclick="switchTab('tokka')">
-            Tokka-Bench 11-Lang
-          </button>
-          <button role="tab" id="tab-nav-intrinsic" class="tab font-medium" onclick="switchTab('intrinsic')">
-            Intrinsic & Morphology
-          </button>
-          <button role="tab" id="tab-nav-wpbpe" class="tab font-medium" onclick="switchTab('wpbpe')">
-            WP-BPE Deep Dive & Radar
-          </button>
-          <button role="tab" id="tab-nav-playground" class="tab font-medium" onclick="switchTab('playground')">
-            <span class="flex items-center gap-1.5">
-              <span>Interactive Playground</span>
-              <span class="badge badge-accent badge-xs">Live</span>
-            </span>
-          </button>
-        </div>
-      </div>
+      <nav class="tabs" role="tablist">
+        <button role="tab" class="tab" id="tab-nav-overview" aria-selected="true" onclick="switchTab('overview')">Overview</button>
+        <button role="tab" class="tab" id="tab-nav-extrinsic" aria-selected="false" onclick="switchTab('extrinsic')">Downstream LM</button>
+        <button role="tab" class="tab" id="tab-nav-tokka" aria-selected="false" onclick="switchTab('tokka')">Tokka-Bench</button>
+        <button role="tab" class="tab" id="tab-nav-intrinsic" aria-selected="false" onclick="switchTab('intrinsic')">Intrinsic &amp; Morphology</button>
+        <button role="tab" class="tab" id="tab-nav-wpbpe" aria-selected="false" onclick="switchTab('wpbpe')">WP-BPE Family</button>
+        <button role="tab" class="tab" id="tab-nav-playground" aria-selected="false" onclick="switchTab('playground')">Playground</button>
+      </nav>
     </div>
   </header>
 
-  <!-- Main Container -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+  <main class="wrap">
 
-    <!-- KPI Summary Strip (stats component) -->
-    <section>
-      <div class="stats stats-vertical lg:stats-horizontal shadow-md w-full bg-base-100 border border-base-content/10 rounded-2xl overflow-hidden divide-y lg:divide-y-0 lg:divide-x divide-base-content/10">
-        <!-- KPI 1 -->
-        <div class="stat px-4 py-3">
-          <div class="stat-figure text-primary">
-            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-          </div>
-          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Downstream LM Quality</div>
-          <div id="kpi-bpb-val" class="stat-value text-xl sm:text-2xl text-primary font-mono font-bold">--</div>
-          <div id="kpi-bpb-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Macro Val BPB (Lowest)</div>
-        </div>
-
-        <!-- KPI 2 -->
-        <div class="stat px-4 py-3">
-          <div class="stat-figure text-secondary">
-            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-          </div>
-          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Info Efficiency</div>
-          <div id="kpi-renyi-val" class="stat-value text-xl sm:text-2xl text-secondary font-mono font-bold">--</div>
-          <div id="kpi-renyi-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Highest Rényi E_2.0</div>
-        </div>
-
-        <!-- KPI 3 -->
-        <div class="stat px-4 py-3">
-          <div class="stat-figure text-accent">
-            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
-          </div>
-          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Morphology F1</div>
-          <div id="kpi-morph-val" class="stat-value text-xl sm:text-2xl text-accent font-mono font-bold">--</div>
-          <div id="kpi-morph-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Sigmorphon Boundary F1</div>
-        </div>
-
-        <!-- KPI 4 -->
-        <div class="stat px-4 py-3">
-          <div class="stat-figure text-info">
-            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-          </div>
-          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Raw Compression</div>
-          <div id="kpi-bpt-val" class="stat-value text-xl sm:text-2xl text-info font-mono font-bold">--</div>
-          <div id="kpi-bpt-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Bytes / Token (Higher = Better)</div>
-        </div>
-
-        <!-- KPI 5 -->
-        <div class="stat px-4 py-3">
-          <div class="stat-figure text-success">
-            <svg class="w-8 h-8 opacity-75" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          </div>
-          <div class="stat-title text-xs uppercase tracking-wider font-semibold text-base-content/70">Decode Throughput</div>
-          <div id="kpi-speed-val" class="stat-value text-xl sm:text-2xl text-success font-mono font-bold">--</div>
-          <div id="kpi-speed-model" class="stat-desc font-medium text-xs mt-0.5 truncate text-base-content/80">Decode MB/s</div>
-        </div>
+    <!-- KPI strip -->
+    <section class="kpis" aria-label="Category leaders">
+      <div class="kpi">
+        <div class="eyebrow">Downstream LM</div>
+        <div class="kpi-value num"><span id="kpi-bpb-val">–</span><span class="kpi-unit">BPB</span></div>
+        <div class="kpi-model" id="kpi-bpb-model">–</div>
+        <div class="kpi-note">Macro val bits/byte · lower is better</div>
+      </div>
+      <div class="kpi">
+        <div class="eyebrow">Info efficiency</div>
+        <div class="kpi-value num"><span id="kpi-renyi-val">–</span></div>
+        <div class="kpi-model" id="kpi-renyi-model">–</div>
+        <div class="kpi-note">Rényi efficiency, α = 2</div>
+      </div>
+      <div class="kpi">
+        <div class="eyebrow">Morphology</div>
+        <div class="kpi-value num"><span id="kpi-morph-val">–</span><span class="kpi-unit">F1</span></div>
+        <div class="kpi-model" id="kpi-morph-model">–</div>
+        <div class="kpi-note">Sigmorphon boundary F1</div>
+      </div>
+      <div class="kpi">
+        <div class="eyebrow">Compression</div>
+        <div class="kpi-value num"><span id="kpi-bpt-val">–</span><span class="kpi-unit">B/tok</span></div>
+        <div class="kpi-model" id="kpi-bpt-model">–</div>
+        <div class="kpi-note">Bytes per token · higher is better</div>
+      </div>
+      <div class="kpi">
+        <div class="eyebrow">Throughput</div>
+        <div class="kpi-value num"><span id="kpi-speed-val">–</span><span class="kpi-unit">MB/s</span></div>
+        <div class="kpi-model" id="kpi-speed-model">–</div>
+        <div class="kpi-note">Decode speed</div>
       </div>
     </section>
 
-    <!-- TAB 1: Overview & Quadrant -->
-    <div id="tab-overview" class="space-y-6">
-      <!-- Quadrant Analysis Card -->
-      <div class="card bg-base-100 shadow-md border border-base-content/10">
-        <div class="card-body p-5 sm:p-6 space-y-4">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-base-content/10">
-            <div>
-              <h2 class="card-title text-lg font-bold flex items-center gap-2">
-                <span>Artificial Analysis Pareto Frontier Quadrant</span>
-                <span class="badge badge-primary badge-sm font-semibold">Executive View</span>
-              </h2>
-              <p class="text-xs text-base-content/70">
-                Explore the trade-off space between Token Compression and Downstream LM bits-per-byte (BPB). Points in the top-right represent the optimal Pareto frontier.
-              </p>
-            </div>
-
-            <!-- Axis Selectors -->
-            <div class="flex flex-wrap items-center gap-2">
-              <div class="flex items-center gap-1.5 text-xs">
-                <span class="font-semibold text-base-content/70">X-Axis:</span>
-                <select id="quadrant-x-select" class="select select-sm select-bordered text-xs rounded-lg">
-                  <option value="bytes_per_token" selected>Bytes / Token (Compression)</option>
-                  <option value="renyi_e_2_0">Rényi E_2.0 (Entropy)</option>
-                  <option value="morph_f1">Morphological F1</option>
-                  <option value="decode_mb_per_sec">Decode Speed (MB/s)</option>
-                </select>
-              </div>
-
-              <div class="flex items-center gap-1.5 text-xs">
-                <span class="font-semibold text-base-content/70">Y-Axis:</span>
-                <select id="quadrant-y-select" class="select select-sm select-bordered text-xs rounded-lg">
-                  <option value="macro_val_bpb" selected>Macro Val BPB (Inverted: Higher = Better)</option>
-                  <option value="english_bpb">English Val BPB (Inverted)</option>
-                  <option value="multilingual_bpb">Multilingual Val BPB (Inverted)</option>
-                  <option value="code_bpb">Code Val BPB (Inverted)</option>
-                  <option value="renyi_e_2_0">Rényi E_2.0</option>
-                </select>
-              </div>
-            </div>
+    <!-- TAB: Overview -->
+    <div id="tab-overview" class="stack">
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Trade-off map</h2>
+            <p>Each point is a tokeniser. BPB axes are flipped so that up and to the right is always better; dashed lines mark the median on each axis.</p>
           </div>
-
-          <!-- Scatter Canvas & Quadrant Info -->
-          <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 items-center">
-            <div class="lg:col-span-3 relative h-80 sm:h-96 w-full bg-base-200/40 rounded-xl p-2 border border-base-content/5">
-              <canvas id="quadrant-chart"></canvas>
-            </div>
-
-            <!-- Quadrant Guide Cards -->
-            <div class="space-y-3 text-xs">
-              <div class="quadrant-box bg-success/10 border-success/30">
-                <div class="font-bold text-success flex items-center gap-1">
-                  <span>★ Top-Right: Optimal Frontier</span>
-                </div>
-                <p class="text-base-content/80 mt-1">
-                  Dominant sweet spot: Maximum bytes per token combined with superior downstream language model perplexity.
-                </p>
-              </div>
-
-              <div class="quadrant-box bg-info/10 border-info/30">
-                <div class="font-bold text-info flex items-center gap-1">
-                  <span>▲ Top-Left: High LM Quality</span>
-                </div>
-                <p class="text-base-content/80 mt-1">
-                  High model validation accuracy, but conservative subword lengths (lower compression ratio).
-                </p>
-              </div>
-
-              <div class="quadrant-box bg-warning/10 border-warning/30">
-                <div class="font-bold text-warning flex items-center gap-1">
-                  <span>► Bottom-Right: High Compression</span>
-                </div>
-                <p class="text-base-content/80 mt-1">
-                  Aggressive token merging yields long subwords but sacrifices linguistic boundaries or LM training loss.
-                </p>
-              </div>
-
-              <div class="quadrant-box bg-base-300/60 border-base-content/10">
-                <div class="font-bold text-base-content/70">
-                  <span>▼ Bottom-Left: Sub-Optimal</span>
-                </div>
-                <p class="text-base-content/60 mt-1">
-                  Poor downstream BPB and low compression; typically affected by noise or lack of calibration.
-                </p>
-              </div>
-            </div>
+          <div class="controls">
+            <label class="field">X
+              <select id="quadrant-x-select">
+                <option value="bytes_per_token" selected>Bytes / token</option>
+                <option value="renyi_e_2_0">Rényi E₂</option>
+                <option value="morph_f1">Morphology F1</option>
+                <option value="decode_mb_per_sec">Decode MB/s</option>
+              </select>
+            </label>
+            <label class="field">Y
+              <select id="quadrant-y-select">
+                <option value="macro_val_bpb" selected>Macro val BPB</option>
+                <option value="english_bpb">English val BPB</option>
+                <option value="multilingual_bpb">Multilingual val BPB</option>
+                <option value="code_bpb">Code val BPB</option>
+                <option value="renyi_e_2_0">Rényi E₂</option>
+              </select>
+            </label>
           </div>
         </div>
+
+        <div class="quadrant-layout">
+          <div class="chart tall"><canvas id="quadrant-chart" aria-label="Scatter plot of tokenisers"></canvas></div>
+          <div class="quad-guide">
+            <div class="quad"><strong>High LM quality</strong>Good downstream BPB, shorter subwords.</div>
+            <div class="quad best"><strong>Frontier</strong>Long tokens and strong downstream BPB.</div>
+            <div class="quad"><strong>Weak on both</strong>Often noise-driven merges or poor calibration.</div>
+            <div class="quad"><strong>High compression</strong>Aggressive merging at the cost of LM quality.</div>
+            <div class="quad-axes">← lower X · higher X →</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Leaderboard <span class="tag" id="leaderboard-count-badge">14</span></h2>
+            <p>Downstream validation BPB, compression, information efficiency, morphology and speed in one place. Click a column to sort.</p>
+          </div>
+          <div class="chips" id="family-filter-container">
+            <button class="chip family-filter-btn" data-family="ALL" aria-pressed="true">All</button>
+            <button class="chip family-filter-btn" data-family="Information-Theoretic" aria-pressed="false">Info-theoretic</button>
+            <button class="chip family-filter-btn" data-family="Frequency BPE" aria-pressed="false">Frequency BPE</button>
+            <button class="chip family-filter-btn" data-family="EM / Probabilistic" aria-pressed="false">Unigram</button>
+            <button class="chip family-filter-btn" data-family="Structural / Multi-Stage" aria-pressed="false">Structural</button>
+            <button class="chip family-filter-btn" data-family="Morphology / Guided" aria-pressed="false">Morphology</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="leaderboard-table">
+            <thead>
+              <tr>
+                <th class="rank">#</th>
+                <th>Tokeniser</th>
+                <th>Family</th>
+                <th class="r sortable" data-sort="macro_val_bpb" onclick="sortLeaderboard('macro_val_bpb')">Macro BPB</th>
+                <th class="r sortable" data-sort="bytes_per_token" onclick="sortLeaderboard('bytes_per_token')">Bytes / tok</th>
+                <th class="r sortable" data-sort="renyi_e_2_0" onclick="sortLeaderboard('renyi_e_2_0')">Rényi E₂</th>
+                <th class="r sortable" data-sort="morph_f1" onclick="sortLeaderboard('morph_f1')">Morph F1</th>
+                <th class="r sortable" data-sort="decode_mb_per_sec" onclick="sortLeaderboard('decode_mb_per_sec')">Decode MB/s</th>
+                <th class="r"></th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB: Downstream LM -->
+    <div id="tab-extrinsic" class="stack hidden">
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Validation BPB by domain</h2>
+              <p>Proxy LM trained on a byte-matched budget for 176 steps. Lower is better.</p>
+            </div>
+          </div>
+          <div class="chart xtall"><canvas id="extrinsic-bar-chart"></canvas></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Training convergence</h2>
+              <p>Train BPB as bytes are ingested, on a log scale. Same hue = same family; dash style separates members.</p>
+            </div>
+          </div>
+          <div class="chart xtall"><canvas id="extrinsic-curve-chart"></canvas></div>
+        </section>
       </div>
 
-      <!-- Unified Leaderboard Table -->
-      <div class="card bg-base-100 shadow-md border border-base-content/10">
-        <div class="card-body p-5 sm:p-6 space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 class="card-title text-base font-bold flex items-center gap-2">
-                <span>Executive Algorithmic Leaderboard</span>
-                <span class="badge badge-neutral badge-sm" id="leaderboard-count-badge">14 Models</span>
-              </h3>
-              <p class="text-xs text-base-content/70">
-                Unified ranking combining extrinsic downstream validation BPB, Tokka compression, and Sigmorphon morphology.
-              </p>
-            </div>
-
-            <!-- Family Filter Pills -->
-            <div class="flex flex-wrap items-center gap-1.5" id="family-filter-container">
-              <button class="btn btn-xs btn-primary family-filter-btn" data-family="ALL">All Families</button>
-              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Information-Theoretic">Info-Theoretic</button>
-              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Frequency BPE">Frequency BPE</button>
-              <button class="btn btn-xs btn-outline family-filter-btn" data-family="EM / Probabilistic">EM / Unigram</button>
-              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Structural / Multi-Stage">Structural</button>
-              <button class="btn btn-xs btn-outline family-filter-btn" data-family="Morphology / Guided">Morphology</button>
-            </div>
-          </div>
-
-          <!-- Table -->
-          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
-            <table class="table table-zebra table-sm w-full text-xs" id="leaderboard-table">
-              <thead class="bg-base-200/80 uppercase font-semibold text-base-content/70">
-                <tr>
-                  <th class="w-12 text-center">Rank</th>
-                  <th>Tokenizer Architecture</th>
-                  <th>Family</th>
-                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('macro_val_bpb')">Macro Val BPB ▾</th>
-                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('bytes_per_token')">Bytes / Token ▾</th>
-                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('renyi_e_2_0')">Rényi E_2.0 ▾</th>
-                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('morph_f1')">Morph F1 ▾</th>
-                  <th class="cursor-pointer hover:text-primary" onclick="sortLeaderboard('decode_mb_per_sec')">Decode MB/s ▾</th>
-                  <th class="text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody id="leaderboard-tbody" class="divide-y divide-base-content/5">
-                <!-- Injected via JavaScript -->
-              </tbody>
-            </table>
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Domain breakdown</h2>
+            <p>Bits per byte on each validation domain. Δ is the macro BPB change relative to the frequency BPE baseline; negative is better.</p>
           </div>
         </div>
+        <div class="table-wrap">
+          <table id="extrinsic-table">
+            <thead>
+              <tr>
+                <th>Tokeniser</th>
+                <th>Family</th>
+                <th class="r">English</th>
+                <th class="r">Multilingual</th>
+                <th class="r">Code</th>
+                <th class="r">Macro</th>
+                <th class="r">Δ vs BPE</th>
+              </tr>
+            </thead>
+            <tbody id="extrinsic-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB: Tokka-Bench -->
+    <div id="tab-tokka" class="stack hidden">
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Compression across 11 scripts</h2>
+            <p>European (EN, DE, FR), Slavic (RU), CJK (ZH, JA), Semitic (AR), Indic (HI), Uralic (HU, FI) and source code.</p>
+          </div>
+          <div class="segmented" role="group" aria-label="Metric">
+            <button class="tokka-metric-btn" data-metric="bytes_per_token" aria-pressed="true">Bytes / token</button>
+            <button class="tokka-metric-btn" data-metric="subword_fertility" aria-pressed="false">Fertility</button>
+            <button class="tokka-metric-btn" data-metric="continued_word_rate" aria-pressed="false">Continued %</button>
+            <button class="tokka-metric-btn" data-metric="unique_tokens" aria-pressed="false">Unique tokens</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="heat" id="tokka-heatmap-table">
+            <thead>
+              <tr>
+                <th>Tokeniser</th>
+                <th class="c">EN</th><th class="c">DE</th><th class="c">FR</th><th class="c">RU</th>
+                <th class="c">ZH</th><th class="c">JA</th><th class="c">AR</th><th class="c">HI</th>
+                <th class="c">HU</th><th class="c">FI</th><th class="c">Code</th>
+                <th class="c">Avg</th>
+              </tr>
+            </thead>
+            <tbody id="tokka-heatmap-tbody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top: 14px"><span class="legend-scale"><span id="tokka-scale-lo">worse</span><span class="ramp"></span><span id="tokka-scale-hi">better</span> · shaded per column</span></div>
+
+        <div class="divider">
+          <div class="eyebrow" style="margin-bottom: 12px">Per-language comparison · first six tokenisers</div>
+          <div class="chart"><canvas id="tokka-bar-chart"></canvas></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB: Intrinsic -->
+    <div id="tab-intrinsic" class="stack hidden">
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Intrinsic metrics</h2>
+            <p>Rényi entropy efficiency at orders 1, 2 and 2.5, vocabulary inequality (Gini), active-token fraction, Sigmorphon morphology alignment and throughput.</p>
+          </div>
+          <input type="search" id="intrinsic-search" placeholder="Filter tokenisers…" class="input" style="width: 200px" />
+        </div>
+        <div class="table-wrap">
+          <table id="intrinsic-full-table">
+            <thead>
+              <tr>
+                <th class="group"></th>
+                <th class="group" colspan="3">Compression</th>
+                <th class="group" colspan="3">Rényi efficiency</th>
+                <th class="group" colspan="2">Distribution</th>
+                <th class="group" colspan="4">Morphology</th>
+                <th class="group" colspan="2">MB/s</th>
+              </tr>
+              <tr>
+                <th>Tokeniser</th>
+                <th class="r">Vocab</th>
+                <th class="r">B/tok</th>
+                <th class="r">Fertility</th>
+                <th class="r">E₁</th>
+                <th class="r">E₂</th>
+                <th class="r">E₂.₅</th>
+                <th class="r">Gini</th>
+                <th class="r">Active</th>
+                <th class="r">F1</th>
+                <th class="r">Prec</th>
+                <th class="r">Rec</th>
+                <th class="r">Ident F1</th>
+                <th class="r">Enc</th>
+                <th class="r">Dec</th>
+              </tr>
+            </thead>
+            <tbody id="intrinsic-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB: WP-BPE -->
+    <div id="tab-wpbpe" class="stack hidden">
+      <div class="grid-2">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Multi-objective profile</h2>
+              <p>Six metrics, each min–max normalised to [0, 1] across all tokenisers. Pick tokenisers to compare.</p>
+            </div>
+          </div>
+          <div class="chips" id="radar-toggles"></div>
+          <div class="chart tall" style="margin-top: 16px"><canvas id="radar-chart"></canvas></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>How the WP-BPE objective evolved</h2>
+              <p>From uncalibrated pointwise mutual information to calibrated, bounded and length-penalised information gain.</p>
+            </div>
+          </div>
+          <ol class="steps">
+            <li>
+              <div class="step-title">WP-BPE Base — uncalibrated PMI <span class="status" style="--sc: var(--bad)">Vulnerable</span></div>
+              <div class="formula">$$\mathrm{score}(u, v) = \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$</div>
+              <p class="step-body">If $u$ and $v$ co-occur exactly once, the joint probability is $1/N$ and the denominator $(1/N)^2$, giving score $N$. This singleton bias merges rare noise before frequent morphemes.</p>
+            </li>
+            <li>
+              <div class="step-title">WP-BPE FT — frequency-thresholded PMI <span class="status" style="--sc: var(--good)">Calibrated</span></div>
+              <div class="formula">$$\mathrm{score}(u, v) = \begin{cases} \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u)^\alpha \cdot \mathrm{freq}(v)^\alpha} & \text{if } \mathrm{freq}(uv) \ge \theta \\ -\infty & \text{otherwise} \end{cases}$$</div>
+              <p class="step-body">A hard frequency cutoff ($\theta \ge 2$) and alpha-smoothing ($0.75 \le \alpha \le 1.0$) suppress low-support singletons, giving high morphological boundary precision.</p>
+            </li>
+            <li>
+              <div class="step-title">WP-BPE PIG — pointwise information gain <span class="status" style="--sc: var(--accent)">Best LM quality</span></div>
+              <div class="formula">$$\mathrm{score}(u, v) = \mathrm{freq}(uv) \cdot \log_2 \frac{\mathrm{freq}(uv) \cdot N}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$</div>
+              <p class="step-body">Weights PMI by candidate frequency, measuring net bits saved across the corpus. Leads the WP-BPE family on downstream proxy-LM BPB.</p>
+            </li>
+            <li>
+              <div class="step-title">Gen 2 — SCP, NPMI and penalised PIG <span class="tag">Gen 2</span></div>
+              <div class="sub-formula">
+                <b>Symmetric conditional probability</b>
+                <div class="formula">$$\mathrm{SCP}(u, v) = \frac{P(uv)^2}{P(u)P(v)} = P(u \mid v) \cdot P(v \mid u)$$</div>
+                <p class="step-body">Removes directional affix bias in agglutinative words.</p>
+              </div>
+              <div class="sub-formula">
+                <b>Normalised PMI</b>
+                <div class="formula">$$\mathrm{NPMI}(u, v) = \frac{\log \frac{P(uv)}{P(u)P(v)}}{-\log P(uv)} \in [-1, 1]$$</div>
+                <p class="step-body">Self-normalising in [−1, 1], so no manual frequency tuning.</p>
+              </div>
+              <div class="sub-formula">
+                <b>Penalised PIG</b>
+                <div class="formula">$$\mathrm{score}(u,v) = \mathrm{freq}(uv) \cdot \mathrm{PMI}(u,v) \cdot (|u|+|v|)^{-\beta} \cdot \mathcal{H}(u,v)$$</div>
+                <p class="step-body">Information gain combined with a length penalty and Markov transition entropy.</p>
+              </div>
+            </li>
+          </ol>
+        </section>
       </div>
     </div>
 
-    <!-- TAB 2: Extrinsic LM & BPB Curves -->
-    <div id="tab-extrinsic" class="space-y-6 hidden">
-      <!-- Domain BPB Breakdown Card -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Chart 1: Grouped Bar by Domain -->
-        <div class="card bg-base-100 shadow-md border border-base-content/10">
-          <div class="card-body p-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="card-title text-base font-bold">Downstream Proxy-LM Validation BPB by Domain</h3>
-                <p class="text-xs text-base-content/70">Trained on byte-matched budget across English, Code, and Multilingual corpora. Lower BPB is superior.</p>
-              </div>
-              <span class="badge badge-primary badge-sm">176 Steps</span>
-            </div>
-            <div class="relative h-80 w-full">
-              <canvas id="extrinsic-bar-chart"></canvas>
-            </div>
+    <!-- TAB: Playground -->
+    <div id="tab-playground" class="stack hidden">
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Playground</h2>
+            <p>Tokenise any text with every algorithm side by side. Hover a token to see its ID and byte length.</p>
+          </div>
+          <div class="chips">
+            <button class="chip" onclick="loadPlaygroundPreset('morphology')">English morphology</button>
+            <button class="chip" onclick="loadPlaygroundPreset('code')">Rust code</button>
+            <button class="chip" onclick="loadPlaygroundPreset('multilingual')">Multilingual</button>
+            <button class="chip" onclick="loadPlaygroundPreset('agglutinative')">Agglutinative</button>
           </div>
         </div>
 
-        <!-- Chart 2: Convergence Curves -->
-        <div class="card bg-base-100 shadow-md border border-base-content/10">
-          <div class="card-body p-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="card-title text-base font-bold">Training Loss / BPB Convergence Curves</h3>
-                <p class="text-xs text-base-content/70">Trajectory of training BPB as bytes are ingested from step 1 to 176.</p>
-              </div>
-              <span class="badge badge-accent badge-sm">Step-by-Step</span>
-            </div>
-            <div class="relative h-80 w-full">
-              <canvas id="extrinsic-curve-chart"></canvas>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Extrinsic Domain Table -->
-      <div class="card bg-base-100 shadow-md border border-base-content/10">
-        <div class="card-body p-5 space-y-3">
-          <h3 class="card-title text-base font-bold">Proxy-LM Domain Bits-Per-Byte Leaderboard</h3>
-          <p class="text-xs text-base-content/70">
-            Detailed validation loss in nats and converted Bits-Per-Byte across domains. Delta shows reduction relative to Frequency BPE baseline.
-          </p>
-          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
-            <table class="table table-zebra table-sm w-full text-xs" id="extrinsic-table">
-              <thead class="bg-base-200/80 uppercase font-semibold">
-                <tr>
-                  <th>Architecture</th>
-                  <th>Family</th>
-                  <th>English BPB</th>
-                  <th>Multilingual BPB</th>
-                  <th>Code BPB</th>
-                  <th class="font-bold text-primary">Macro Val BPB</th>
-                  <th>Delta vs BPE</th>
-                </tr>
-              </thead>
-              <tbody id="extrinsic-tbody">
-                <!-- Injected via JavaScript -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 3: Tokka-Bench 11-Language Matrix -->
-    <div id="tab-tokka" class="space-y-6 hidden">
-      <div class="card bg-base-100 shadow-md border border-base-content/10">
-        <div class="card-body p-5 space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 class="card-title text-base font-bold flex items-center gap-2">
-                <span>Tokka-Bench 11-Script Compression Matrix</span>
-                <span class="badge badge-secondary badge-sm">11 Languages</span>
-              </h3>
-              <p class="text-xs text-base-content/70">
-                Evaluation across European (EN, DE, FR), Slavic (RU), CJK (ZH, JA), Semitic (AR), Indic (HI), Uralic (HU, FI), and Source Code.
-              </p>
-            </div>
-
-            <!-- Metric Switcher -->
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-semibold text-base-content/70">Metric:</span>
-              <div class="join">
-                <button class="btn btn-xs join-item btn-primary tokka-metric-btn" data-metric="bytes_per_token">Bytes / Token</button>
-                <button class="btn btn-xs join-item btn-outline tokka-metric-btn" data-metric="subword_fertility">Fertility</button>
-                <button class="btn btn-xs join-item btn-outline tokka-metric-btn" data-metric="continued_word_rate">Continued %</button>
-                <button class="btn btn-xs join-item btn-outline tokka-metric-btn" data-metric="unique_tokens">Unique Tokens</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Heatmap Table -->
-          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
-            <table class="table table-zebra table-xs w-full" id="tokka-heatmap-table">
-              <thead class="bg-base-200/80 font-bold uppercase text-center">
-                <tr>
-                  <th class="text-left">Architecture</th>
-                  <th>EN</th>
-                  <th>DE</th>
-                  <th>FR</th>
-                  <th>RU</th>
-                  <th>ZH</th>
-                  <th>JA</th>
-                  <th>AR</th>
-                  <th>HI</th>
-                  <th>HU</th>
-                  <th>FI</th>
-                  <th>Code</th>
-                  <th class="bg-primary/20 text-primary">Macro Avg</th>
-                </tr>
-              </thead>
-              <tbody id="tokka-heatmap-tbody">
-                <!-- Injected via JavaScript -->
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Grouped Chart for Tokka -->
-          <div class="pt-4 border-t border-base-content/10">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-base-content/70 mb-2">Multi-Language Performance Comparison</h4>
-            <div class="relative h-80 w-full">
-              <canvas id="tokka-bar-chart"></canvas>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 4: Intrinsic & Morphology Leaderboard -->
-    <div id="tab-intrinsic" class="space-y-6 hidden">
-      <div class="card bg-base-100 shadow-md border border-base-content/10">
-        <div class="card-body p-5 space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 class="card-title text-base font-bold">Intrinsic Structural & Information-Theoretic Metrics</h3>
-              <p class="text-xs text-base-content/70">
-                Detailed decomposition of Rényi entropy (orders 1.0, 2.0, 2.5), Gini vocabulary inequality, active token fraction, and Sigmorphon morphology alignment.
-              </p>
-            </div>
-            <input type="text" id="intrinsic-search" placeholder="Filter architecture..." class="input input-xs input-bordered w-48 rounded-lg" />
-          </div>
-
-          <!-- Full Intrinsic Table -->
-          <div class="overflow-x-auto custom-scroll rounded-xl border border-base-content/10">
-            <table class="table table-zebra table-xs w-full text-xs" id="intrinsic-full-table">
-              <thead class="bg-base-200/80 uppercase font-semibold">
-                <tr>
-                  <th>Architecture</th>
-                  <th>Vocab Size</th>
-                  <th>Bytes / Tok</th>
-                  <th>Fertility</th>
-                  <th>Rényi E_1.0</th>
-                  <th class="text-primary font-bold">Rényi E_2.0</th>
-                  <th>Rényi E_2.5</th>
-                  <th>Gini Coeff</th>
-                  <th>Active Frac</th>
-                  <th>Morph Prec</th>
-                  <th>Morph Rec</th>
-                  <th class="text-accent font-bold">Morph F1</th>
-                  <th>Ident F1</th>
-                  <th>Encode MB/s</th>
-                  <th>Decode MB/s</th>
-                </tr>
-              </thead>
-              <tbody id="intrinsic-tbody">
-                <!-- Injected via JavaScript -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 5: WP-BPE Deep Dive & Radar -->
-    <div id="tab-wpbpe" class="space-y-6 hidden">
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <!-- Multi-Axis Radar Chart -->
-        <div class="card bg-base-100 shadow-md border border-base-content/10">
-          <div class="card-body p-5 space-y-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="card-title text-base font-bold">6-Axis Normalized Radar Comparison</h3>
-                <p class="text-xs text-base-content/70">Normalized across [0, 1] for balanced multi-objective comparison.</p>
-              </div>
-            </div>
-
-            <!-- Model Selection Pills for Radar -->
-            <div class="flex flex-wrap gap-1.5" id="radar-toggles">
-              <!-- Dynamically populated checkboxes -->
-            </div>
-
-            <div class="relative h-80 sm:h-96 w-full">
-              <canvas id="radar-chart"></canvas>
-            </div>
-          </div>
+        <textarea id="playground-input" rows="3" placeholder="Type or paste text to tokenise…" aria-label="Text to tokenise"></textarea>
+        <div class="pg-bar">
+          <label class="field">Vocab size
+            <input type="range" id="playground-vocab-slider" min="260" max="600" value="400" />
+            <input type="number" id="playground-vocab-input" class="input num-input" min="260" max="1000" value="400" />
+          </label>
+          <button id="playground-tokenize-btn" class="btn-primary" onclick="runLiveTokenize()">Tokenise</button>
         </div>
 
-        <!-- WP-BPE Evolution & Theoretical Deep Dive -->
-        <div class="card bg-base-100 shadow-md border border-base-content/10">
-          <div class="card-body p-5 space-y-4">
-            <div>
-              <h3 class="card-title text-base font-bold flex items-center gap-2">
-                <span>The WP-BPE Algorithmic Family Evolution</span>
-                <span class="badge badge-accent badge-sm">Information Theory</span>
-              </h3>
-              <p class="text-xs text-base-content/70">
-                Mathematical evolution from uncalibrated Pointwise Mutual Information to calibrated, bounded, and length-penalized information gain objectives.
-              </p>
-            </div>
-
-            <div class="space-y-4 text-xs">
-              <!-- Gen 1: Base -->
-              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-1.5">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-sm text-base-content">1. WP-BPE Base (Uncalibrated PMI)</span>
-                  <span class="badge badge-error badge-xs">Vulnerable</span>
-                </div>
-                <div class="font-mono bg-base-300 p-2 rounded text-xs overflow-x-auto">
-                  $$\mathrm{score}(u, v) = \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$
-                </div>
-                <p class="text-base-content/80">
-                  <strong>Theoretical Flaw:</strong> If $u$ and $v$ appear together exactly once in the entire corpus, their joint probability is $1/N$ and denominator is $(1/N)^2$, yielding score $N$. This catastrophic singleton bias merges rare noise before frequent morphemes.
-                </p>
-              </div>
-
-              <!-- Gen 1: FT -->
-              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-1.5">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-sm text-base-content">2. WP-BPE FT (Frequency-Thresholded PMI)</span>
-                  <span class="badge badge-success badge-xs">Calibrated</span>
-                </div>
-                <div class="font-mono bg-base-300 p-2 rounded text-xs overflow-x-auto">
-                  $$\mathrm{score}(u, v) = \begin{cases} \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u)^\alpha \cdot \mathrm{freq}(v)^\alpha} & \text{if } \mathrm{freq}(uv) \ge \theta \\ -\infty & \text{otherwise} \end{cases}$$
-                </div>
-                <p class="text-base-content/80">
-                  <strong>The Fix:</strong> Imposes hard frequency cutoffs ($\theta \ge 2$) and alpha-smoothing ($0.75 \le \alpha \le 1.0$) to suppress low-support singletons. Achieves high morphological boundary precision.
-                </p>
-              </div>
-
-              <!-- Gen 1: PIG -->
-              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-1.5">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-sm text-base-content">3. WP-BPE PIG (Pointwise Information Gain)</span>
-                  <span class="badge badge-primary badge-xs">Optimal LM Quality</span>
-                </div>
-                <div class="font-mono bg-base-300 p-2 rounded text-xs overflow-x-auto">
-                  $$\mathrm{score}(u, v) = \mathrm{freq}(uv) \cdot \log_2 \frac{\mathrm{freq}(uv) \cdot N}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$
-                </div>
-                <p class="text-base-content/80">
-                  <strong>Information Theoretic Grounding:</strong> Weights PMI by candidate frequency, measuring net bits saved across the entire corpus. Dominates downstream proxy-LM bits-per-byte benchmarks.
-                </p>
-              </div>
-
-              <!-- Gen 2: SCP, NPMI, PPIG -->
-              <div class="p-3.5 rounded-xl bg-base-200 border border-base-content/10 space-y-2">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-sm text-accent">4. Next-Gen Objectives: SCP, NPMI, and Penalized PIG</span>
-                  <span class="badge badge-accent badge-xs">Gen 2</span>
-                </div>
-                <div class="grid grid-cols-1 gap-2 text-xs">
-                  <div class="p-2 rounded bg-base-300">
-                    <span class="font-bold">Symmetric Conditional Probability (SCP):</span>
-                    <div class="font-mono mt-0.5">$$\mathrm{SCP}(u, v) = \frac{P(uv)^2}{P(u)P(v)} = P(u \mid v) \cdot P(v \mid u)$$</div>
-                    <span class="text-base-content/70">Eliminates directional affix bias in agglutinative words.</span>
-                  </div>
-
-                  <div class="p-2 rounded bg-base-300">
-                    <span class="font-bold">Normalized PMI (NPMI):</span>
-                    <div class="font-mono mt-0.5">$$\mathrm{NPMI}(u, v) = \frac{\log \frac{P(uv)}{P(u)P(v)}}{-\log P(uv)} \in [-1, 1]$$</div>
-                    <span class="text-base-content/70">Self-normalizing in range [-1, +1] eliminating manual frequency tuning.</span>
-                  </div>
-
-                  <div class="p-2 rounded bg-base-300">
-                    <span class="font-bold">Penalized PIG (PPIG):</span>
-                    <div class="font-mono mt-0.5">$$\mathrm{score}(u,v) = \mathrm{freq}(uv) \cdot \mathrm{PMI}(u,v) \cdot (|u|+|v|)^{-\beta} \cdot \mathcal{H}(u,v)$$</div>
-                    <span class="text-base-content/70">Combines information gain with length penalty and Markov transition entropy.</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 6: Live Interactive Tokenizer Playground -->
-    <div id="tab-playground" class="space-y-6 hidden">
-      <div class="card bg-base-100 shadow-md border border-base-content/10">
-        <div class="card-body p-5 space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 class="card-title text-base font-bold flex items-center gap-2">
-                <span>Interactive Live Tokenizer Playground</span>
-                <span class="badge badge-accent badge-sm animate-pulse">Live Inference</span>
-              </h3>
-              <p class="text-xs text-base-content/70">
-                Observe side-by-side subword boundaries across all tokenization algorithms in real time. Hover any token pill to inspect its Token ID and byte length.
-              </p>
-            </div>
-
-            <!-- Presets -->
-            <div class="flex flex-wrap items-center gap-1.5">
-              <span class="text-xs font-semibold text-base-content/60">Presets:</span>
-              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('morphology')">English Morphology</button>
-              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('code')">Rust / Python Code</button>
-              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('multilingual')">Multilingual UTF-8</button>
-              <button class="btn btn-xs btn-outline" onclick="loadPlaygroundPreset('agglutinative')">Agglutinative</button>
-            </div>
-          </div>
-
-          <!-- Input Form -->
-          <div class="space-y-3">
-            <textarea id="playground-input" rows="3" class="textarea textarea-bordered w-full font-mono text-xs sm:text-sm focus:textarea-primary" placeholder="Type or paste any text to inspect live tokenization..."></textarea>
-
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="flex items-center gap-3">
-                <label class="text-xs font-semibold text-base-content/80 flex items-center gap-1.5">
-                  <span>Vocab Size:</span>
-                  <input type="number" id="playground-vocab-input" class="input input-xs input-bordered w-20 text-center font-mono" min="260" max="1000" value="400" />
-                </label>
-                <input type="range" id="playground-vocab-slider" min="260" max="600" value="400" class="range range-xs range-primary w-32 hidden sm:inline-block" />
-              </div>
-
-              <div class="flex items-center gap-2">
-                <button id="playground-tokenize-btn" class="btn btn-sm btn-primary gap-1.5" onclick="runLiveTokenize()">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-                  <span>Tokenize</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Tokenizer Output Container -->
-          <div id="playground-loading" class="hidden py-8 text-center text-xs text-base-content/60 space-y-2">
-            <span class="loading loading-spinner loading-md text-primary"></span>
-            <div>Tokenizing across 10+ algorithms...</div>
-          </div>
-
-          <div id="playground-results-container" class="space-y-4 pt-2">
-            <!-- Dynamically populated comparison cards -->
-          </div>
-        </div>
-      </div>
+        <div id="playground-loading" class="loading hidden">Tokenising…</div>
+        <div id="playground-results-container" class="tok-list"></div>
+      </section>
     </div>
 
   </main>
 
-  <!-- Footer -->
-  <footer class="border-t border-base-content/10 bg-base-100 py-6 mt-12 text-xs text-base-content/60">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="flex items-center space-x-2">
-        <span class="font-bold text-base-content">Tokenisers Lab</span>
-        <span>•</span>
-        <span>Executive Benchmark Intelligence Engine</span>
-      </div>
-      <div>
-        <span>Inspired by Artificial Analysis architecture matrices</span>
-      </div>
+  <footer>
+    <div class="wrap">
+      <span>Tokenisers Lab</span>
+      <span id="footer-updated"></span>
     </div>
   </footer>
 
-  <!-- Application Logic -->
   <script src="/static/app.js"></script>
 </body>
 </html>

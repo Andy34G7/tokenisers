@@ -1,6 +1,5 @@
 /**
- * Tokenisers Lab — Algorithmic Benchmark Intelligence Dashboard
- * Inspired by Artificial Analysis (artificialanalysis.ai)
+ * Tokenisers Lab — benchmark dashboard
  */
 
 // Global Application State
@@ -12,6 +11,7 @@ const state = {
   sortAscending: true,
   tokkaActiveMetric: 'bytes_per_token',
   selectedRadarModels: ['bpe_frequency', 'wp_bpe_ft', 'wp_bpe_pig', 'unigram_lm'],
+  radarSlots: {},
   charts: {
     quadrant: null,
     extrinsicBar: null,
@@ -19,23 +19,38 @@ const state = {
     tokkaBar: null,
     radar: null,
   },
-  theme: localStorage.getItem('tokenisers-theme') || 'dark',
+  theme: readStoredTheme(),
 };
 
-// Family Color Scheme
-const FAMILY_COLORS = {
-  'Information-Theoretic': { bg: 'rgba(56, 189, 248, 0.75)', border: '#38bdf8' },
-  'Information-Theoretic (Improved)': { bg: 'rgba(129, 140, 248, 0.85)', border: '#818cf8' },
-  'Frequency BPE': { bg: 'rgba(245, 158, 11, 0.75)', border: '#f59e0b' },
-  'EM / Probabilistic': { bg: 'rgba(236, 72, 153, 0.75)', border: '#ec4899' },
-  'Structural / Multi-Stage': { bg: 'rgba(16, 185, 129, 0.75)', border: '#10b981' },
-  'Morphology / Guided': { bg: 'rgba(139, 92, 246, 0.75)', border: '#8b5cf6' },
-  'Regularized BPE': { bg: 'rgba(100, 116, 139, 0.75)', border: '#64748b' },
-  'Custom': { bg: 'rgba(148, 163, 184, 0.75)', border: '#94a3b8' },
-};
+// Families map to fixed categorical slots (--fam-1 … --fam-8 in index.html)
+const FAMILIES = [
+  'Information-Theoretic',
+  'Frequency BPE',
+  'EM / Probabilistic',
+  'Structural / Multi-Stage',
+  'Morphology / Guided',
+  'Regularized BPE',
+  'Information-Theoretic (Improved)',
+  'Custom',
+];
+// Secondary encoding so families stay distinguishable without colour
+// Only filled styles: line-only ones (star, cross) vanish behind the surface ring
+const FAMILY_SHAPES = [['circle', 0], ['rect', 0], ['triangle', 0], ['rectRot', 0], ['triangle', 180], ['rectRounded', 45], ['rectRot', 0], ['circle', 0]];
+const DASHES = [[], [6, 3], [2, 3], [10, 3, 2, 3]];
+
+function familySlot(family) {
+  const i = FAMILIES.indexOf(family);
+  return i === -1 ? FAMILIES.length : i + 1;
+}
+
+function familyVar(family) {
+  return `var(--fam-${familySlot(family)})`;
+}
 
 function getFamilyColor(family) {
-  return FAMILY_COLORS[family] || FAMILY_COLORS['Custom'];
+  const hex = cssVar(`--fam-${familySlot(family)}`);
+  const [shape, rotation] = FAMILY_SHAPES[familySlot(family) - 1];
+  return { border: hex, bg: withAlpha(hex, 0.75), shape, rotation };
 }
 
 // Preset Texts for Live Playground
@@ -59,47 +74,149 @@ document.addEventListener('DOMContentLoaded', () => {
   loadPlaygroundPreset('morphology');
 });
 
+// Helpers
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function isNum(v) {
+  return v !== null && v !== undefined && !Number.isNaN(v);
+}
+
+const DASH = '<span class="muted">–</span>';
+
+function fmt(v, digits = 3) {
+  return isNum(v) ? v.toFixed(digits) : DASH;
+}
+
+function pct(v) {
+  return isNum(v) ? (v * 100).toFixed(1) + '%' : DASH;
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function withAlpha(hex, a) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+function famLabel(family) {
+  return `<span class="fam"><span class="dot" style="--c: ${familyVar(family)}"></span>${esc(family)}</span>`;
+}
+
 // Theme Management
+function readStoredTheme() {
+  try {
+    const t = localStorage.getItem('tokenisers-theme');
+    return t === 'light' || t === 'dark' ? t : null;
+  } catch {
+    return null;
+  }
+}
+
 function initTheme() {
-  document.documentElement.setAttribute('data-theme', state.theme);
+  if (state.theme) document.documentElement.setAttribute('data-theme', state.theme);
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (!state.theme) renderCharts();
+  });
+}
+
+function isDarkTheme() {
+  return state.theme ? state.theme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
 function setTheme(themeName) {
   state.theme = themeName;
-  localStorage.setItem('tokenisers-theme', themeName);
+  try {
+    localStorage.setItem('tokenisers-theme', themeName);
+  } catch {}
   document.documentElement.setAttribute('data-theme', themeName);
-  updateChartThemes();
+  renderCharts();
 }
 
-function isDarkTheme() {
-  return ['dark', 'night', 'dim', 'synthwave', 'halloween', 'forest', 'black', 'luxury', 'dracula'].includes(state.theme);
+// Shared Chart.js styling, read from the CSS tokens so both themes stay in sync
+function chartTheme() {
+  const t = {
+    text: cssVar('--text'),
+    text2: cssVar('--text-2'),
+    muted: cssVar('--muted'),
+    grid: cssVar('--grid'),
+    surface: cssVar('--surface'),
+    border: cssVar('--border-strong'),
+  };
+  Chart.defaults.font.family = cssVar('--sans');
+  Chart.defaults.font.size = 11.5;
+  Chart.defaults.color = t.muted;
+  Chart.defaults.borderColor = t.grid;
+  return t;
 }
 
-function updateChartThemes() {
-  const isDark = isDarkTheme();
-  const textColor = isDark ? '#cbd5e1' : '#334155';
-  const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
-
-  Object.values(state.charts).forEach((chart) => {
-    if (!chart) return;
-    if (chart.options.scales) {
-      Object.values(chart.options.scales).forEach((scale) => {
-        if (scale.ticks) scale.ticks.color = textColor;
-        if (scale.grid) scale.grid.color = gridColor;
-        if (scale.title) scale.title.color = textColor;
-      });
-    }
-    if (chart.options.plugins && chart.options.plugins.legend) {
-      chart.options.plugins.legend.labels.color = textColor;
-    }
-    chart.update();
-  });
+function tooltipStyle(t) {
+  return {
+    backgroundColor: t.surface,
+    titleColor: t.text,
+    bodyColor: t.text2,
+    borderColor: t.border,
+    borderWidth: 1,
+    padding: 10,
+    cornerRadius: 8,
+    boxPadding: 4,
+    usePointStyle: true,
+    titleFont: { weight: '600' },
+  };
 }
+
+function legendStyle(t, position = 'top') {
+  return {
+    position,
+    align: 'start',
+    labels: { color: t.text2, usePointStyle: true, pointStyleWidth: 8, boxHeight: 7, padding: 14, font: { size: 11.5 } },
+  };
+}
+
+function axis(t, title, extra = {}) {
+  return {
+    grid: { color: t.grid, drawTicks: false },
+    border: { display: false },
+    ticks: { color: t.muted, padding: 6 },
+    title: title ? { display: true, text: title, color: t.text2, font: { size: 11.5, weight: '500' } } : { display: false },
+    ...extra,
+  };
+}
+
+// 1-2-5 ticks only, so log axes don't crowd
+function logAxis(t) {
+  return { type: 'logarithmic', ticks: { color: t.muted, padding: 6, callback: (v) => ([0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].includes(v) ? v : '') } };
+}
+
+// Draws dashed median guides on the quadrant chart
+const medianLinesPlugin = {
+  id: 'medianLines',
+  beforeDatasetsDraw(chart, _args, opts) {
+    if (!opts || !isNum(opts.x) || !isNum(opts.y)) return;
+    const { ctx, chartArea: a, scales } = chart;
+    const x = scales.x.getPixelForValue(opts.x);
+    const y = scales.y.getPixelForValue(opts.y);
+    ctx.save();
+    ctx.strokeStyle = opts.color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x, a.top);
+    ctx.lineTo(x, a.bottom);
+    ctx.moveTo(a.left, y);
+    ctx.lineTo(a.right, y);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
 
 // Data Fetching
 async function fetchBenchmarkData() {
   const refreshBtn = document.getElementById('refresh-btn');
-  if (refreshBtn) refreshBtn.classList.add('loading');
+  if (refreshBtn) refreshBtn.classList.add('spinning');
 
   try {
     const res = await fetch('/api/benchmarks');
@@ -110,7 +227,7 @@ async function fetchBenchmarkData() {
   } catch (err) {
     console.error('Failed to load benchmark data:', err);
   } finally {
-    if (refreshBtn) refreshBtn.classList.remove('loading');
+    if (refreshBtn) refreshBtn.classList.remove('spinning');
   }
 }
 
@@ -118,52 +235,59 @@ async function fetchBenchmarkData() {
 function renderAllViews() {
   if (!state.data) return;
 
+  renderMeta();
   renderKPIs();
   renderLeaderboard();
+  renderIntrinsicTab();
+  renderCharts();
+
+  renderMath();
+}
+
+// KaTeX auto-render skips single-dollar inline math unless asked
+function renderMath() {
+  if (!window.renderMathInElement) return;
+  window.renderMathInElement(document.body, {
+    delimiters: [
+      { left: '$$', right: '$$', display: true },
+      { left: '$', right: '$', display: false },
+    ],
+    throwOnError: false,
+  });
+}
+
+function renderCharts() {
+  if (!state.data) return;
   renderQuadrantChart();
   renderExtrinsicTab();
   renderTokkaTab();
-  renderIntrinsicTab();
   renderRadarView();
+}
 
-  if (window.renderMathInElement) {
-    window.renderMathInElement(document.body);
-  }
+function renderMeta() {
+  const n = Object.keys(state.data.models).length;
+  const sub = document.getElementById('brand-sub');
+  if (sub) sub.textContent = `${n} subword tokenisers · 11 languages · downstream LM, compression & morphology`;
+  const foot = document.getElementById('footer-updated');
+  if (foot && state.data.timestamp) foot.textContent = `Data loaded ${new Date(state.data.timestamp).toLocaleString()}`;
 }
 
 // Tab Switching
 function switchTab(tabName) {
   state.activeTab = tabName;
 
-  // Toggle Tab Navigation Pill styling
   document.querySelectorAll('[id^="tab-nav-"]').forEach((btn) => {
-    btn.classList.remove('tab-active');
+    btn.setAttribute('aria-selected', String(btn.id === `tab-nav-${tabName}`));
   });
-  const activeNav = document.getElementById(`tab-nav-${tabName}`);
-  if (activeNav) activeNav.classList.add('tab-active');
 
-  // Toggle Tab content visibility
   const tabIds = ['overview', 'extrinsic', 'tokka', 'intrinsic', 'wpbpe', 'playground'];
   tabIds.forEach((id) => {
-    const el = document.getElementById(`tab-${id}`);
-    if (el) {
-      if (id === tabName) {
-        el.classList.remove('hidden');
-      } else {
-        el.classList.add('hidden');
-      }
-    }
+    document.getElementById(`tab-${id}`)?.classList.toggle('hidden', id !== tabName);
   });
 
-  // Re-size charts to adjust for tab layout display
+  // Charts rendered while hidden have zero size; resize once visible
   setTimeout(() => {
-    if (tabName === 'overview' && state.charts.quadrant) state.charts.quadrant.resize();
-    if (tabName === 'extrinsic') {
-      if (state.charts.extrinsicBar) state.charts.extrinsicBar.resize();
-      if (state.charts.extrinsicCurve) state.charts.extrinsicCurve.resize();
-    }
-    if (tabName === 'tokka' && state.charts.tokkaBar) state.charts.tokkaBar.resize();
-    if (tabName === 'wpbpe' && state.charts.radar) state.charts.radar.resize();
+    Object.values(state.charts).forEach((c) => c && c.resize());
   }, 50);
 }
 
@@ -172,109 +296,75 @@ function renderKPIs() {
   const sum = state.data.summary;
   if (!sum) return;
 
-  // BPB
-  const bpbValEl = document.getElementById('kpi-bpb-val');
-  const bpbModEl = document.getElementById('kpi-bpb-model');
-  if (bpbValEl) bpbValEl.textContent = sum.best_downstream_quality ? sum.best_downstream_quality.value.toFixed(3) : '--';
-  if (bpbModEl) bpbModEl.textContent = sum.best_downstream_quality ? sum.best_downstream_quality.display_name : 'Macro Val BPB';
+  const set = (id, kpi, format) => {
+    const valEl = document.getElementById(`kpi-${id}-val`);
+    const modEl = document.getElementById(`kpi-${id}-model`);
+    if (valEl) valEl.textContent = kpi ? format(kpi.value) : '–';
+    if (modEl) modEl.textContent = kpi ? kpi.display_name : '–';
+  };
 
-  // Rényi
-  const renyiValEl = document.getElementById('kpi-renyi-val');
-  const renyiModEl = document.getElementById('kpi-renyi-model');
-  if (renyiValEl) renyiValEl.textContent = sum.highest_information_efficiency ? sum.highest_information_efficiency.value.toFixed(3) : '--';
-  if (renyiModEl) renyiModEl.textContent = sum.highest_information_efficiency ? sum.highest_information_efficiency.display_name : 'Highest Rényi';
-
-  // Morph F1
-  const morphValEl = document.getElementById('kpi-morph-val');
-  const morphModEl = document.getElementById('kpi-morph-model');
-  if (morphValEl) morphValEl.textContent = sum.best_morphological_f1 ? (sum.best_morphological_f1.value * 100).toFixed(1) + '%' : '--';
-  if (morphModEl) morphModEl.textContent = sum.best_morphological_f1 ? sum.best_morphological_f1.display_name : 'Sigmorphon F1';
-
-  // Bytes per token
-  const bptValEl = document.getElementById('kpi-bpt-val');
-  const bptModEl = document.getElementById('kpi-bpt-model');
-  if (bptValEl) bptValEl.textContent = sum.best_compression ? sum.best_compression.value.toFixed(2) : '--';
-  if (bptModEl) bptModEl.textContent = sum.best_compression ? sum.best_compression.display_name : 'Bytes / Token';
-
-  // Speed
-  const speedValEl = document.getElementById('kpi-speed-val');
-  const speedModEl = document.getElementById('kpi-speed-model');
-  if (speedValEl) speedValEl.textContent = sum.fastest_throughput ? sum.fastest_throughput.value.toFixed(1) + ' MB/s' : '--';
-  if (speedModEl) speedModEl.textContent = sum.fastest_throughput ? sum.fastest_throughput.display_name : 'Decode Speed';
+  set('bpb', sum.best_downstream_quality, (v) => v.toFixed(3));
+  set('renyi', sum.highest_information_efficiency, (v) => v.toFixed(3));
+  set('morph', sum.best_morphological_f1, (v) => (v * 100).toFixed(1) + '%');
+  set('bpt', sum.best_compression, (v) => v.toFixed(2));
+  set('speed', sum.fastest_throughput, (v) => v.toFixed(1));
 }
 
-// 2. Executive Leaderboard Table
+// 2. Leaderboard Table
 function renderLeaderboard() {
   const tbody = document.getElementById('leaderboard-tbody');
   if (!tbody || !state.data) return;
 
   const models = Object.values(state.data.models);
-  const filtered = models.filter((m) => {
-    if (state.activeFamilyFilter === 'ALL') return true;
-    return m.family === state.activeFamilyFilter;
-  });
+  const filtered = models.filter((m) => state.activeFamilyFilter === 'ALL' || m.family === state.activeFamilyFilter);
 
   filtered.sort((a, b) => {
-    let valA = a[state.sortColumn];
-    let valB = b[state.sortColumn];
-    if (valA === null || valA === undefined) valA = state.sortAscending ? 999999 : -999999;
-    if (valB === null || valB === undefined) valB = state.sortAscending ? 999999 : -999999;
+    const valA = a[state.sortColumn];
+    const valB = b[state.sortColumn];
+    // Missing values always sink to the bottom
+    if (!isNum(valA)) return isNum(valB) ? 1 : 0;
+    if (!isNum(valB)) return -1;
     return state.sortAscending ? valA - valB : valB - valA;
   });
 
-  const countBadge = document.getElementById('leaderboard-count-badge');
-  if (countBadge) countBadge.textContent = `${filtered.length} Models`;
+  document.querySelectorAll('#leaderboard-table th.sortable').forEach((th) => {
+    if (th.dataset.sort === state.sortColumn) th.setAttribute('aria-sort', state.sortAscending ? 'ascending' : 'descending');
+    else th.removeAttribute('aria-sort');
+  });
 
-  // Find min/max for visual progress
-  const bpbs = filtered.map((m) => m.macro_val_bpb).filter((v) => v !== null);
+  const countBadge = document.getElementById('leaderboard-count-badge');
+  if (countBadge) countBadge.textContent = filtered.length;
+
+  const bpbs = filtered.map((m) => m.macro_val_bpb).filter(isNum);
   const minBpb = Math.min(...bpbs);
   const maxBpb = Math.max(...bpbs);
 
   tbody.innerHTML = filtered
     .map((m, idx) => {
-      const famColor = getFamilyColor(m.family);
-      const bpb = m.macro_val_bpb ? m.macro_val_bpb.toFixed(3) : '<span class="opacity-40">N/A</span>';
-      const bpt = m.bytes_per_token ? m.bytes_per_token.toFixed(3) : '<span class="opacity-40">N/A</span>';
-      const renyi = m.renyi_e_2_0 ? m.renyi_e_2_0.toFixed(3) : '<span class="opacity-40">N/A</span>';
-      const morph = m.morph_f1 ? (m.morph_f1 * 100).toFixed(1) + '%' : '<span class="opacity-40">N/A</span>';
-      const speed = m.decode_mb_per_sec ? m.decode_mb_per_sec.toFixed(1) : '<span class="opacity-40">N/A</span>';
-
-      // Bar percentage: inverted so lowest BPB has highest bar width
-      let barWidth = 0;
-      if (m.macro_val_bpb && maxBpb > minBpb) {
-        barWidth = Math.round(((maxBpb - m.macro_val_bpb) / (maxBpb - minBpb)) * 100);
-      }
+      // Bar inverted so the lowest BPB gets the longest bar
+      const barWidth = isNum(m.macro_val_bpb) && maxBpb > minBpb ? Math.round(((maxBpb - m.macro_val_bpb) / (maxBpb - minBpb)) * 100) : 100;
+      const gen2 = m.generation && m.generation.includes('Gen 2') ? ' <span class="tag">Gen 2</span>' : '';
 
       return `
-      <tr class="hover">
-        <td class="text-center font-mono font-bold text-base-content/60">${idx + 1}</td>
+      <tr>
+        <td class="rank num">${idx + 1}</td>
         <td>
-          <div class="font-bold flex items-center gap-1.5">
-            <span>${m.display_name}</span>
-            ${m.generation.includes('Gen 2') ? '<span class="badge badge-accent badge-xs">Gen 2</span>' : ''}
-          </div>
-          <div class="text-[10px] text-base-content/60 truncate max-w-xs">${m.description}</div>
+          <div class="model-name">${esc(m.display_name)}${gen2}</div>
+          <div class="model-desc" title="${esc(m.description)}">${esc(m.description)}</div>
         </td>
-        <td>
-          <span class="badge badge-xs" style="background-color: ${famColor.bg}; color: #fff; border-color: ${famColor.border};">${m.family}</span>
-        </td>
-        <td class="font-mono">
-          <div class="flex items-center gap-2">
-            <span class="font-bold text-primary">${bpb}</span>
-            ${m.macro_val_bpb ? `<div class="w-12 bg-base-300 rounded-full h-1.5 overflow-hidden"><div class="bg-primary h-1.5 rounded-full" style="width: ${barWidth}%"></div></div>` : ''}
+        <td>${famLabel(m.family)}</td>
+        <td class="r num">
+          <div class="bar-cell">
+            ${isNum(m.macro_val_bpb) ? `<span class="bar"><i style="width: ${Math.max(barWidth, 4)}%"></i></span>` : ''}
+            <span class="hl">${fmt(m.macro_val_bpb)}</span>
           </div>
         </td>
-        <td class="font-mono font-medium">${bpt}</td>
-        <td class="font-mono">${renyi}</td>
-        <td class="font-mono font-medium text-accent">${morph}</td>
-        <td class="font-mono text-base-content/80">${speed}</td>
-        <td class="text-center">
-          <button class="btn btn-ghost btn-xs text-primary" onclick="inspectModelInPlayground('${m.key}')" title="Test in Interactive Playground">
-            Play
-          </button>
-        </td>
-      </tr>
-    `;
+        <td class="r num">${fmt(m.bytes_per_token)}</td>
+        <td class="r num">${fmt(m.renyi_e_2_0)}</td>
+        <td class="r num">${pct(m.morph_f1)}</td>
+        <td class="r num">${fmt(m.decode_mb_per_sec, 1)}</td>
+        <td class="r"><button class="link-btn" onclick="inspectModelInPlayground('${esc(m.key)}')" title="Open in playground">Try →</button></td>
+      </tr>`;
     })
     .join('');
 }
@@ -290,7 +380,30 @@ function sortLeaderboard(col) {
   renderLeaderboard();
 }
 
-// 3. Artificial Analysis Quadrant Scatter Plot
+// 3. Trade-off Quadrant Scatter Plot
+const METRIC_LABELS = {
+  bytes_per_token: 'Bytes / token',
+  renyi_e_2_0: 'Rényi E₂',
+  morph_f1: 'Morphology F1',
+  decode_mb_per_sec: 'Decode MB/s',
+  macro_val_bpb: 'Macro val BPB',
+  english_bpb: 'English val BPB',
+  multilingual_bpb: 'Multilingual val BPB',
+  code_bpb: 'Code val BPB',
+};
+
+function quadrantValue(m, metric) {
+  if (metric === 'english_bpb') return m.val_domains?.english?.bpb;
+  if (metric === 'multilingual_bpb') return m.val_domains?.multilingual?.bpb;
+  if (metric === 'code_bpb') return m.val_domains?.code?.bpb;
+  return m[metric];
+}
+
+function median(vals) {
+  const s = [...vals].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+
 function renderQuadrantChart() {
   const canvas = document.getElementById('quadrant-chart');
   if (!canvas || !state.data) return;
@@ -298,179 +411,104 @@ function renderQuadrantChart() {
   const xMetric = document.getElementById('quadrant-x-select')?.value || 'bytes_per_token';
   const yMetric = document.getElementById('quadrant-y-select')?.value || 'macro_val_bpb';
 
-  const models = Object.values(state.data.models);
+  const points = Object.values(state.data.models)
+    .map((m) => ({ x: quadrantValue(m, xMetric), y: quadrantValue(m, yMetric), model: m }))
+    .filter((p) => isNum(p.x) && isNum(p.y));
 
-  // Extract points
-  const points = [];
-  const xVals = [];
-  const yVals = [];
-
-  models.forEach((m) => {
-    let xVal = m[xMetric];
-    let yVal = null;
-
-    if (yMetric === 'macro_val_bpb') {
-      yVal = m.macro_val_bpb;
-    } else if (yMetric === 'english_bpb') {
-      yVal = m.val_domains?.english?.bpb;
-    } else if (yMetric === 'multilingual_bpb') {
-      yVal = m.val_domains?.multilingual?.bpb;
-    } else if (yMetric === 'code_bpb') {
-      yVal = m.val_domains?.code?.bpb;
-    } else {
-      yVal = m[yMetric];
-    }
-
-    if (xVal !== null && xVal !== undefined && yVal !== null && yVal !== undefined) {
-      xVals.push(xVal);
-      yVals.push(yVal);
-      const famColor = getFamilyColor(m.family);
-      points.push({
-        x: xVal,
-        y: yVal,
-        model: m,
-        color: famColor.border,
-        bgColor: famColor.bg,
-      });
-    }
-  });
-
+  if (state.charts.quadrant) state.charts.quadrant.destroy();
   if (points.length === 0) return;
 
-  // Compute medians for quadrant lines
-  const sortedX = [...xVals].sort((a, b) => a - b);
-  const sortedY = [...yVals].sort((a, b) => a - b);
-  const medianX = sortedX[Math.floor(sortedX.length / 2)];
-  const medianY = sortedY[Math.floor(sortedY.length / 2)];
-
-  // Group by family for clean Chart.js datasets
-  const families = [...new Set(points.map((p) => p.model.family))];
+  const families = FAMILIES.filter((f) => points.some((p) => p.model.family === f));
   const datasets = families.map((fam) => {
-    const famPoints = points.filter((p) => p.model.family === fam);
     const color = getFamilyColor(fam);
     return {
       label: fam,
-      data: famPoints.map((p) => ({ x: p.x, y: p.y, model: p.model })),
-      backgroundColor: color.bg,
-      borderColor: color.border,
+      data: points.filter((p) => p.model.family === fam),
+      backgroundColor: color.border,
+      borderColor: cssVar('--surface'),
       borderWidth: 2,
+      pointStyle: color.shape,
+      rotation: color.rotation,
       pointRadius: 7,
-      pointHoverRadius: 10,
+      pointHoverRadius: 9,
     };
   });
 
-  const isDark = isDarkTheme();
-  const textColor = isDark ? '#cbd5e1' : '#334155';
-  const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
-
-  if (state.charts.quadrant) {
-    state.charts.quadrant.destroy();
-  }
-
+  const t = chartTheme();
+  // Invert BPB so lower (better) sits at the top
   const isYInverted = yMetric.includes('bpb');
 
   state.charts.quadrant = new Chart(canvas, {
     type: 'scatter',
     data: { datasets },
+    plugins: [medianLinesPlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          position: 'top',
-          labels: {
-            boxWidth: 10,
-            font: { size: 11 },
-            color: textColor,
-          },
-        },
+        legend: legendStyle(t),
+        medianLines: { x: median(points.map((p) => p.x)), y: median(points.map((p) => p.y)), color: t.border },
         tooltip: {
-          backgroundColor: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          titleColor: isDark ? '#f8fafc' : '#0f172a',
-          bodyColor: isDark ? '#cbd5e1' : '#334155',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-          borderWidth: 1,
-          padding: 10,
+          ...tooltipStyle(t),
           callbacks: {
-            label: (ctx) => {
-              const m = ctx.raw.model;
-              return [
-                `${m.display_name} (${m.family})`,
-                `X (${xMetric}): ${ctx.raw.x.toFixed(3)}`,
-                `Y (${yMetric}): ${ctx.raw.y.toFixed(3)}`,
-              ];
-            },
+            title: (items) => items[0].raw.model.display_name,
+            label: (ctx) => [
+              `${METRIC_LABELS[xMetric]}: ${ctx.raw.x.toFixed(3)}`,
+              `${METRIC_LABELS[yMetric]}: ${ctx.raw.y.toFixed(3)}`,
+            ],
+            footer: (items) => items[0].raw.model.family,
           },
+          footerColor: t.muted,
+          footerFont: { weight: '400', size: 11 },
         },
       },
       scales: {
-        x: {
-          title: {
-            display: true,
-            text: xMetric.replace(/_/g, ' ').toUpperCase(),
-            color: textColor,
-            font: { size: 11, weight: 'bold' },
-          },
-          ticks: { color: textColor, font: { size: 10 } },
-          grid: { color: gridColor },
-        },
-        y: {
-          reverse: isYInverted, // Invert Y-axis if BPB so lower BPB is visually at the top!
-          title: {
-            display: true,
-            text: yMetric.replace(/_/g, ' ').toUpperCase() + (isYInverted ? ' (Inverted: UP = Superior Quality)' : ''),
-            color: textColor,
-            font: { size: 11, weight: 'bold' },
-          },
-          ticks: { color: textColor, font: { size: 10 } },
-          grid: { color: gridColor },
-        },
+        x: axis(t, `${METRIC_LABELS[xMetric]}  →  better`),
+        y: axis(t, `${METRIC_LABELS[yMetric]}  →  better`, { reverse: isYInverted }),
       },
     },
   });
 }
 
-// 4. Extrinsic LM Validation BPB & Convergence Curves
+// 4. Downstream LM Validation BPB & Convergence Curves
 function renderExtrinsicTab() {
   if (!state.data) return;
 
-  const models = Object.values(state.data.models).filter((m) => m.macro_val_bpb !== null);
+  const models = Object.values(state.data.models)
+    .filter((m) => isNum(m.macro_val_bpb))
+    .sort((a, b) => a.macro_val_bpb - b.macro_val_bpb);
+  const t = chartTheme();
 
   // Grouped Bar Chart
   const barCanvas = document.getElementById('extrinsic-bar-chart');
   if (barCanvas) {
     if (state.charts.extrinsicBar) state.charts.extrinsicBar.destroy();
 
-    const labels = models.map((m) => m.display_name.replace('WP-BPE ', 'WP-'));
-    const englishBpb = models.map((m) => m.val_domains?.english?.bpb || 0);
-    const multiBpb = models.map((m) => m.val_domains?.multilingual?.bpb || 0);
-    const codeBpb = models.map((m) => m.val_domains?.code?.bpb || 0);
-    const macroBpb = models.map((m) => m.macro_val_bpb || 0);
-
-    const isDark = isDarkTheme();
-    const textColor = isDark ? '#cbd5e1' : '#334155';
-    const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+    const bar = (label, data, color) => ({ label, data, backgroundColor: color, borderRadius: 2, borderSkipped: 'start', categoryPercentage: 0.75, barPercentage: 0.9 });
 
     state.charts.extrinsicBar = new Chart(barCanvas, {
       type: 'bar',
       data: {
-        labels,
+        labels: models.map((m) => m.display_name.replace('WP-BPE ', 'WP-')),
         datasets: [
-          { label: 'English BPB', data: englishBpb, backgroundColor: '#38bdf8' },
-          { label: 'Multilingual BPB', data: multiBpb, backgroundColor: '#a855f7' },
-          { label: 'Code BPB', data: codeBpb, backgroundColor: '#10b981' },
-          { label: 'Macro Avg BPB', data: macroBpb, backgroundColor: '#f59e0b' },
+          bar('English', models.map((m) => m.val_domains?.english?.bpb ?? null), cssVar('--fam-1')),
+          bar('Multilingual', models.map((m) => m.val_domains?.multilingual?.bpb ?? null), cssVar('--fam-2')),
+          bar('Code', models.map((m) => m.val_domains?.code?.bpb ?? null), cssVar('--fam-3')),
+          bar('Macro avg', models.map((m) => m.macro_val_bpb), cssVar('--fam-8')),
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        indexAxis: 'y',
+        interaction: { mode: 'index', axis: 'y', intersect: false },
         plugins: {
-          legend: { position: 'top', labels: { color: textColor, font: { size: 10 } } },
+          legend: legendStyle(t),
+          tooltip: { ...tooltipStyle(t), callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.x?.toFixed(3)}` } },
         },
         scales: {
-          x: { ticks: { color: textColor, font: { size: 9 }, maxRotation: 45 }, grid: { display: false } },
-          y: { title: { display: true, text: 'Bits-Per-Byte (BPB)', color: textColor }, ticks: { color: textColor }, grid: { color: gridColor } },
+          x: axis(t, 'Bits per byte'),
+          y: axis(t, null, { grid: { display: false }, ticks: { color: t.text2, font: { size: 11 } } }),
         },
       },
     });
@@ -481,25 +519,25 @@ function renderExtrinsicTab() {
   if (curveCanvas) {
     if (state.charts.extrinsicCurve) state.charts.extrinsicCurve.destroy();
 
-    // Select subset of distinct models for clean visualization
-    const curveModels = models.filter((m) => m.curve && m.curve.length > 0);
-    const datasets = curveModels.map((m) => {
-      const color = getFamilyColor(m.family);
-      return {
-        label: m.display_name,
-        data: m.curve.map((pt) => ({ x: pt.step, y: pt.train_bpb })),
-        borderColor: color.border,
-        backgroundColor: color.bg,
-        borderWidth: 1.5,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        tension: 0.2,
-      };
-    });
-
-    const isDark = isDarkTheme();
-    const textColor = isDark ? '#cbd5e1' : '#334155';
-    const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+    // Same family shares a hue; dash pattern separates members within it
+    const seen = {};
+    const datasets = models
+      .filter((m) => m.curve && m.curve.length > 0)
+      .map((m) => {
+        const color = getFamilyColor(m.family);
+        const n = (seen[m.family] = (seen[m.family] ?? -1) + 1);
+        return {
+          label: m.display_name,
+          data: m.curve.map((pt) => ({ x: pt.bytes_consumed / 1000, y: pt.train_bpb, step: pt.step })),
+          borderColor: color.border,
+          backgroundColor: color.border,
+          borderDash: DASHES[n % DASHES.length],
+          borderWidth: 1.75,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.25,
+        };
+      });
 
     state.charts.extrinsicCurve = new Chart(curveCanvas, {
       type: 'line',
@@ -507,17 +545,15 @@ function renderExtrinsicTab() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
         plugins: {
-          legend: { position: 'top', labels: { color: textColor, boxWidth: 8, font: { size: 9 } } },
+          legend: { ...legendStyle(t, 'bottom'), labels: { ...legendStyle(t).labels, usePointStyle: false, boxWidth: 14, boxHeight: 2, padding: 8, font: { size: 10.5 } } },
+          tooltip: { ...tooltipStyle(t), usePointStyle: false, callbacks: { title: (i) => `${i[0].parsed.x.toFixed(0)} KB · step ${i[0].raw.step}`, label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(3)}` } },
         },
         scales: {
-          x: { title: { display: true, text: 'Training Steps (Ingested Token Stream)', color: textColor, font: { size: 10 } }, ticks: { color: textColor }, grid: { color: gridColor } },
-          y: {
-            title: { display: true, text: 'Train BPB', color: textColor, font: { size: 10 } },
-            ticks: { color: textColor },
-            grid: { color: gridColor },
-            max: 20, // Clip initial spike for readable trajectory
-          },
+          x: axis(t, 'Bytes ingested (KB)', { type: 'linear', min: 0 }),
+          // Log scale keeps the ~100 BPB first step and the ~2 BPB tail both readable
+          y: axis(t, 'Train BPB (log)', logAxis(t)),
         },
       },
     });
@@ -530,32 +566,32 @@ function renderExtrinsicTab() {
     const baseMacroBpb = baseModel ? baseModel.macro_val_bpb : 2.738;
 
     tbody.innerHTML = models
-      .sort((a, b) => a.macro_val_bpb - b.macro_val_bpb)
       .map((m) => {
-        const en = m.val_domains?.english?.bpb?.toFixed(3) || 'N/A';
-        const multi = m.val_domains?.multilingual?.bpb?.toFixed(3) || 'N/A';
-        const code = m.val_domains?.code?.bpb?.toFixed(3) || 'N/A';
-        const macro = m.macro_val_bpb ? m.macro_val_bpb.toFixed(3) : 'N/A';
-        const delta = m.macro_val_bpb ? (m.macro_val_bpb - baseMacroBpb).toFixed(3) : 'N/A';
-        const deltaClass = parseFloat(delta) <= 0 ? 'text-success font-bold' : 'text-error';
+        const delta = m.macro_val_bpb - baseMacroBpb;
+        const isBase = m.key === 'bpe_frequency';
+        const deltaHtml = isBase
+          ? '<span class="muted">baseline</span>'
+          : `<span class="${delta <= 0 ? 'delta-good' : 'delta-bad'}">${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(3)}</span>`;
 
         return `
-        <tr class="hover">
-          <td class="font-bold">${m.display_name}</td>
-          <td><span class="badge badge-xs badge-outline">${m.family}</span></td>
-          <td class="font-mono">${en}</td>
-          <td class="font-mono">${multi}</td>
-          <td class="font-mono">${code}</td>
-          <td class="font-mono font-bold text-primary">${macro}</td>
-          <td class="font-mono ${deltaClass}">${delta > 0 ? '+' + delta : delta}</td>
-        </tr>
-      `;
+        <tr>
+          <td class="model-name">${esc(m.display_name)}</td>
+          <td>${famLabel(m.family)}</td>
+          <td class="r num">${fmt(m.val_domains?.english?.bpb)}</td>
+          <td class="r num">${fmt(m.val_domains?.multilingual?.bpb)}</td>
+          <td class="r num">${fmt(m.val_domains?.code?.bpb)}</td>
+          <td class="r num hl">${fmt(m.macro_val_bpb)}</td>
+          <td class="r num">${deltaHtml}</td>
+        </tr>`;
       })
       .join('');
   }
 }
 
 // 5. Tokka-Bench 11-Language Heatmap & Grouped Chart
+// +1: higher is better, -1: lower is better, 0: neutral magnitude
+const TOKKA_DIRECTION = { bytes_per_token: 1, subword_fertility: -1, continued_word_rate: -1, unique_tokens: 0 };
+
 function renderTokkaTab() {
   if (!state.data || !state.data.tokka_matrix) return;
 
@@ -563,86 +599,97 @@ function renderTokkaTab() {
   const models = Object.keys(matrix);
   const langs = ['en', 'de', 'fr', 'ru', 'zh', 'ja', 'ar', 'hi', 'hu', 'fi', 'code'];
   const metric = state.tokkaActiveMetric;
+  const dir = TOKKA_DIRECTION[metric] ?? 0;
 
-  // Heatmap Table
+  const lo = document.getElementById('tokka-scale-lo');
+  const hi = document.getElementById('tokka-scale-hi');
+  if (lo) lo.textContent = dir === 0 ? 'fewer' : 'worse';
+  if (hi) hi.textContent = dir === 0 ? 'more' : 'better';
+
+  const display = (v) => (isNum(v) ? (metric === 'continued_word_rate' ? v.toFixed(1) + '%' : metric === 'unique_tokens' ? String(Math.round(v)) : v.toFixed(2)) : '–');
+
+  // Shade by rank within each column, so outliers (e.g. CJK) don't wash out the rest
+  const cols = [...langs, 'macro_avg'];
+  const sorted = {};
+  cols.forEach((c) => {
+    sorted[c] = models.map((k) => matrix[k]?.[c]?.[metric]).filter(isNum).sort((a, b) => a - b);
+  });
+  const shade = (v, c) => {
+    if (!isNum(v)) return '';
+    const vals = sorted[c];
+    const lo = vals.indexOf(v);
+    const hi = vals.lastIndexOf(v);
+    let s = vals.length > 1 ? (lo + hi) / 2 / (vals.length - 1) : 1;
+    if (dir === -1) s = 1 - s;
+    return `background-color: color-mix(in srgb, var(--accent) ${Math.round(4 + s * 51)}%, var(--surface));`;
+  };
+
   const tbody = document.getElementById('tokka-heatmap-tbody');
   if (tbody) {
     tbody.innerHTML = models
       .map((mKey) => {
         const meta = state.data.models[mKey] || {};
         const row = matrix[mKey];
-        const macroVal = row?.macro_avg?.[metric];
-
         const cells = langs
           .map((lang) => {
             const v = row?.[lang]?.[metric];
-            const displayVal = v !== undefined && v !== null ? (metric === 'continued_word_rate' ? v.toFixed(1) + '%' : v.toFixed(2)) : '--';
-            return `<td class="heatmap-cell font-mono text-center">${displayVal}</td>`;
+            return `<td class="cell" style="${shade(v, lang)}">${display(v)}</td>`;
           })
           .join('');
-
-        const macroDisplay = macroVal !== undefined && macroVal !== null ? (metric === 'continued_word_rate' ? macroVal.toFixed(1) + '%' : macroVal.toFixed(2)) : '--';
+        const macroVal = row?.macro_avg?.[metric];
 
         return `
-        <tr class="hover">
-          <td class="font-bold">${meta.display_name || mKey}</td>
+        <tr>
+          <td class="model-name">${esc(meta.display_name || mKey)}</td>
           ${cells}
-          <td class="heatmap-cell font-mono font-bold text-primary bg-primary/10 text-center">${macroDisplay}</td>
-        </tr>
-      `;
+          <td class="cell avg" style="${shade(macroVal, 'macro_avg')}">${display(macroVal)}</td>
+        </tr>`;
       })
       .join('');
   }
 
-  // Bar Chart
+  // Bar Chart: series are tokenisers, so each gets its own categorical slot
   const barCanvas = document.getElementById('tokka-bar-chart');
   if (barCanvas) {
     if (state.charts.tokkaBar) state.charts.tokkaBar.destroy();
+    const t = chartTheme();
 
-    const isDark = isDarkTheme();
-    const textColor = isDark ? '#cbd5e1' : '#334155';
-    const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
-
-    const datasets = models.slice(0, 6).map((mKey) => {
+    const datasets = models.slice(0, 6).map((mKey, i) => {
       const meta = state.data.models[mKey] || {};
-      const color = getFamilyColor(meta.family);
-      const vals = langs.map((lang) => matrix[mKey]?.[lang]?.[metric] || 0);
-
       return {
         label: meta.display_name || mKey,
-        data: vals,
-        backgroundColor: color.bg,
-        borderColor: color.border,
-        borderWidth: 1,
+        data: langs.map((lang) => matrix[mKey]?.[lang]?.[metric] ?? null),
+        backgroundColor: cssVar(`--fam-${i + 1}`),
+        borderRadius: 2,
+        borderSkipped: 'start',
+        categoryPercentage: 0.8,
+        barPercentage: 0.9,
       };
     });
 
+    // Some scripts are orders of magnitude apart; switch to log so the rest stay visible
+    const all = datasets.flatMap((d) => d.data).filter((v) => isNum(v) && v > 0);
+    const useLog = Math.max(...all) / Math.min(...all) > 20;
+    const metricLabel = document.querySelector(`.tokka-metric-btn[data-metric="${metric}"]`)?.textContent || metric;
+
     state.charts.tokkaBar = new Chart(barCanvas, {
       type: 'bar',
-      data: {
-        labels: langs.map((l) => l.toUpperCase()),
-        datasets,
-      },
+      data: { labels: langs.map((l) => (l === 'code' ? 'Code' : l.toUpperCase())), datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top', labels: { color: textColor, boxWidth: 10, font: { size: 10 } } },
-        },
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: legendStyle(t), tooltip: tooltipStyle(t) },
         scales: {
-          x: { ticks: { color: textColor }, grid: { display: false } },
-          y: {
-            title: { display: true, text: metric.replace(/_/g, ' ').toUpperCase(), color: textColor, font: { size: 10 } },
-            ticks: { color: textColor },
-            grid: { color: gridColor },
-          },
+          x: axis(t, null, { grid: { display: false } }),
+          y: axis(t, useLog ? `${metricLabel} (log)` : metricLabel, useLog ? logAxis(t) : {}),
         },
       },
     });
   }
 }
 
-// 6. Intrinsic & Morphology Leaderboard Tab
+// 6. Intrinsic & Morphology Table
 function renderIntrinsicTab() {
   if (!state.data) return;
 
@@ -650,37 +697,49 @@ function renderIntrinsicTab() {
   if (!tbody) return;
 
   const searchTerm = (document.getElementById('intrinsic-search')?.value || '').toLowerCase();
-  const models = Object.values(state.data.models).filter((m) => {
-    return m.display_name.toLowerCase().includes(searchTerm) || m.family.toLowerCase().includes(searchTerm);
-  });
+  const models = Object.values(state.data.models).filter((m) => m.display_name.toLowerCase().includes(searchTerm) || m.family.toLowerCase().includes(searchTerm));
+
+  if (models.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="15" class="muted" style="text-align: center; padding: 24px">No tokenisers match.</td></tr>';
+    return;
+  }
 
   tbody.innerHTML = models
     .map((m) => {
       const intr = m.intrinsic || {};
       return `
-      <tr class="hover">
-        <td class="font-bold">${m.display_name}</td>
-        <td class="font-mono text-center">${intr.vocab_size || '--'}</td>
-        <td class="font-mono">${intr.bytes_per_token ? intr.bytes_per_token.toFixed(3) : '--'}</td>
-        <td class="font-mono">${intr.fertility ? intr.fertility.toFixed(2) : '--'}</td>
-        <td class="font-mono">${intr.renyi_e_1_0 ? intr.renyi_e_1_0.toFixed(3) : '--'}</td>
-        <td class="font-mono font-bold text-primary">${intr.renyi_e_2_0 ? intr.renyi_e_2_0.toFixed(3) : '--'}</td>
-        <td class="font-mono">${intr.renyi_e_2_5 ? intr.renyi_e_2_5.toFixed(3) : '--'}</td>
-        <td class="font-mono">${intr.gini_coefficient ? intr.gini_coefficient.toFixed(3) : '--'}</td>
-        <td class="font-mono">${intr.active_fraction ? (intr.active_fraction * 100).toFixed(1) + '%' : '--'}</td>
-        <td class="font-mono">${intr.morph_precision ? (intr.morph_precision * 100).toFixed(1) + '%' : '--'}</td>
-        <td class="font-mono">${intr.morph_recall ? (intr.morph_recall * 100).toFixed(1) + '%' : '--'}</td>
-        <td class="font-mono font-bold text-accent">${intr.morph_f1 ? (intr.morph_f1 * 100).toFixed(1) + '%' : '--'}</td>
-        <td class="font-mono">${intr.identifier_f1 ? (intr.identifier_f1 * 100).toFixed(1) + '%' : '--'}</td>
-        <td class="font-mono">${intr.encode_mb_per_sec ? intr.encode_mb_per_sec.toFixed(2) : '--'}</td>
-        <td class="font-mono font-bold text-success">${intr.decode_mb_per_sec ? intr.decode_mb_per_sec.toFixed(1) : '--'}</td>
-      </tr>
-    `;
+      <tr>
+        <td><span class="fam" style="color: var(--text)"><span class="dot" style="--c: ${familyVar(m.family)}"></span><span class="model-name">${esc(m.display_name)}</span></span></td>
+        <td class="r num">${intr.vocab_size ?? DASH}</td>
+        <td class="r num">${fmt(intr.bytes_per_token)}</td>
+        <td class="r num">${fmt(intr.fertility, 2)}</td>
+        <td class="r num">${fmt(intr.renyi_e_1_0)}</td>
+        <td class="r num hl">${fmt(intr.renyi_e_2_0)}</td>
+        <td class="r num">${fmt(intr.renyi_e_2_5)}</td>
+        <td class="r num">${fmt(intr.gini_coefficient)}</td>
+        <td class="r num">${pct(intr.active_fraction)}</td>
+        <td class="r num hl">${pct(intr.morph_f1)}</td>
+        <td class="r num">${pct(intr.morph_precision)}</td>
+        <td class="r num">${pct(intr.morph_recall)}</td>
+        <td class="r num">${pct(intr.identifier_f1)}</td>
+        <td class="r num">${fmt(intr.encode_mb_per_sec, 2)}</td>
+        <td class="r num">${fmt(intr.decode_mb_per_sec, 1)}</td>
+      </tr>`;
     })
     .join('');
 }
 
-// 7. Multi-Axis Radar View & WP-BPE Deep Dive
+// 7. Multi-Axis Radar View
+// Each selected model keeps its slot until deselected, so toggling never repaints the others
+function radarSlot(mKey) {
+  if (!state.radarSlots[mKey]) {
+    const used = new Set(Object.values(state.radarSlots));
+    const free = [1, 2, 3, 4, 5, 6, 7].find((s) => !used.has(s));
+    state.radarSlots[mKey] = free || 8;
+  }
+  return state.radarSlots[mKey];
+}
+
 function renderRadarView() {
   if (!state.data) return;
 
@@ -689,43 +748,35 @@ function renderRadarView() {
   if (!canvas || !togglesContainer) return;
 
   const allModels = Object.values(state.data.models);
+  state.selectedRadarModels.forEach(radarSlot);
 
-  // Render toggle pill buttons
   togglesContainer.innerHTML = allModels
     .map((m) => {
-      const isSelected = state.selectedRadarModels.includes(m.key);
-      const btnClass = isSelected ? 'btn-primary' : 'btn-outline';
-      return `
-      <button class="btn btn-xs ${btnClass}" onclick="toggleRadarModel('${m.key}')">
-        ${m.display_name}
-      </button>
-    `;
+      const on = state.selectedRadarModels.includes(m.key);
+      const dot = on ? `<span class="dot" style="--c: var(--fam-${state.radarSlots[m.key]})"></span>` : '';
+      return `<button class="chip" aria-pressed="${on}" onclick="toggleRadarModel('${esc(m.key)}')">${dot}${esc(m.display_name)}</button>`;
     })
     .join('');
 
   if (state.charts.radar) state.charts.radar.destroy();
 
-  // Metrics to normalize for 6-axis radar:
-  // 1. Compression: bytes_per_token
-  // 2. Info Efficiency: renyi_e_2_0
-  // 3. Morphology: morph_f1
-  // 4. Identifiers: identifier_f1
-  // 5. Downstream Quality: 1 / macro_val_bpb
-  // 6. Decode Speed: decode_mb_per_sec
   const getMinMax = (extractor) => {
-    const vals = allModels.map(extractor).filter((v) => v !== null && v !== undefined && !isNaN(v));
+    const vals = allModels.map(extractor).filter(isNum);
     return { min: Math.min(...vals), max: Math.max(...vals) };
   };
 
-  const bptMM = getMinMax((m) => m.bytes_per_token);
-  const renyiMM = getMinMax((m) => m.renyi_e_2_0);
-  const morphMM = getMinMax((m) => m.morph_f1);
-  const identMM = getMinMax((m) => m.identifier_f1);
-  const bpbMM = getMinMax((m) => (m.macro_val_bpb ? 1 / m.macro_val_bpb : null));
-  const speedMM = getMinMax((m) => m.decode_mb_per_sec);
+  const axes = [
+    (m) => m.bytes_per_token,
+    (m) => m.renyi_e_2_0,
+    (m) => m.morph_f1,
+    (m) => m.identifier_f1,
+    (m) => (m.macro_val_bpb ? 1 / m.macro_val_bpb : null),
+    (m) => m.decode_mb_per_sec,
+  ];
+  const ranges = axes.map(getMinMax);
 
   const normalize = (val, mm) => {
-    if (val === null || val === undefined || isNaN(val)) return 0.2;
+    if (!isNum(val)) return 0.2;
     if (mm.max === mm.min) return 1.0;
     return Math.max(0.1, Math.min(1.0, (val - mm.min) / (mm.max - mm.min)));
   };
@@ -734,60 +785,42 @@ function renderRadarView() {
     .map((mKey) => {
       const m = state.data.models[mKey];
       if (!m) return null;
-      const color = getFamilyColor(m.family);
-
-      const normData = [
-        normalize(m.bytes_per_token, bptMM),
-        normalize(m.renyi_e_2_0, renyiMM),
-        normalize(m.morph_f1, morphMM),
-        normalize(m.identifier_f1, identMM),
-        normalize(m.macro_val_bpb ? 1 / m.macro_val_bpb : null, bpbMM),
-        normalize(m.decode_mb_per_sec, speedMM),
-      ];
-
+      const hex = cssVar(`--fam-${state.radarSlots[mKey]}`);
       return {
         label: m.display_name,
-        data: normData,
-        backgroundColor: color.bg.replace('0.75', '0.25'),
-        borderColor: color.border,
+        data: axes.map((f, i) => normalize(f(m), ranges[i])),
+        backgroundColor: withAlpha(hex, 0.12),
+        borderColor: hex,
         borderWidth: 2,
-        pointBackgroundColor: color.border,
+        pointBackgroundColor: hex,
         pointRadius: 3,
       };
     })
     .filter(Boolean);
 
-  const isDark = isDarkTheme();
-  const textColor = isDark ? '#cbd5e1' : '#334155';
-  const gridColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
+  const t = chartTheme();
 
   state.charts.radar = new Chart(canvas, {
     type: 'radar',
     data: {
-      labels: [
-        'Compression (Bytes/Tok)',
-        'Entropy (Rényi E_2.0)',
-        'Morphology F1',
-        'Identifier F1',
-        'Downstream (1/BPB)',
-        'Throughput (MB/s)',
-      ],
+      labels: ['Compression', 'Rényi E₂', 'Morphology F1', 'Identifier F1', 'Downstream (1/BPB)', 'Decode speed'],
       datasets,
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'top', labels: { color: textColor, font: { size: 10 } } },
+        legend: legendStyle(t, 'bottom'),
+        tooltip: { ...tooltipStyle(t), callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.r.toFixed(2)}` } },
       },
       scales: {
         r: {
           min: 0,
           max: 1.0,
-          ticks: { display: false },
-          pointLabels: { color: textColor, font: { size: 10, weight: 'bold' } },
-          grid: { color: gridColor },
-          angleLines: { color: gridColor },
+          ticks: { display: false, stepSize: 0.25 },
+          pointLabels: { color: t.text2, font: { size: 11.5, weight: '500' } },
+          grid: { color: t.grid },
+          angleLines: { color: t.grid },
         },
       },
     },
@@ -798,6 +831,7 @@ function toggleRadarModel(mKey) {
   if (state.selectedRadarModels.includes(mKey)) {
     if (state.selectedRadarModels.length > 1) {
       state.selectedRadarModels = state.selectedRadarModels.filter((k) => k !== mKey);
+      delete state.radarSlots[mKey];
     }
   } else {
     state.selectedRadarModels.push(mKey);
@@ -816,22 +850,13 @@ function loadPlaygroundPreset(type) {
 
 function inspectModelInPlayground(modelKey) {
   switchTab('playground');
-  const targetCard = document.getElementById(`tok-card-${modelKey}`);
-  if (targetCard) {
-    targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    targetCard.classList.add('ring-2', 'ring-primary');
-    setTimeout(() => targetCard.classList.remove('ring-2', 'ring-primary'), 2000);
+  const target = document.getElementById(`tok-card-${modelKey}`);
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('flash');
+    setTimeout(() => target.classList.remove('flash'), 1600);
   }
 }
-
-const PILL_COLOR_STYLES = [
-  'bg-blue-500/15 border-blue-500/30 text-blue-300',
-  'bg-emerald-500/15 border-emerald-500/30 text-emerald-300',
-  'bg-amber-500/15 border-amber-500/30 text-amber-300',
-  'bg-purple-500/15 border-purple-500/30 text-purple-300',
-  'bg-pink-500/15 border-pink-500/30 text-pink-300',
-  'bg-cyan-500/15 border-cyan-500/30 text-cyan-300',
-];
 
 async function runLiveTokenize() {
   const inputEl = document.getElementById('playground-input');
@@ -860,11 +885,7 @@ async function runLiveTokenize() {
   } catch (err) {
     console.error('Tokenize error:', err);
     if (resultsContainer) {
-      resultsContainer.innerHTML = `
-        <div class="alert alert-error text-xs">
-          <span>Failed to execute tokenization: ${err.message}</span>
-        </div>
-      `;
+      resultsContainer.innerHTML = `<div class="error">Tokenisation failed: ${esc(err.message)}</div>`;
     }
   } finally {
     if (loadingEl) loadingEl.classList.add('hidden');
@@ -877,70 +898,46 @@ function renderPlaygroundResults(results, rawBytes) {
   if (!container) return;
 
   if (!results || results.length === 0) {
-    container.innerHTML = '<div class="text-xs text-base-content/60">No tokenizer results available.</div>';
+    container.innerHTML = '<div class="loading">No tokeniser results available.</div>';
     return;
   }
 
   container.innerHTML = results
     .map((res) => {
-      const famColor = getFamilyColor(res.family);
-
-      // Render token pills
+      // Make whitespace visible without changing the token's width much
       const pillHtml = res.token_details
-        .map((tok, idx) => {
-          const colorClass = PILL_COLOR_STYLES[idx % PILL_COLOR_STYLES.length];
-          // Visual treatment for spaces
-          const displayPiece = tok.piece
-            .replace(/ /g, '<span class="token-space">␣</span>')
-            .replace(/\n/g, '<span class="token-space">↵\\n</span>');
-
-          const tooltip = `Token ID: #${tok.id} | ${tok.byte_len} bytes`;
-
-          return `
-          <span class="token-pill ${colorClass}" title="${tooltip}" data-token-id="${tok.id}">
-            <span>${displayPiece}</span>
-          </span>
-        `;
+        .map((tok) => {
+          const piece = esc(tok.piece).replace(/ /g, '<span class="ws">␣</span>').replace(/\n/g, '<span class="ws">↵</span>');
+          return `<span class="tk" title="ID ${tok.id} · ${tok.byte_len} bytes">${piece}</span>`;
         })
         .join('');
 
       return `
-      <div id="tok-card-${res.name}" class="card bg-base-200/60 border border-base-content/10 shadow-sm transition-all duration-300">
-        <div class="card-body p-4 space-y-2.5">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-base-content/5 pb-2">
-            <div class="flex items-center space-x-2">
-              <span class="font-bold text-sm text-base-content">${res.display_name}</span>
-              <span class="badge badge-xs" style="background-color: ${famColor.bg}; color: #fff; border-color: ${famColor.border};">${res.family}</span>
-            </div>
-            <div class="flex items-center space-x-2 text-xs font-mono">
-              <span class="badge badge-sm badge-neutral"><strong>${res.num_tokens}</strong>&nbsp;tokens</span>
-              <span class="badge badge-sm badge-outline"><strong>${res.bytes_per_token}</strong>&nbsp;B/tok</span>
-              <span class="badge badge-sm badge-ghost text-base-content/60">${res.encode_ms} ms</span>
-            </div>
+      <div id="tok-card-${esc(res.name)}" class="tok-row">
+        <div class="tok-head">
+          <div class="left">
+            <span class="model-name">${esc(res.display_name)}</span>
+            ${famLabel(res.family)}
           </div>
-          <div class="p-2.5 rounded-lg bg-base-100/90 border border-base-content/5 leading-relaxed overflow-x-auto custom-scroll">
-            ${pillHtml}
+          <div class="tok-stats">
+            <span><b>${esc(res.num_tokens)}</b> tokens</span>
+            <span><b>${esc(res.bytes_per_token)}</b> B/tok</span>
+            <span><b>${esc(res.encode_ms)}</b> ms</span>
           </div>
         </div>
-      </div>
-    `;
+        <div class="tokens">${pillHtml}</div>
+      </div>`;
     })
     .join('');
 }
 
 // Event Listeners Setup
 function setupEventListeners() {
-  // Family Filter Buttons
+  // Family Filter Chips
   document.querySelectorAll('.family-filter-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.family-filter-btn').forEach((b) => {
-        b.classList.remove('btn-primary');
-        b.classList.add('btn-outline');
-      });
-      e.target.classList.remove('btn-outline');
-      e.target.classList.add('btn-primary');
-
-      state.activeFamilyFilter = e.target.getAttribute('data-family');
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.family-filter-btn').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      state.activeFamilyFilter = btn.dataset.family;
       renderLeaderboard();
     });
   });
@@ -951,15 +948,9 @@ function setupEventListeners() {
 
   // Tokka Metric Switcher
   document.querySelectorAll('.tokka-metric-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.tokka-metric-btn').forEach((b) => {
-        b.classList.remove('btn-primary');
-        b.classList.add('btn-outline');
-      });
-      e.target.classList.remove('btn-outline');
-      e.target.classList.add('btn-primary');
-
-      state.tokkaActiveMetric = e.target.getAttribute('data-metric');
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tokka-metric-btn').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      state.tokkaActiveMetric = btn.dataset.metric;
       renderTokkaTab();
     });
   });
@@ -979,6 +970,11 @@ function setupEventListeners() {
     });
   }
 
-  // Refresh Button
+  // Ctrl/Cmd+Enter tokenises
+  document.getElementById('playground-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runLiveTokenize();
+  });
+
   document.getElementById('refresh-btn')?.addEventListener('click', fetchBenchmarkData);
+  document.getElementById('theme-btn')?.addEventListener('click', () => setTheme(isDarkTheme() ? 'light' : 'dark'));
 }

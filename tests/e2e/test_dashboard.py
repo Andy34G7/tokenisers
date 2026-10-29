@@ -60,8 +60,8 @@ def test_dashboard_index_html(dashboard_server: str) -> None:
         assert "text/html" in content_type
         body = resp.read().decode("utf-8")
         assert "Tokenisers Lab" in body
-        assert "Artificial Analysis" in body
-        assert "daisyui" in body
+        assert "/static/app.js" in body
+        assert 'id="quadrant-chart"' in body
 
 
 def test_dashboard_static_app_js(dashboard_server: str) -> None:
