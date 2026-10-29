@@ -690,41 +690,105 @@ function renderTokkaTab() {
 }
 
 // 6. Intrinsic & Morphology Table
+// dir: +1 higher is better, -1 lower is better
+const INTRINSIC_COLS = [
+  { key: 'bytes_per_token', label: 'B/tok', group: 'Compression', dir: 1, fmt: (v) => fmt(v), tip: 'Bytes per token: how much raw text one token covers.' },
+  { key: 'fertility', label: 'Fertility', group: 'Compression', dir: -1, fmt: (v) => fmt(v, 2), tip: 'Average tokens per word. Fewer splits per word is better.' },
+  { key: 'renyi_e_1_0', label: 'E₁', group: 'Rényi efficiency', dir: 1, fmt: (v) => fmt(v), tip: 'Rényi entropy efficiency at α = 1 (Shannon): how evenly the vocabulary is used, 0–1.' },
+  { key: 'renyi_e_2_0', label: 'E₂', group: 'Rényi efficiency', dir: 1, fmt: (v) => fmt(v), tip: 'Rényi efficiency at α = 2, the variant that best predicts downstream quality.' },
+  { key: 'renyi_e_2_5', label: 'E₂.₅', group: 'Rényi efficiency', dir: 1, fmt: (v) => fmt(v), tip: 'Rényi efficiency at α = 2.5, weighting frequent tokens more heavily.' },
+  { key: 'gini_coefficient', label: 'Gini', group: 'Token usage', dir: -1, fmt: (v) => fmt(v), tip: 'Inequality of token frequencies. Lower means usage is spread more evenly.' },
+  { key: 'active_fraction', label: 'Active', group: 'Token usage', dir: 1, fmt: pct, tip: 'Share of the vocabulary actually used on the corpus.' },
+  { key: 'morph_f1', label: 'F1', group: 'Morpheme boundaries', dir: 1, fmt: pct, tip: 'Sigmorphon morpheme-boundary F1: do token splits land on real morpheme boundaries?' },
+  { key: 'morph_precision', label: 'Precision', group: 'Morpheme boundaries', dir: 1, fmt: pct, tip: 'Of the splits made, the share that are true morpheme boundaries.' },
+  { key: 'morph_recall', label: 'Recall', group: 'Morpheme boundaries', dir: 1, fmt: pct, tip: 'Of the true morpheme boundaries, the share the tokeniser splits on.' },
+  { key: 'identifier_f1', label: 'Ident F1', group: 'Code', dir: 1, fmt: pct, tip: 'Boundary F1 on code identifiers (snake_case / camelCase parts).' },
+  { key: 'encode_mb_per_sec', label: 'Encode', group: 'Speed MB/s', dir: 1, fmt: (v) => fmt(v, 2), tip: 'Encoding throughput in MB/s.' },
+  { key: 'decode_mb_per_sec', label: 'Decode', group: 'Speed MB/s', dir: 1, fmt: (v) => fmt(v, 1), tip: 'Decoding throughput in MB/s.' },
+];
+
+function sortIntrinsic(key) {
+  // First click sorts best-first; clicking again flips
+  state.intrinsicSort = state.intrinsicSort?.key === key ? { key, best: !state.intrinsicSort.best } : { key, best: true };
+  renderIntrinsicTab();
+}
+
 function renderIntrinsicTab() {
   if (!state.data) return;
 
+  const thead = document.getElementById('intrinsic-thead');
   const tbody = document.getElementById('intrinsic-tbody');
-  if (!tbody) return;
+  if (!tbody || !thead) return;
+
+  const all = Object.values(state.data.models);
+  const sort = state.intrinsicSort || (state.intrinsicSort = { key: 'renyi_e_2_0', best: true });
+
+  // Vocab size is shared across runs; say it once instead of a constant column
+  const vocabs = [...new Set(all.map((m) => m.intrinsic?.vocab_size).filter(isNum))];
+  const note = document.getElementById('intrinsic-vocab-note');
+  if (note) note.textContent = vocabs.length ? `Vocabulary size ${vocabs.join(', ')}.` : '';
+
+  const groups = [];
+  INTRINSIC_COLS.forEach((c, i) => {
+    c.gstart = i === 0 || INTRINSIC_COLS[i - 1].group !== c.group;
+    if (c.gstart) groups.push({ name: c.group, span: 1 });
+    else groups[groups.length - 1].span++;
+  });
+
+  thead.innerHTML = `
+    <tr>
+      <th class="group"></th>
+      ${groups.map((g) => `<th class="group gstart" colspan="${g.span}">${g.name}</th>`).join('')}
+    </tr>
+    <tr>
+      <th>Tokeniser</th>
+      ${INTRINSIC_COLS.map((c) => {
+        const sorted = sort.key === c.key ? ` aria-sort="${(c.dir === 1) === sort.best ? 'descending' : 'ascending'}"` : '';
+        return `<th class="r sortable${c.gstart ? ' gstart' : ''}" title="${esc(c.tip)}"${sorted} onclick="sortIntrinsic('${c.key}')">${c.label}<span class="dir">${c.dir === 1 ? '↑' : '↓'}</span></th>`;
+      }).join('')}
+    </tr>`;
+
+  // Rank-based shading per column, direction-aware (same idea as the Tokka heatmap)
+  const ranked = {};
+  INTRINSIC_COLS.forEach((c) => {
+    ranked[c.key] = all.map((m) => m.intrinsic?.[c.key]).filter(isNum).sort((a, b) => (a - b) * c.dir);
+  });
+  const cell = (c, v) => {
+    const cls = `r num${c.gstart ? ' gstart' : ''}`;
+    if (!isNum(v)) return `<td class="${cls}">${DASH}</td>`;
+    const vals = ranked[c.key];
+    const s = vals.length > 1 ? (vals.indexOf(v) + vals.lastIndexOf(v)) / 2 / (vals.length - 1) : 1;
+    const best = v === vals[vals.length - 1] ? ' best' : '';
+    return `<td class="${cls}${best}" style="background-color: color-mix(in srgb, var(--accent) ${Math.round(s * 32)}%, transparent)">${c.fmt(v)}</td>`;
+  };
 
   const searchTerm = (document.getElementById('intrinsic-search')?.value || '').toLowerCase();
-  const models = Object.values(state.data.models).filter((m) => m.display_name.toLowerCase().includes(searchTerm) || m.family.toLowerCase().includes(searchTerm));
+  const sortCol = INTRINSIC_COLS.find((c) => c.key === sort.key);
+  const models = all
+    .filter((m) => m.display_name.toLowerCase().includes(searchTerm) || m.family.toLowerCase().includes(searchTerm))
+    .sort((a, b) => {
+      const va = a.intrinsic?.[sort.key];
+      const vb = b.intrinsic?.[sort.key];
+      // Missing values always sink to the bottom
+      if (!isNum(va)) return isNum(vb) ? 1 : 0;
+      if (!isNum(vb)) return -1;
+      return (vb - va) * sortCol.dir * (sort.best ? 1 : -1);
+    });
 
+  const colspan = INTRINSIC_COLS.length + 1;
   if (models.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="15" class="muted" style="text-align: center; padding: 24px">No tokenisers match.</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="muted" style="text-align: center; padding: 24px">No tokenisers match.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = models
     .map((m) => {
       const intr = m.intrinsic || {};
-      return `
-      <tr>
-        <td><span class="fam" style="color: var(--text)"><span class="dot" style="--c: ${familyVar(m.family)}"></span><span class="model-name">${esc(m.display_name)}</span></span></td>
-        <td class="r num">${intr.vocab_size ?? DASH}</td>
-        <td class="r num">${fmt(intr.bytes_per_token)}</td>
-        <td class="r num">${fmt(intr.fertility, 2)}</td>
-        <td class="r num">${fmt(intr.renyi_e_1_0)}</td>
-        <td class="r num hl">${fmt(intr.renyi_e_2_0)}</td>
-        <td class="r num">${fmt(intr.renyi_e_2_5)}</td>
-        <td class="r num">${fmt(intr.gini_coefficient)}</td>
-        <td class="r num">${pct(intr.active_fraction)}</td>
-        <td class="r num hl">${pct(intr.morph_f1)}</td>
-        <td class="r num">${pct(intr.morph_precision)}</td>
-        <td class="r num">${pct(intr.morph_recall)}</td>
-        <td class="r num">${pct(intr.identifier_f1)}</td>
-        <td class="r num">${fmt(intr.encode_mb_per_sec, 2)}</td>
-        <td class="r num">${fmt(intr.decode_mb_per_sec, 1)}</td>
-      </tr>`;
+      const name = `<td><span class="fam" style="color: var(--text)"><span class="dot" style="--c: ${familyVar(m.family)}"></span><span class="model-name">${esc(m.display_name)}</span></span></td>`;
+      if (!INTRINSIC_COLS.some((c) => isNum(intr[c.key]))) {
+        return `<tr>${name}<td class="na gstart" colspan="${INTRINSIC_COLS.length}">Not evaluated on intrinsic metrics</td></tr>`;
+      }
+      return `<tr>${name}${INTRINSIC_COLS.map((c) => cell(c, intr[c.key])).join('')}</tr>`;
     })
     .join('');
 }

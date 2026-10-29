@@ -280,6 +280,15 @@
     #leaderboard-table .fam, #extrinsic-table .fam { white-space: normal; }
     #intrinsic-full-table td:not(:first-child), #intrinsic-full-table th:not(:first-child) { padding-left: 7px; padding-right: 7px; }
     #intrinsic-full-table .fam { white-space: normal; align-items: baseline; }
+    #intrinsic-full-table th { cursor: help; }
+    #intrinsic-full-table th .dir { color: var(--muted); font-size: 11px; margin-left: 2px; }
+    #intrinsic-full-table th.sortable::after { content: none; }
+    #intrinsic-full-table th[aria-sort] { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
+    #intrinsic-full-table .gstart { border-left: 1px solid var(--border); }
+    #intrinsic-full-table td.best { font-weight: 600; color: var(--text); }
+    #intrinsic-full-table td.na { color: var(--muted); font-style: italic; }
+    .table-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+    .table-foot b { color: var(--text-2); }
     .rank { color: var(--muted); width: 28px; }
     .hl { font-weight: 600; color: var(--text); }
     .bar-cell { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
@@ -614,41 +623,19 @@
         <div class="card-head">
           <div>
             <h2>Intrinsic metrics</h2>
-            <p>Rényi entropy efficiency at orders 1, 2 and 2.5, vocabulary inequality (Gini), active-token fraction, Sigmorphon morphology alignment and throughput.</p>
+            <p>How each tokeniser uses its vocabulary, measured on the training corpus without training a model. <span id="intrinsic-vocab-note"></span></p>
           </div>
           <input type="search" id="intrinsic-search" placeholder="Filter tokenisers…" class="input" style="width: 200px" />
         </div>
         <div class="table-wrap">
           <table id="intrinsic-full-table">
-            <thead>
-              <tr>
-                <th class="group"></th>
-                <th class="group" colspan="3">Compression</th>
-                <th class="group" colspan="3">Rényi efficiency</th>
-                <th class="group" colspan="2">Distribution</th>
-                <th class="group" colspan="4">Morphology</th>
-                <th class="group" colspan="2">MB/s</th>
-              </tr>
-              <tr>
-                <th>Tokeniser</th>
-                <th class="r">Vocab</th>
-                <th class="r">B/tok</th>
-                <th class="r">Fertility</th>
-                <th class="r">E₁</th>
-                <th class="r">E₂</th>
-                <th class="r">E₂.₅</th>
-                <th class="r">Gini</th>
-                <th class="r">Active</th>
-                <th class="r">F1</th>
-                <th class="r">Prec</th>
-                <th class="r">Rec</th>
-                <th class="r">Ident F1</th>
-                <th class="r">Enc</th>
-                <th class="r">Dec</th>
-              </tr>
-            </thead>
+            <thead id="intrinsic-thead"></thead>
             <tbody id="intrinsic-tbody"></tbody>
           </table>
+        </div>
+        <div class="table-foot">
+          <span class="legend-scale"><span class="ramp"></span> darker = better within that column · <b>bold</b> = best</span>
+          <span>↑ higher is better · ↓ lower is better · hover a header for its definition · click to sort</span>
         </div>
       </section>
     </div>
