@@ -214,6 +214,26 @@ fn kbest_samples_the_top_k_renormalised() {
 }
 
 #[test]
+fn kbest_trace_back_across_recomputed_blocks_returns_exact_top_k() {
+    // k-best keeps only checkpoint rows and recomputes one block of about
+    // sqrt(len * max_token_len) = 7 positions at a time for the trace-back, so every path of
+    // this 20-byte word crosses two recomputed block boundaries.
+    let vocab = sampler_vocab();
+    let trie = CompactTrie::build(&vocab);
+    let sampler = UnigramSampler::new(&trie);
+    let text = b"abcabcaabcbcacbabcab";
+    let mut segs = enumerate_segmentations(text, &vocab);
+    segs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    // Permutations of the same tokens tie, so pick a k whose top-k set is unambiguous.
+    let k = (8..segs.len()).find(|&k| segs[k - 1].1 - segs[k].1 > 1e-9).unwrap();
+    let samples: Vec<Vec<u32>> =
+        (0..40_000).map(|seed| sampler.sample_kbest(text, k, 1.0, Some(seed))).collect();
+    assert_frequencies_match(&format!("k={k} over 3 blocks"), &samples, &tempered(&segs[..k], 1.0));
+    let viterbi = ViterbiDecoder::decode(text, &trie, None).unwrap().1;
+    assert_eq!(sampler.sample_kbest(text, 1, 1.0, None), viterbi);
+}
+
+#[test]
 fn kbest_draws_each_segment_from_its_own_top_k() {
     // No token spans whitespace, so segments are independent and k-best runs per segment:
     // "abc abc" with k = 3 has 3 x 3 outcomes, each weighted by the product of its segments.

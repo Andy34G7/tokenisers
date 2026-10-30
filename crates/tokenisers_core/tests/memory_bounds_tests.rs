@@ -7,7 +7,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use std::sync::{Mutex, MutexGuard};
 
-use tokenisers_core::engine::unigram::{CompactTrie, UnigramTrainer};
+use tokenisers_core::engine::unigram::{CompactTrie, UnigramTrainer, ViterbiDecoder};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 
 struct CountingAlloc;
@@ -134,6 +134,37 @@ fn kbest_memory_is_bounded_for_huge_k_and_long_segments() {
         assert_eq!(decoded, long, "k-best must stay lossless when k is capped");
         assert!(peak < 64 * MB, "k = {k} on a 20 KB segment peaked at {} MB", peak / MB);
     }
+}
+
+#[test]
+fn sampling_one_long_segment_needs_no_per_byte_lattice_or_k_cap() {
+    let _serial = serial();
+    let vocab = ngram_vocab();
+    let trie = CompactTrie::build(&vocab);
+    let sampler = UnigramSampler::new(&trie);
+    let decode = |tokens: &[u32]| -> Vec<u8> {
+        tokens.iter().flat_map(|&t| vocab[t as usize].0.clone()).collect()
+    };
+    // 600 KB without whitespace is one segment (an unspaced CJK book, minified JSON, base64).
+    // A whole-segment lattice is ~150 B per byte, and a table budget of 2^20 entries / (len + 1)
+    // would cut k to 1 here, so `nbest_size = 64` would silently return the Viterbi path.
+    let long: Vec<u8> = words(700_000, 13).into_iter().filter(|&b| b != b' ').collect();
+    let n = long.len();
+    assert!(n > 520_000, "need a segment longer than 2^20 / 2 bytes, got {n}");
+    let viterbi = ViterbiDecoder::decode(&long, &trie, None).unwrap().1;
+
+    let (tokens, peak) = peak_bytes(|| sampler.sample_kbest(&long, 64, 1.0, Some(0)));
+    // The output ids (4 B per byte reserved) plus k-best rows of about 2 * sqrt(len * 4) positions.
+    assert!(peak < 8 * n + 8 * MB, "k-best on a {n}-byte segment peaked at {} MB", peak / MB);
+    assert_eq!(decode(&tokens), long);
+    let differs = tokens != viterbi
+        || (1..3).any(|seed| sampler.sample_kbest(&long, 64, 1.0, Some(seed)) != viterbi);
+    assert!(differs, "k-best with k = 64 on a long segment fell back to Viterbi");
+
+    let (tokens, peak) = peak_bytes(|| sampler.sample_ffbs(&long, 1.0, Some(5)));
+    assert_eq!(decode(&tokens), long);
+    // An 8-byte forward table per byte, the output ids and one block of the lattice.
+    assert!(peak < 16 * n + 2 * MB, "FFBS on a {n}-byte segment peaked at {} MB", peak / MB);
 }
 
 #[test]
