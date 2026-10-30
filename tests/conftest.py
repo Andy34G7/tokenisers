@@ -27,8 +27,8 @@ def repo_root() -> Path:
 
 @pytest.fixture(scope="session")
 def colab_cli_path() -> Path:
-    """Return path to colab CLI binary."""
-    return Path("/home/andey/.local/bin/colab")
+    """The colab CLI where the Colab benchmark looks by default (ColabRunner.colab_bin)."""
+    return Path.home() / ".local" / "bin" / "colab"
 
 
 @pytest.fixture(scope="session")

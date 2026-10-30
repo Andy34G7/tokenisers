@@ -908,18 +908,6 @@ def test_tier2_f18_git_uncommitted_changes_detection(repo_root):
     assert isinstance(proc.stdout, str)
 
 
-def test_tier2_f18_git_remote_connectivity(repo_root):
-    """F18-B4: Remote connectivity to https://github.com/Andy34G7/tokenisers.git is reachable."""
-    proc = subprocess.run(
-        ["git", "ls-remote", "origin", "HEAD"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        timeout=15
-    )
-    assert proc.returncode == 0 or "main" in proc.stdout or proc.returncode == 2
-
-
 def test_tier2_f18_git_tag_versioning_support(repo_root):
     """F18-B5: Git tag command executes without errors."""
     proc = subprocess.run(["git", "tag"], cwd=repo_root, capture_output=True, text=True)
