@@ -179,6 +179,21 @@ def test_api_tokenize_reports_synthetic_corpus(dashboard_server: str) -> None:
     assert "fixture" in corpus["lexicon_source"]
 
 
+def test_token_byte_lens_count_token_bytes_not_display_piece(dashboard_server: str) -> None:
+    """Partial-UTF-8 tokens display as U+FFFD (3 bytes) but are 1 byte: byte_lens must sum to raw_bytes."""
+    text = "héllo 🦀 日本"  # rare multibyte chars: a 320 vocab keeps some as single-byte tokens
+    status, _, body = _post_json(dashboard_server, {"text": text, "vocab_size": 320})
+    assert status == 200
+    data = json.loads(body)
+    assert data["raw_bytes"] == len(text.encode("utf-8"))
+    partial = 0
+    for res in data["results"]:
+        lens = [d["byte_len"] for d in res["token_details"]]
+        assert sum(lens) == data["raw_bytes"], (res["name"], res["token_details"])
+        partial += sum(1 for d in res["token_details"] if d["piece"] == "�" and d["byte_len"] < 3)
+    assert partial > 0, "text produced no partial-UTF-8 tokens, so the test checks nothing"
+
+
 def test_no_wildcard_cors(dashboard_server: str) -> None:
     for method, path in [("GET", "/"), ("GET", "/api/benchmarks")]:
         status, headers, _ = _raw(dashboard_server, method, path)
