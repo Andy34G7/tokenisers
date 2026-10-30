@@ -130,10 +130,25 @@ impl Vocabulary {
     }
 
     /// Adds a special token (e.g. `<|endoftext|>`, `<pad>`) to the vocabulary.
+    ///
+    /// A special token is known by its raw content, every other token by the GPT-2 printable form
+    /// of its bytes (`get_vocab`, tokenizer.json keys). Content that is the printable form of a
+    /// different existing token (e.g. "é", the key of byte 0xE9) would make those keys collide, so
+    /// it is rejected.
     pub fn add_special_token(&mut self, content: &str) -> Result<TokenId> {
         let bytes = content.as_bytes().to_vec();
         if self.special_tokens.iter().any(|s| s.content == content) {
             return Err(TokeniserError::DuplicateSpecialToken(content.to_string()));
+        }
+        if let Ok(key_bytes) = self.printable_to_bytes(content) {
+            if key_bytes != bytes {
+                if let Some(other) = self.get_id(&key_bytes) {
+                    return Err(TokeniserError::InvalidConfiguration(format!(
+                        "special token {content:?} collides with the byte-level token string of \
+                         id {other} (bytes {key_bytes:02X?})"
+                    )));
+                }
+            }
         }
 
         let id = if let Some(&existing_id) = self.bytes_to_id.get(&bytes) {

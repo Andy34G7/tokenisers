@@ -34,7 +34,14 @@ pub struct ByteEntropyPatcher {
     pub transition_table: AHashMap<Vec<u8>, Vec<(u8, u32)>>,
     /// Additive Laplace smoothing constant.
     pub smoothing_alpha: f64,
+    /// Bound on `transition_table.len()` (each context costs ~150-200 bytes): once reached,
+    /// training only updates contexts already in the table, so memory stays bounded however large
+    /// the corpus or `context_order` (unseen long contexts back off to shorter ones).
+    pub max_contexts: usize,
 }
+
+/// Default `max_contexts`: 2M contexts, about 400 MB.
+pub const DEFAULT_MAX_CONTEXTS: usize = 1 << 21;
 
 impl Default for ByteEntropyPatcher {
     fn default() -> Self {
@@ -48,17 +55,22 @@ impl ByteEntropyPatcher {
             config,
             transition_table: AHashMap::default(),
             smoothing_alpha: 0.05,
+            max_contexts: DEFAULT_MAX_CONTEXTS,
         }
     }
 
     /// Trains the Markov model on a raw byte corpus: for every byte, counts it after each of
     /// its preceding contexts of length 0..=context_order (shorter ones serve as backoff).
+    /// New contexts are not added once the table holds `max_contexts`.
     pub fn train_transitions(&mut self, corpus_bytes: &[u8]) {
         let order = self.config.context_order;
         for (i, &next_byte) in corpus_bytes.iter().enumerate() {
             for k in 0..=order.min(i) {
                 let ctx = &corpus_bytes[i - k..i];
                 if !self.transition_table.contains_key(ctx) {
+                    if self.transition_table.len() >= self.max_contexts {
+                        break; // the longer contexts at this position are new too
+                    }
                     self.transition_table.insert(ctx.to_vec(), Vec::new());
                 }
                 let counts = self.transition_table.get_mut(ctx).expect("inserted above");

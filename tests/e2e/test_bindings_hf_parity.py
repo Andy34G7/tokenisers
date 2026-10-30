@@ -2,6 +2,8 @@
 Hugging Face ``tokenizers`` and ``transformers`` load to the same ids, the same token strings and
 the same special-token ids as native encoding, and ``from_pretrained`` reloads it unchanged."""
 
+import json
+
 import pytest
 import tokenizers
 import transformers
@@ -104,3 +106,78 @@ def test_wrapper_ids_equal_hf_fast_tokenizer(saved):
         if "<" in text and "specials" not in name:
             continue  # the wrapper adds its own <pad>/</s>; the bare model has none
         assert wrapper(text)["input_ids"] == fast.encode(text, add_special_tokens=False), (name, text)
+
+
+@pytest.mark.parametrize("special", ["é", "§", "«", "ĠĠ"])
+def test_special_token_equal_to_a_byte_level_key_is_rejected(special, tmp_path):
+    """A special keyed by its content collided with another token's printable key ("é" is the key
+    of byte 0xE9): get_vocab lost an entry, the exported vocab remapped that byte and the file did
+    not reload ("no token with id 233")."""
+    with pytest.raises(ValueError, match="collides"):
+        tokenisers.BpeTokenizer.train(CORPUS, 420, special_tokens=[special])
+
+    tok = MAKERS["bpe+specials"]()
+    tok.save(str(tmp_path))
+    path = tmp_path / "tokenizer.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    pad_id = data["model"]["vocab"].pop("<pad>")
+    next(t for t in data["added_tokens"] if t["id"] == pad_id)["content"] = special
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="collides"):
+        tokenisers.BpeTokenizer.from_pretrained(str(tmp_path))
+
+
+def test_special_token_equal_to_the_key_of_a_later_id_is_rejected(tmp_path):
+    """The same collision when the special's id comes before the token it shadows, so the token
+    does not exist yet when the special is added."""
+    MAKERS["bpe+specials"]().save(str(tmp_path))
+    path = tmp_path / "tokenizer.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    vocab = data["model"]["vocab"]
+    pad_id = vocab.pop("<pad>")
+    # Swap ids: the last learned multi-byte token moves to pad_id, <pad> takes its id and its key.
+    special_ids = {t["id"] for t in data["added_tokens"]}
+    key, last = max(((k, i) for k, i in vocab.items() if i >= 256 and i not in special_ids), key=lambda kv: kv[1])
+    assert last < pad_id
+    vocab[key] = pad_id
+    pad = next(t for t in data["added_tokens"] if t["id"] == pad_id)
+    pad["id"], pad["content"] = last, key
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="collides"):
+        tokenisers.BpeTokenizer.from_pretrained(str(tmp_path))
+
+
+def test_reloads_a_tokenizer_json_re_saved_by_hugging_face(saved, tmp_path):
+    """tokenizers >= 0.20 re-saves BPE merges as [u, v] pairs, which failed to parse."""
+    name, tok, out = saved
+    tokenizers.Tokenizer.from_file(str(out / "tokenizer.json")).save(str(tmp_path / "tokenizer.json"))
+    model = json.loads((tmp_path / "tokenizer.json").read_text(encoding="utf-8"))["model"]
+    if model["type"] == "BPE":
+        assert isinstance(model["merges"][0], list)  # the format under test
+    reloaded = type(tok).from_pretrained(str(tmp_path))
+    assert reloaded.get_vocab() == tok.get_vocab()
+    for text in TEXTS:
+        assert reloaded.encode(text) == tok.encode(text), (name, text)
+
+
+UNSUPPORTED = {
+    "gpt2 regex": {"pre_tokenizer": {"type": "ByteLevel", "add_prefix_space": False, "trim_offsets": False, "use_regex": True}},
+    "prefix space": {"pre_tokenizer": {"type": "ByteLevel", "add_prefix_space": True, "trim_offsets": False, "use_regex": False}},
+    "other split": {"pre_tokenizer": {"type": "Sequence", "pretokenizers": [
+        {"type": "Split", "pattern": {"Regex": "\\s+"}, "behavior": "Isolated", "invert": False},
+        {"type": "ByteLevel", "add_prefix_space": False, "trim_offsets": False, "use_regex": False}]}},
+    "normalizer": {"normalizer": {"type": "NFC"}},
+}
+
+
+@pytest.mark.parametrize("change", list(UNSUPPORTED))
+@pytest.mark.parametrize("saved", ["bpe+specials", "unigram"], indirect=True)
+def test_unimplemented_pre_tokenizer_or_normalizer_is_rejected(saved, change, tmp_path):
+    """from_hf_json mapped every pre-tokenizer to whitespace segmentation and ignored normalizers,
+    so e.g. a ByteLevel{use_regex: true} file loaded and encoded differently from HF."""
+    name, tok, out = saved
+    data = json.loads((out / "tokenizer.json").read_text(encoding="utf-8"))
+    data.update(UNSUPPORTED[change])
+    (tmp_path / "tokenizer.json").write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="unsupported"):
+        type(tok).from_pretrained(str(tmp_path))

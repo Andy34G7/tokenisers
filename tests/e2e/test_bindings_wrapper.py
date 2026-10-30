@@ -87,3 +87,34 @@ def test_from_pretrained_reloads_the_underlying_model(pair, tmp_path):
 def test_needs_a_model():
     with pytest.raises(ValueError):
         tokenisers.DynamicResearchTokenizer()
+
+
+def test_special_token_that_is_a_learned_text_token_is_rejected():
+    """HF reuses the id of a vocab string for a special token: with "<s>", "</s>", "<pad>" learned
+    from the corpus, bos/eos/pad became text tokens, padding inserted text, skip_special_tokens
+    deleted real "<pad>" text and "<s>strike</s>" was split differently from native encoding."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tok = tokenisers.BpeTokenizer.train(["<s>strike</s> and <s>more</s> text <pad> here " * 50], 300)
+    assert tok.token_to_id("<pad>") is not None and tok.token_to_id("<s>") is not None
+    with pytest.raises(ValueError, match="learned text token"):
+        tokenisers.DynamicResearchTokenizer(tok)
+
+    wrapper = tokenisers.DynamicResearchTokenizer(tok, bos_token="<|bos|>", eos_token="<|eos|>", pad_token="<|pad|>")
+    assert min(wrapper.all_special_ids) >= tok.vocab_size
+    text = "<s>strike</s> and <pad> here"
+    ids = tok.encode(text)
+    assert wrapper(text)["input_ids"] == ids
+    assert wrapper.decode(ids, skip_special_tokens=True) == text
+    with pytest.raises(ValueError, match="learned text token"):
+        wrapper.add_special_tokens({"pad_token": "<pad>"})
+    assert wrapper.pad_token == "<|pad|>"
+
+    # A special token of the model itself is used with its own id
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        own = tokenisers.BpeTokenizer.train(["<s>strike</s> and <s>more</s> text <pad> here " * 50], 300,
+                                            special_tokens=["<pad>"])
+    wrapper = tokenisers.DynamicResearchTokenizer(own, bos_token="<|bos|>", eos_token="<|eos|>")
+    assert wrapper.pad_token_id == own.special_tokens()["<pad>"]
+    assert wrapper(text)["input_ids"] == own.encode(text)

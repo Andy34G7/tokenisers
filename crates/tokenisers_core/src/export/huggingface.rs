@@ -128,6 +128,26 @@ pub enum DecoderConfig {
     },
 }
 
+/// Merges as `"u v"` strings, also accepting the `["u", "v"]` pairs `tokenizers` >= 0.20 saves
+/// (byte-level token strings never contain a space).
+fn merges_from_strings_or_pairs<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Merge {
+        Joined(String),
+        Pair(String, String),
+    }
+    Ok(Vec::<Merge>::deserialize(deserializer)?
+        .into_iter()
+        .map(|m| match m {
+            Merge::Joined(s) => s,
+            Merge::Pair(u, v) => format!("{u} {v}"),
+        })
+        .collect())
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum HfModelConfig {
@@ -140,6 +160,7 @@ pub enum HfModelConfig {
         byte_fallback: bool,
         ignore_merges: bool,
         vocab: BTreeMap<String, u32>,
+        #[serde(deserialize_with = "merges_from_strings_or_pairs")]
         merges: Vec<String>,
     },
     Unigram {
@@ -252,10 +273,42 @@ impl HfTokenizerJson {
         }
     }
 
-    /// `BottomUpModel::pretokenize` for a model loaded from this file: false only for a bare
-    /// whole-text `ByteLevel { use_regex: false }` pre-tokenizer (what SuperBPE exports).
-    pub fn pretokenize(&self) -> bool {
-        !matches!(self.pre_tokenizer, PreTokenizerConfig::ByteLevel { use_regex: false, .. })
+    /// `BottomUpModel::pretokenize` for a model loaded from this file: false for the bare
+    /// whole-text byte-level pre-tokenizer (what SuperBPE exports), true for the whitespace-run
+    /// split + byte level that the other exports write. Native encoding implements nothing else, so
+    /// any other pre-tokenizer (GPT-2 regex, `add_prefix_space`, other split patterns) or any
+    /// normalizer is an error rather than a silently different encoding.
+    pub fn pretokenize(&self) -> Result<bool> {
+        let bare = |p: &PreTokenizerConfig| {
+            matches!(
+                p,
+                PreTokenizerConfig::ByteLevel { add_prefix_space: false, use_regex: false, .. }
+            )
+        };
+        let flag = match &self.pre_tokenizer {
+            p if bare(p) => Some(false),
+            PreTokenizerConfig::Sequence { pretokenizers } => match pretokenizers.as_slice() {
+                [PreTokenizerConfig::Split {
+                    pattern: SplitPattern::Regex(re),
+                    behavior,
+                    invert: false,
+                }, byte]
+                    if *re == whitespace_run_regex() && behavior == "Isolated" && bare(byte) =>
+                {
+                    Some(true)
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        match flag {
+            Some(flag) if self.normalizer.is_none() => Ok(flag),
+            _ => Err(TokeniserError::InvalidConfiguration(format!(
+                "unsupported normalizer {:?} / pre_tokenizer {:?}: only the byte-level \
+                 pre-tokenizers this crate exports encode like native",
+                self.normalizer, self.pre_tokenizer
+            ))),
+        }
     }
 
     /// Exports the tokenizer configuration to a file or directory.

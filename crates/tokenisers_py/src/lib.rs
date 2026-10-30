@@ -10,7 +10,9 @@ use tokenisers_core::curricula::super_bpe::{SuperBpeConfig, SuperBpeTrainer};
 use tokenisers_core::engine::bottom_up::{BottomUpModel, BottomUpTrainer};
 use tokenisers_core::engine::unigram::{UnigramModel, UnigramTrainer};
 use tokenisers_core::export::huggingface::{HfModelConfig, HfTokenizerJson};
-use tokenisers_core::inference::byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher};
+use tokenisers_core::inference::byte_entropy::{
+    ByteEntropyConfig, ByteEntropyPatcher, DEFAULT_MAX_CONTEXTS,
+};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 use tokenisers_core::scoring::{
     BpeScorer, LengthPenalizedScorer, MdlScorer, PairScorer, WordPieceScorer, WpBpeBaseScorer,
@@ -74,6 +76,14 @@ fn vocab_map(vocab: &Vocabulary) -> HashMap<String, u32> {
         .collect()
 }
 
+fn special_map(vocab: &Vocabulary) -> HashMap<String, u32> {
+    vocab
+        .special_tokens()
+        .iter()
+        .map(|s| (s.content.clone(), s.id))
+        .collect()
+}
+
 fn hf_json_path(path: &str) -> std::path::PathBuf {
     let p = Path::new(path);
     if p.is_dir() || p.extension().is_none() {
@@ -117,6 +127,11 @@ impl PyBpeModel {
 
     pub fn id_to_bytes(&self, id: u32) -> Option<Vec<u8>> {
         self.model.vocab.get_bytes(id).map(|b| b.to_vec())
+    }
+
+    /// `{content: id}` of the special tokens.
+    pub fn special_tokens(&self) -> HashMap<String, u32> {
+        special_map(&self.model.vocab)
     }
 
     /// Raw bytes of the ids; `ValueError` on an unknown id.
@@ -166,13 +181,14 @@ impl PyBpeModel {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    /// Loads a byte-level BPE tokenizer.json (as `export_hf_json` writes it). Ids are taken from
-    /// the file: ids 0..=255 must be the 256 single bytes, the rest contiguous; special tokens come
-    /// from `added_tokens`. Anything else raises `ValueError`.
+    /// Loads a byte-level BPE tokenizer.json (as `export_hf_json` writes it, or as Hugging Face
+    /// re-saves it). Ids are taken from the file: ids 0..=255 must be the 256 single bytes, the
+    /// rest contiguous; special tokens come from `added_tokens`. A normalizer or pre-tokenizer
+    /// that native encoding does not implement, or anything else, raises `ValueError`.
     #[staticmethod]
     pub fn from_hf_json(path: &str) -> PyResult<Self> {
         let json = read_hf_json(path)?;
-        let pretokenize = json.pretokenize();
+        let pretokenize = json.pretokenize().map_err(value_err)?;
         let HfModelConfig::BPE { vocab, merges, .. } = json.model else {
             return Err(PyValueError::new_err("tokenizer.json is not a BPE model"));
         };
@@ -219,6 +235,13 @@ impl PyBpeModel {
                     "token with id {id} duplicates the bytes of id {got}"
                 )));
             }
+        }
+        // add_special_token rejects a special whose content is the key of an earlier id; this
+        // catches one that is the key of a later id.
+        if vocab_map(&model_vocab).len() != n {
+            return Err(value_err(
+                "a special token collides with the byte-level token string of another id",
+            ));
         }
 
         let mut merges_vec = Vec::with_capacity(merges.len());
@@ -275,6 +298,11 @@ impl PyUnigramModel {
 
     pub fn id_to_bytes(&self, id: u32) -> Option<Vec<u8>> {
         self.model.vocab.get_bytes(id).map(|b| b.to_vec())
+    }
+
+    /// `{content: id}` of the special tokens.
+    pub fn special_tokens(&self) -> HashMap<String, u32> {
+        special_map(&self.model.vocab)
     }
 
     /// Raw bytes of the ids; `ValueError` on an unknown id.
@@ -367,10 +395,17 @@ impl PyUnigramModel {
 
     /// Loads a byte-level Unigram tokenizer.json (as `export_hf_json` writes it). Entry `i` of
     /// the vocab list gets id `i`: the first 256 must be the single bytes 0..=255, the rest
-    /// distinct multi-byte tokens. Anything else (or added tokens) raises `ValueError`.
+    /// distinct multi-byte tokens. Anything else (added tokens, a normalizer or pre-tokenizer
+    /// native encoding does not implement) raises `ValueError`.
     #[staticmethod]
     pub fn from_hf_json(path: &str) -> PyResult<Self> {
         let json = read_hf_json(path)?;
+        // UnigramModel::encode is segment-wise: only the whitespace-run split encodes the same.
+        if !json.pretokenize().map_err(value_err)? {
+            return Err(value_err(
+                "Unigram tokenizer.json must split whitespace runs before byte level",
+            ));
+        }
         let HfModelConfig::Unigram { vocab, .. } = json.model else {
             return Err(PyValueError::new_err("tokenizer.json is not a Unigram model"));
         };
@@ -415,21 +450,26 @@ pub struct PyByteEntropyPatcher {
 
 #[pymethods]
 impl PyByteEntropyPatcher {
+    /// `max_contexts` bounds the Markov table, hence training memory (~200 bytes per context).
     #[new]
-    #[pyo3(signature = (entropy_threshold=4.2, context_order=3, min_len=2, max_len=16, smoothing_alpha=0.05))]
+    #[pyo3(signature = (entropy_threshold=4.2, context_order=3, min_len=2, max_len=16, smoothing_alpha=0.05, max_contexts=DEFAULT_MAX_CONTEXTS))]
     pub fn new(
         entropy_threshold: f64,
         context_order: usize,
         min_len: usize,
         max_len: usize,
         smoothing_alpha: f64,
+        max_contexts: usize,
     ) -> PyResult<Self> {
         if entropy_threshold.is_nan() || entropy_threshold <= 0.0 {
             return Err(PyValueError::new_err(
                 "entropy_threshold must be strictly positive",
             ));
         }
-        // Training stores up to context_order + 1 contexts per corpus byte.
+        // Training stores up to context_order + 1 contexts per corpus byte, at most max_contexts.
+        if max_contexts == 0 {
+            return Err(PyValueError::new_err("max_contexts must be at least 1"));
+        }
         if context_order > 8 {
             return Err(PyValueError::new_err(format!(
                 "context_order must be at most 8, got {context_order}"
@@ -453,6 +493,7 @@ impl PyByteEntropyPatcher {
         };
         let mut patcher = ByteEntropyPatcher::new(config);
         patcher.smoothing_alpha = smoothing_alpha;
+        patcher.max_contexts = max_contexts;
         Ok(Self { patcher })
     }
 
@@ -643,7 +684,9 @@ pub fn train_bpe(
     Ok(PyBpeModel { model })
 }
 
-/// Trains a Unigram LM; `vocab_size` is an upper bound (the seed set may be smaller).
+/// Trains a Unigram LM; `vocab_size` is an upper bound (the seed set may be smaller). Each round
+/// runs `num_iterations` EM steps, then keeps `shrinking_factor` of the vocabulary (SentencePiece
+/// semantics), never pruning below `vocab_size`.
 #[pyfunction]
 #[pyo3(signature = (corpus, vocab_size, num_iterations=10, shrinking_factor=0.75))]
 pub fn train_unigram(
@@ -659,9 +702,21 @@ pub fn train_unigram(
         )));
     }
 
-    let pruning_rate = (1.0 - shrinking_factor).clamp(0.01, 0.50);
-    let mut trainer = UnigramTrainer::new(vocab_size, pruning_rate);
-    trainer.em_sub_iterations = num_iterations.clamp(1, 10);
+    if num_iterations == 0 {
+        return Err(value_err("num_iterations must be at least 1"));
+    }
+    // NaN or 1.0 would prune nothing per round (an endless loop), 0 or less everything.
+    if !(shrinking_factor > 0.0 && shrinking_factor < 1.0) {
+        return Err(value_err(format!(
+            "shrinking_factor must be in (0, 1), got {shrinking_factor}"
+        )));
+    }
+    // Not `UnigramTrainer::new`, which clamps the rate: the caller's values are used as given.
+    let trainer = UnigramTrainer {
+        target_vocab_size: vocab_size,
+        pruning_rate: 1.0 - shrinking_factor,
+        em_sub_iterations: num_iterations,
+    };
 
     let model = py.allow_threads(|| -> Result<UnigramModel, String> {
         let word_counts = extract_word_counts(&corpus).map_err(|e| e.to_string())?;
@@ -684,9 +739,9 @@ pub fn train_super_bpe(
     if corpus.is_empty() {
         return Err(PyValueError::new_err("Corpus cannot be empty"));
     }
-    if v_switch < BASE_VOCAB_SIZE {
+    if v_final < BASE_VOCAB_SIZE || v_switch < BASE_VOCAB_SIZE {
         return Err(PyValueError::new_err(format!(
-            "v_switch must be at least {BASE_VOCAB_SIZE}"
+            "v_switch and v_final must be at least {BASE_VOCAB_SIZE}, got {v_switch} and {v_final}"
         )));
     }
     if v_switch > v_final {
