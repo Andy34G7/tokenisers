@@ -26,6 +26,11 @@ pub fn apply_leftmost(seq: &[TokenId], u: TokenId, v: TokenId, w: TokenId) -> Ve
     out
 }
 
+/// How many times merging `pair` applies to `seq`: the symbols `apply_leftmost` removes.
+pub fn merges_in(seq: &[TokenId], pair: Pair) -> u64 {
+    (seq.len() - apply_leftmost(seq, pair.0, pair.1, TokenId::MAX).len()) as u64
+}
+
 /// Reference trainer: every step recounts pair counts, token counts and N from scratch, scores
 /// every pair, merges the maximum under `ScoredPair` ordering and re-segments every word.
 /// If the scorer annotates any word (`word_boundaries`), it also recounts each pair's intra /
@@ -85,8 +90,11 @@ pub fn reference_train(
             if count < min_frequency {
                 continue;
             }
+            // A distinct pair merges once per window; a self-pair's windows overlap in runs.
+            let merges = if pair.0 == pair.1 { words.iter().map(|(w, f)| merges_in(w, pair) * f).sum() } else { count };
             let ctx = PairContext {
                 freq_uv: count,
+                merges_uv: merges,
                 freq_u: token_counts[&pair.0],
                 freq_v: token_counts[&pair.1],
                 total_tokens: total,

@@ -326,6 +326,7 @@ mod tests {
     fn mock_context(freq_uv: u64, freq_u: u64, freq_v: u64, total_tokens: u64, len_u: usize, len_v: usize) -> PairContext {
         PairContext {
             freq_uv,
+            merges_uv: freq_uv,
             freq_u,
             freq_v,
             total_tokens,

@@ -506,6 +506,8 @@ pub(crate) struct TrainState<'s> {
     morphology: bool,
     /// Per pair: its current occurrences inside annotated words, split intra / cross-boundary.
     morph: AHashMap<Pair, PairMorphologyStats>,
+    /// t -> `merges_uv` of the self-pair (t, t), cached until that pair's count next changes.
+    self_merges: AHashMap<TokenId, u64>,
 }
 
 impl<'s> TrainState<'s> {
@@ -533,6 +535,7 @@ impl<'s> TrainState<'s> {
             word_bounds: Vec::new(),
             morphology,
             morph: AHashMap::default(),
+            self_merges: AHashMap::default(),
         }
     }
 
@@ -602,6 +605,11 @@ impl<'s> TrainState<'s> {
             old.saturating_sub(delta.unsigned_abs())
         };
         let new = stat.count;
+        if pair.0 == pair.1 {
+            // A run of t gains or loses a (t, t) window whenever it changes, so this catches every
+            // change of the self-pair's merge count.
+            self.self_merges.remove(&pair.0);
+        }
         if self.step > 0 && stat.touched != self.step {
             stat.touched = self.step;
             self.changed.push(pair);
@@ -642,9 +650,38 @@ impl<'s> TrainState<'s> {
         *n = n.saturating_add_signed(delta);
     }
 
-    fn score(&self, pair: Pair, count: u64) -> f64 {
+    /// `PairContext::merges_uv` of the self-pair `pair` = (t, t): exactly what `apply_merge` would
+    /// merge, i.e. its live windows in node order, skipping each window whose left symbol is the
+    /// right half of the window taken before it. A run of k t's merges k / 2 times.
+    fn self_pair_merges(&mut self, pair: Pair) -> u64 {
+        if let Some(&merges) = self.self_merges.get(&pair.0) {
+            return merges;
+        }
+        let mut lefts: Vec<(u32, u32)> = self
+            .index
+            .get(&pair)
+            .into_iter()
+            .flatten()
+            .filter(|occ| occ.is_valid(pair, &self.arena))
+            .map(|occ| (occ.node_idx, occ.word_id))
+            .collect();
+        lefts.sort_unstable();
+        lefts.dedup();
+        let (mut merges, mut taken_right) = (0, NULL_NODE);
+        for (left, word) in lefts {
+            if left != taken_right {
+                taken_right = self.arena.get_node(left).unwrap().next;
+                merges += self.arena.get_word(word).unwrap().freq;
+            }
+        }
+        self.self_merges.insert(pair.0, merges);
+        merges
+    }
+
+    fn score(&self, pair: Pair, count: u64, merges: u64) -> f64 {
         let ctx = PairContext {
             freq_uv: count,
+            merges_uv: merges,
             freq_u: self.token_counts[pair.0 as usize],
             freq_v: self.token_counts[pair.1 as usize],
             total_tokens: self.total_tokens,
@@ -665,7 +702,8 @@ impl<'s> TrainState<'s> {
         if stat.count < self.min_frequency {
             return;
         }
-        let score = self.score(pair, stat.count);
+        let merges = if pair.0 == pair.1 { self.self_pair_merges(pair) } else { stat.count };
+        let score = self.score(pair, stat.count, merges);
         if score.is_finite() {
             self.heap.push(Entry {
                 scored: ScoredPair { score, pair, version: stat.version },
@@ -866,5 +904,45 @@ mod tests {
             }
             assert!(reference.is_empty());
         }
+    }
+
+    #[test]
+    fn merges_uv_is_what_apply_merge_merges() {
+        // Every merge removes exactly `merges_uv` symbols: the window count for a distinct pair,
+        // fewer for a self-pair in runs, also for runs that cross SuperBPE-linked words.
+        let scorer = crate::scoring::BpeScorer::new();
+        let mut self_pairs = 0;
+        for seed in 0..60 {
+            let mut rng = Rng::with_seed(seed);
+            let link = seed % 2 == 1;
+            let mut state = TrainState::new(&scorer, 1, false);
+            let mut junctions = Vec::new();
+            let mut prev = None;
+            for _ in 0..40 {
+                let word: Vec<u8> = (0..rng.usize(1..12)).map(|_| b"aab"[rng.usize(0..3)]).collect();
+                let id = state.add_word(&word, if link { 1 } else { rng.u64(1..4) });
+                if let Some(left) = prev.filter(|_| link && rng.bool()) {
+                    junctions.push(BoundaryJunction { left_word_idx: left, right_word_idx: id, freq: 1 });
+                }
+                prev = Some(id);
+            }
+            state.queue_all();
+            for step in 0..30 {
+                if link && step == 8 {
+                    state.link_words(&junctions);
+                }
+                let Some(pair) = state.pop_best() else { break };
+                let expected = if pair.0 == pair.1 {
+                    self_pairs += 1;
+                    state.self_pair_merges(pair)
+                } else {
+                    state.stats[&pair].count
+                };
+                let before = state.total_tokens;
+                state.apply_merge(pair).unwrap();
+                assert_eq!(before - state.total_tokens, expected, "{pair:?} (seed {seed}, step {step})");
+            }
+        }
+        assert!(self_pairs > 100, "{self_pairs}");
     }
 }

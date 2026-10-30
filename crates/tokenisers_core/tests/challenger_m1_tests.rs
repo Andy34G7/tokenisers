@@ -86,6 +86,7 @@ fn test_mdl_favors_high_information_density() {
 
     let ctx_dense = PairContext {
         freq_uv: 100,
+        merges_uv: 100,
         freq_u: 100,
         freq_v: 100,
         total_tokens: 1000,
@@ -96,6 +97,7 @@ fn test_mdl_favors_high_information_density() {
 
     let ctx_sparse = PairContext {
         freq_uv: 2,
+        merges_uv: 2,
         freq_u: 2,
         freq_v: 2,
         total_tokens: 1000,
@@ -106,6 +108,7 @@ fn test_mdl_favors_high_information_density() {
 
     let ctx_independent = PairContext {
         freq_uv: 50,
+        merges_uv: 50,
         freq_u: 500,
         freq_v: 500,
         total_tokens: 1000,

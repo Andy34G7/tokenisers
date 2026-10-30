@@ -21,8 +21,13 @@ pub use wp_bpe::{
 /// Snapshot of active corpus and pair statistics supplied to `PairScorer::score`.
 #[derive(Clone, Copy, Debug)]
 pub struct PairContext {
-    /// Active co-occurrence count of pair (u, v) in corpus.
+    /// Active co-occurrence count of pair (u, v) in corpus: every adjacent (u, v) window, so
+    /// overlapping windows of a self-pair all count ("aaa" holds two (a, a) windows).
     pub freq_uv: u64,
+    /// Number of merges that merging (u, v) applies: its windows taken leftmost-first without
+    /// overlap. Equals `freq_uv` unless u == v, where a run of k u's has k - 1 windows but merges
+    /// only k / 2 times. Read it for anything that models the corpus after the merge.
+    pub merges_uv: u64,
     /// Marginal frequency of token u in corpus.
     pub freq_u: u64,
     /// Marginal frequency of token v in corpus.
