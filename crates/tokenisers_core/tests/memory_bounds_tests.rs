@@ -1,11 +1,11 @@
-//! Peak heap allocation bounds for Unigram k-best sampling and Unigram training.
+//! Peak heap allocation bounds for Unigram k-best and FFBS sampling and Unigram training.
 //!
 //! A counting global allocator records the peak number of live heap bytes, so these tests catch
 //! O(text length * k) or per-distinct-substring memory without needing a big input.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use tokenisers_core::engine::unigram::{CompactTrie, UnigramTrainer};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
@@ -43,10 +43,15 @@ unsafe impl GlobalAlloc for CountingAlloc {
 #[global_allocator]
 static GLOBAL: CountingAlloc = CountingAlloc;
 
-/// Peak extra heap bytes while `f` runs. Tests are serialised so their peaks do not mix.
-fn peak_bytes<T>(f: impl FnOnce() -> T) -> (T, usize) {
+/// Held for a whole test body: tests run one at a time, so no other test's setup allocations
+/// (input text, a 2.6 MB trie) land in a measured peak.
+fn serial() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Peak extra heap bytes while `f` runs. Call it while holding [`serial`].
+fn peak_bytes<T>(f: impl FnOnce() -> T) -> (T, usize) {
     let base = LIVE.load(Relaxed);
     PEAK.store(base, Relaxed);
     let out = f();
@@ -85,6 +90,7 @@ fn words(n: usize, seed: u64) -> Vec<u8> {
 
 #[test]
 fn kbest_memory_does_not_grow_with_document_length() {
+    let _serial = serial();
     let trie = CompactTrie::build(&ngram_vocab());
     let sampler = UnigramSampler::new(&trie);
     let text = words(40_000, 1);
@@ -95,7 +101,22 @@ fn kbest_memory_does_not_grow_with_document_length() {
 }
 
 #[test]
+fn ffbs_memory_does_not_grow_with_document_length() {
+    let _serial = serial();
+    let vocab = ngram_vocab();
+    let trie = CompactTrie::build(&vocab);
+    let sampler = UnigramSampler::new(&trie);
+    let text = words(100_000, 7);
+    let (tokens, peak) = peak_bytes(|| sampler.sample_ffbs(&text, 1.0, Some(8)));
+    let decoded: Vec<u8> = tokens.iter().flat_map(|&t| vocab[t as usize].0.clone()).collect();
+    assert_eq!(decoded, text);
+    // A whole-text lattice and alpha table is ~160 bytes per byte: about 16 MB here.
+    assert!(peak < 2 * MB, "FFBS on 100 KB of words peaked at {} KB", peak / 1024);
+}
+
+#[test]
 fn kbest_memory_is_bounded_for_huge_k_and_long_segments() {
+    let _serial = serial();
     let vocab = ngram_vocab();
     let trie = CompactTrie::build(&vocab);
     let sampler = UnigramSampler::new(&trie);
@@ -117,6 +138,7 @@ fn kbest_memory_is_bounded_for_huge_k_and_long_segments() {
 
 #[test]
 fn unigram_training_memory_is_not_per_distinct_substring() {
+    let _serial = serial();
     // Distinct random words: nearly every 2..=16-byte substring is distinct, the worst case for
     // counting substrings in a hash map (about 100 MB here, 370 B per corpus byte). The
     // fixed allowance covers the seed-vocabulary trie and EM buffers, which do not grow with
