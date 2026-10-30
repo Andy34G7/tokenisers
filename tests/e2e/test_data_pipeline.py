@@ -133,17 +133,27 @@ def _gated_error():
 
 SHARED_DOC = "This exact document is published by several sources and must be kept once."
 
+# Row labels of the mixed code fallback in github-code-clean's proportions (train-00001-of-00880,
+# per 1000 rows of these six languages: java 172, javascript 97, cpp 67, python 64, go 19, rust 3).
+GITHUB_CODE_MIX = [
+    lang for i in range(1000) for lang, n in
+    (("java", 172), ("javascript", 97), ("cpp", 67), ("python", 64), ("go", 19), ("rust", 3))
+    if i < n
+]
+
 
 def _fake_hub(src):
     """Stand-in for the HF reader: endless unique docs, plus duplicates; starcoder is gated."""
     if src.repo == "bigcode/starcoderdata":
         raise _gated_error()
+    labels = GITHUB_CODE_MIX if src.lang == "mixed" else [src.lang]
 
     def rows():
-        yield SHARED_DOC, src.lang
-        yield SHARED_DOC, src.lang
+        yield SHARED_DOC, labels[0]
+        yield SHARED_DOC, labels[0]
         for i in itertools.count():
-            yield f"{src.repo} {src.lang} document {i}: " + "lorem ipsum " * 20, src.lang if src.lang != "mixed" else "python"
+            lang = labels[i % len(labels)]
+            yield f"{src.repo} {lang} document {i}: " + "lorem ipsum " * 20, lang
 
     return rows()
 
@@ -166,6 +176,17 @@ def test_real_path_dedups_records_provenance_and_falls_back_from_gated_code(tmp_
     assert "gated" in fb["reason"]
     assert {d["source"] for d in every_doc if d["domain"] == "code"} == {"codeparrot/github-code-clean"}
     assert all(r["revision"] == pl.REVISIONS[r["repo"]] for r in m["sources"])
+
+    # The mixed fallback keeps starcoder's per-language budgets: rare languages (rust is 0.7% of
+    # the rows) still fill their share of train and get held-out val/test documents.
+    fallback = {r["lang"]: r for r in m["sources"] if r["repo"] == "codeparrot/github-code-clean"}
+    assert sorted(fallback) == sorted(pl.CODE_LANGUAGES)
+    starcoder = next(r for r in m["sources"] if r["repo"] == "bigcode/starcoderdata")
+    for lang, rec in fallback.items():
+        assert rec["budget_bytes"] == starcoder["budget_bytes"]
+        assert all(rec["bytes"][s] >= rec["budget_bytes"][s] for s in SPLITS), (lang, rec["bytes"])
+        for s in SPLITS:
+            assert ds.texts(s, domain="code", lang=lang), f"no {lang} code in {s}"
     assert (ds.root / "manifest.json").is_file()
     assert json.loads((ds.root / "manifest.json").read_text(encoding="utf-8")) == m
 
@@ -179,7 +200,8 @@ def test_stream_failure_is_logged_raised_and_partial_data_kept(tmp_path, monkeyp
             for i in itertools.count():
                 if n is not None and i == n:
                     raise ConnectionError("connection reset by peer")
-                yield f"{src.lang} document {i} " * 10, src.lang if src.lang != "mixed" else "go"
+                lang = pl.CODE_LANGUAGES[i % len(pl.CODE_LANGUAGES)] if src.lang == "mixed" else src.lang
+                yield f"{src.lang} document {i} " * 10, lang
 
         return rows()
 

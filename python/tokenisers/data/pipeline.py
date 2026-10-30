@@ -10,8 +10,8 @@ revisions (huggingface_hub picks HF_TOKEN up from the environment):
   multilingual  HuggingFaceFW/fineweb-2      data/<lang>/train for each of FINEWEB2_LANGUAGES
   code          bigcode/starcoderdata        <lang>/ for each of CODE_LANGUAGES (gated: needs
                 HF_TOKEN with the terms accepted). If access is denied the code domain is
-                read from codeparrot/github-code-clean (ungated) instead and the
-                substitution is recorded in the manifest.
+                read from codeparrot/github-code-clean (ungated) instead, with the same
+                per-language budgets, and the substitution is recorded in the manifest.
 
 Synthetic text exists only for unit tests and explicit offline use
 (``DataPipeline(force_offline=True)``). It is never mixed into a real dataset and is
@@ -45,7 +45,8 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple, Un
 
 logger = logging.getLogger(__name__)
 
-FORMAT_VERSION = 1
+# 2: the github-code-clean fallback fills per-language budgets (v1 filled one mixed budget in file order).
+FORMAT_VERSION = 2
 SPLITS: Tuple[str, ...] = ("train", "val", "test")
 DEFAULT_TRAIN_BYTES = 50 * 1024 * 1024
 
@@ -479,7 +480,7 @@ class DataPipeline:
             sources = plan[domain]
             domain_records: List[Dict[str, Any]] = []
             for i, src in enumerate(sources):
-                rec = self._fill(src, config["train_bytes"] * weight / len(sources), splitter, seen, splits)
+                (rec,) = self._fill(src, config["train_bytes"] * weight / len(sources), splitter, seen, splits)
                 domain_records.append(rec)
                 if i == 0 and rec["error_kind"] == "access_denied" and domain == "code" and not config["offline"]:
                     rec["replaced_by_fallback"] = True
@@ -491,7 +492,9 @@ class DataPipeline:
                         "hf_token_present": config["hf_token_present"],
                     })
                     logger.warning("%s not accessible (%s); using %s for code", src.repo, rec["error"], _CODE_FALLBACK.repo)
-                    domain_records.append(self._fill(_CODE_FALLBACK, config["train_bytes"] * weight, splitter, seen, splits))
+                    # Same per-language budgets as the starcoder plan: one record per code language.
+                    per_lang = config["train_bytes"] * weight / len(_CODE_FALLBACK.row_langs)
+                    domain_records.extend(self._fill(_CODE_FALLBACK, per_lang, splitter, seen, splits))
                     break
             records.extend(domain_records)
 
@@ -526,28 +529,41 @@ class DataPipeline:
         splitter: DeterministicSplitter,
         seen: Set[str],
         splits: Dict[str, List[Dict[str, Any]]],
-    ) -> Dict[str, Any]:
-        """Stream ``src`` into ``splits`` until each split's byte budget for this source is met."""
+    ) -> List[Dict[str, Any]]:
+        """Stream ``src`` into ``splits`` until each split's byte budget is met for each of its languages.
+
+        ``train_budget`` is per language. A source with per-row labels (``row_langs``) gets one
+        budget and one returned record per label language, so a mixed source keeps the balance
+        and held-out coverage of one-language sources; any other source returns one record.
+        """
         budget = {s: max(1, int(train_budget * splitter.fraction(s) / splitter.fraction("train"))) for s in SPLITS}
-        rec: Dict[str, Any] = {
-            "domain": src.domain,
-            "lang": src.lang,
-            "repo": src.repo,
-            "path": src.path,
-            "revision": REVISIONS.get(src.repo),
-            "budget_bytes": budget,
-            "docs": {s: 0 for s in SPLITS},
-            "bytes": {s: 0 for s in SPLITS},
-            "rows_read": 0,
-            "duplicates_skipped": 0,
-            "too_long_skipped": 0,
-            "exhausted": False,
-            "error": None,
-            "error_kind": None,
+        langs = list(dict.fromkeys(lang for _, lang in src.row_langs)) or [src.lang]
+        recs: Dict[str, Dict[str, Any]] = {
+            lang: {
+                "domain": src.domain,
+                "lang": lang,
+                "repo": src.repo,
+                "path": src.path,
+                "revision": REVISIONS.get(src.repo),
+                "budget_bytes": budget,
+                "docs": {s: 0 for s in SPLITS},
+                "bytes": {s: 0 for s in SPLITS},
+                "rows_read": 0,
+                "duplicates_skipped": 0,
+                "too_long_skipped": 0,
+                "exhausted": False,
+                "error": None,
+                "error_kind": None,
+            }
+            for lang in langs
         }
+        unfilled = set(langs)
         try:
             rows = _iter_rows(src, splitter.seed)
             for text, lang in rows:
+                if lang not in unfilled:  # this language's budgets are already met
+                    continue
+                rec = recs[lang]
                 rec["rows_read"] += 1
                 raw = text.encode("utf-8")
                 if len(raw) > MAX_DOC_BYTES:
@@ -565,14 +581,20 @@ class DataPipeline:
                 rec["docs"][split] += 1
                 rec["bytes"][split] += len(raw)
                 if all(rec["bytes"][s] >= budget[s] for s in SPLITS):
-                    break
+                    unfilled.discard(lang)
+                    if not unfilled:
+                        break
             else:
-                rec["exhausted"] = True
+                for lang in unfilled:
+                    recs[lang]["exhausted"] = True
         except Exception as exc:  # network, auth, parquet: keep what was read, record the failure
-            rec["error"] = f"{type(exc).__name__}: {exc}"
-            rec["error_kind"] = "access_denied" if _is_access_denied(exc) else "stream_error"
-            logger.warning("source %s %s/%s failed after %d rows: %s", src.domain, src.repo, src.path, rec["rows_read"], rec["error"])
-        return rec
+            error = f"{type(exc).__name__}: {exc}"
+            kind = "access_denied" if _is_access_denied(exc) else "stream_error"
+            for lang in unfilled:
+                recs[lang]["error"], recs[lang]["error_kind"] = error, kind
+            read = sum(r["rows_read"] for r in recs.values())
+            logger.warning("source %s %s/%s failed after %d rows: %s", src.domain, src.repo, src.path, read, error)
+        return list(recs.values())
 
     def _write(self, root: Path, manifest: Dict[str, Any], splits: Dict[str, List[Dict[str, Any]]]) -> PreparedDataset:
         """Write into a temp dir, then rename it into place: readers never see half a dataset."""
