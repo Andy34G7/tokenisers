@@ -942,10 +942,19 @@ async function runLiveTokenize() {
       body: JSON.stringify({ text, vocab_size: vocabSize }),
     });
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
     const data = await res.json();
 
     renderPlaygroundResults(data.results, data.raw_bytes);
+    if (data.corpus?.synthetic && resultsContainer) {
+      resultsContainer.insertAdjacentHTML(
+        'afterbegin',
+        '<div class="error">Trained on the SYNTHETIC offline test corpus (dashboard started with --offline), not real data.</div>',
+      );
+    }
   } catch (err) {
     console.error('Tokenize error:', err);
     if (resultsContainer) {

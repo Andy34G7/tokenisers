@@ -5,12 +5,12 @@ Inspired by Artificial Analysis (artificialanalysis.ai).
 
 from __future__ import annotations
 
-import argparse
 import datetime
 import json
 import logging
 import mimetypes
 import os
+from collections import OrderedDict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -23,6 +23,16 @@ logger = logging.getLogger("tokenisers.dashboard")
 # Determine repository root
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# The server trains tokenizers on demand, so it only ever listens on loopback.
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
+MIN_VOCAB_SIZE = 260
+MAX_VOCAB_SIZE = 1000          # matches the playground's number input
+CACHE_ENTRIES = 4              # trained tokenizer sets kept (LRU)
+MAX_BODY_BYTES = 64 * 1024
+MAX_TEXT_CHARS = 16_384
+CORPUS_TRAIN_BYTES = 100_000   # playground training corpus (train split of the data pipeline)
+DEFAULT_TEXT = "The internationalization of unhappily disproportionate misunderstandings requires robust subword tokenization."
 
 # Metadata for all algorithm architectures and theoretical objectives
 ALGORITHM_METADATA: Dict[str, Dict[str, Any]] = {
@@ -170,122 +180,97 @@ ALGORITHM_METADATA: Dict[str, Dict[str, Any]] = {
 
 
 class TokenizerCache:
-    """Thread-safe lazy cache of trained tokenizer instances across vocab sizes."""
+    """Thread-safe LRU cache of trained tokenizer sets, keyed by vocab size."""
 
-    def __init__(self) -> None:
+    def __init__(self, offline: bool = False, max_entries: int = CACHE_ENTRIES) -> None:
+        self.offline = offline
+        self.max_entries = max_entries
+        # ponytail: one lock serialises training; fine for a single-user localhost tool.
         self._lock = threading.Lock()
-        self._cache: Dict[int, Dict[str, Any]] = {}
+        self._cache: "OrderedDict[int, Dict[str, Any]]" = OrderedDict()
         self._corpus: Optional[List[str]] = None
-        self._morph_corpus: Optional[List[str]] = None
-        self._lexicon: Optional[Dict[str, List[str]]] = None
+        self._lexicon: Dict[str, List[str]] = {}
+        self.corpus_info: Dict[str, Any] = {}
 
     def _prepare_corpus(self) -> Tuple[List[str], Dict[str, List[str]]]:
-        if self._morph_corpus is not None and self._lexicon is not None:
-            return self._morph_corpus, self._lexicon
-
-        try:
+        if self._corpus is None:
             from tokenisers.data.pipeline import DataPipeline, SigmorphonLoader
 
-            pipeline = DataPipeline(force_offline=True)
-            corpus = pipeline.sample_preset("smoke", max_bytes=60_000)
-            loader = SigmorphonLoader()
-            if hasattr(loader, "synthetic_compounds"):
-                compounds = loader.synthetic_compounds()
-                gold = [{"word": c, "segments": [c[: len(c) // 2], c[len(c) // 2 :]]} for c in compounds[:20]]
+            ds = DataPipeline(force_offline=self.offline).prepare(train_bytes=CORPUS_TRAIN_BYTES)
+            corpus = ds.texts("train")
+            loader = SigmorphonLoader(offline=self.offline)
+            if self.offline:
+                gold = loader.load_offline_fixture()
+                lexicon_source = "offline test fixture (12 hand-written words, not SIGMORPHON)"
             else:
-                gold = loader.load_builtin_samples()
-
-            lexicon = {item["word"]: item["segments"] for item in gold}
-            morph_corpus = corpus + [item["word"] for item in gold] * 10
+                words = {w for text in corpus for w in text.split()}
+                gold = [e for e in loader.load("eng", "train") if e["word"] in words]
+                lexicon_source = "SIGMORPHON 2022 eng train (surface entries found in the corpus)"
+            self._lexicon = {e["word"]: e["segments"] for e in gold}
+            self.corpus_info = {
+                "synthetic": ds.synthetic,
+                "dataset": str(ds.root),
+                "train_docs": len(corpus),
+                "train_bytes": ds.manifest["splits"]["train"]["text_bytes"],
+                "fallbacks": ds.manifest["fallbacks"],
+                "lexicon_source": lexicon_source,
+                "lexicon_words": len(self._lexicon),
+            }
             self._corpus = corpus
-            self._morph_corpus = morph_corpus
-            self._lexicon = lexicon
-            return morph_corpus, lexicon
-        except Exception as e:
-            logger.warning(f"Error loading data pipeline: {e}. Falling back to default corpus.")
-            fallback = [
-                "The internationalization of unhappily disproportionate misunderstandings requires robust subword tokenization.",
-                "Reinforcement learning from human feedback and artificial intelligence benchmarks provide deep insights.",
-                "In computer science, tokenization transforms unstructured byte sequences into discrete structural units.",
-                "fn calculate_pmi(freq_uv: u64, freq_u: u64, freq_v: u64) -> f64 { freq_uv as f64 / (freq_u * freq_v) as f64 }",
-            ]
-            self._corpus = fallback
-            self._morph_corpus = fallback * 20
-            self._lexicon = {"internationalization": ["inter", "nation", "al", "iz", "ation"]}
-            return self._morph_corpus, self._lexicon
+        return self._corpus, self._lexicon
 
     def get_tokenizers(self, vocab_size: int = 400) -> Dict[str, Any]:
         with self._lock:
             if vocab_size in self._cache:
+                self._cache.move_to_end(vocab_size)
                 return self._cache[vocab_size]
-
-            corpus, lexicon = self._prepare_corpus()
-            v_size = max(260, vocab_size)
-            v_switch = max(256, int(v_size * 0.75))
-
-            from tokenisers import models
-            from tokenisers.models import (
-                BpeTokenizer,
-                LengthPenalizedTokenizer,
-                MdlTokenizer,
-                MorphemeBpeTokenizer,
-                SuperBpeTokenizer,
-                UnigramTokenizer,
-                WordPieceTokenizer,
-                WpBpeBaseTokenizer,
-                WpBpeFtTokenizer,
-                WpBpePigTokenizer,
-            )
-
-            toks: Dict[str, Any] = {}
-
-            # Baseline and Gen 1 models
-            model_factories = [
-                ("bpe_frequency", lambda: BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="frequency")),
-                ("wordpiece_pmi", lambda: WordPieceTokenizer.train(corpus=corpus, vocab_size=v_size)),
-                ("wp_bpe_base", lambda: WpBpeBaseTokenizer.train(corpus=corpus, vocab_size=v_size)),
-                ("wp_bpe_ft", lambda: WpBpeFtTokenizer.train(corpus=corpus, vocab_size=v_size, min_frequency=2)),
-                ("wp_bpe_pig", lambda: WpBpePigTokenizer.train(corpus=corpus, vocab_size=v_size, min_frequency=1)),
-                ("mdl_bits", lambda: MdlTokenizer.train(corpus=corpus, vocab_size=v_size)),
-                ("length_penalized", lambda: LengthPenalizedTokenizer.train(corpus=corpus, vocab_size=v_size, beta=0.5)),
-                ("super_bpe", lambda: SuperBpeTokenizer.train(corpus=corpus, v_switch=v_switch, v_final=v_size)),
-                ("morpheme_bpe", lambda: MorphemeBpeTokenizer.train(corpus=corpus, vocab_size=v_size, morpheme_lexicon=lexicon, lambda_weight=2.5)),
-                ("unigram_lm", lambda: UnigramTokenizer.train(corpus=corpus, vocab_size=v_size)),
-            ]
-
-            for name, factory in model_factories:
-                try:
-                    toks[name] = factory()
-                except Exception as e:
-                    logger.error(f"Failed to train {name}: {e}")
-
-            # Check for Gen 2 improved WP-BPE models in models module
-            gen2_candidates = [
-                ("wp_bpe_scp", "WpBpeScpTokenizer", "wp-bpe-scp"),
-                ("wp_bpe_npmi", "WpBpeNpmiTokenizer", "wp-bpe-npmi"),
-                ("wp_bpe_ppig", "WpBpePpigTokenizer", "wp-bpe-ppig"),
-            ]
-
-            for key, cls_name, scorer_name in gen2_candidates:
-                cls_obj = getattr(models, cls_name, None) or getattr(models, key, None)
-                if cls_obj is not None and hasattr(cls_obj, "train"):
-                    try:
-                        toks[key] = cls_obj.train(corpus=corpus, vocab_size=v_size)
-                    except Exception as e:
-                        logger.debug(f"Could not train {key} via {cls_name}: {e}")
-                else:
-                    # Try BpeTokenizer with scorer
-                    try:
-                        toks[key] = BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer=scorer_name)
-                    except Exception:
-                        pass
-
+            toks = self._train(vocab_size)
             self._cache[vocab_size] = toks
+            while len(self._cache) > self.max_entries:
+                self._cache.popitem(last=False)
             return toks
 
+    def _train(self, vocab_size: int) -> Dict[str, Any]:
+        corpus, lexicon = self._prepare_corpus()
+        from tokenisers.models import (
+            BpeTokenizer,
+            LengthPenalizedTokenizer,
+            MdlTokenizer,
+            MorphemeBpeTokenizer,
+            SuperBpeTokenizer,
+            UnigramTokenizer,
+            WordPieceTokenizer,
+            WpBpeBaseTokenizer,
+            WpBpeFtTokenizer,
+            WpBpeNpmiTokenizer,
+            WpBpePigTokenizer,
+            WpBpePpigTokenizer,
+            WpBpeScpTokenizer,
+        )
 
-# Singleton cache
-_TOKENIZER_CACHE = TokenizerCache()
+        v_switch = max(256, int(vocab_size * 0.75))
+        factories = [
+            ("bpe_frequency", lambda: BpeTokenizer.train(corpus=corpus, vocab_size=vocab_size, scorer="frequency")),
+            ("wordpiece_pmi", lambda: WordPieceTokenizer.train(corpus=corpus, vocab_size=vocab_size)),
+            ("wp_bpe_base", lambda: WpBpeBaseTokenizer.train(corpus=corpus, vocab_size=vocab_size)),
+            ("wp_bpe_ft", lambda: WpBpeFtTokenizer.train(corpus=corpus, vocab_size=vocab_size, min_frequency=2)),
+            ("wp_bpe_pig", lambda: WpBpePigTokenizer.train(corpus=corpus, vocab_size=vocab_size, min_frequency=1)),
+            ("wp_bpe_scp", lambda: WpBpeScpTokenizer.train(corpus=corpus, vocab_size=vocab_size)),
+            ("wp_bpe_npmi", lambda: WpBpeNpmiTokenizer.train(corpus=corpus, vocab_size=vocab_size)),
+            ("wp_bpe_ppig", lambda: WpBpePpigTokenizer.train(corpus=corpus, vocab_size=vocab_size)),
+            ("mdl_bits", lambda: MdlTokenizer.train(corpus=corpus, vocab_size=vocab_size)),
+            ("length_penalized", lambda: LengthPenalizedTokenizer.train(corpus=corpus, vocab_size=vocab_size, beta=0.5)),
+            ("super_bpe", lambda: SuperBpeTokenizer.train(corpus=corpus, v_switch=v_switch, v_final=vocab_size)),
+            ("morpheme_bpe", lambda: MorphemeBpeTokenizer.train(corpus=corpus, vocab_size=vocab_size, morpheme_lexicon=lexicon, lambda_weight=2.5)),
+            ("unigram_lm", lambda: UnigramTokenizer.train(corpus=corpus, vocab_size=vocab_size)),
+        ]
+        toks: Dict[str, Any] = {}
+        for name, factory in factories:
+            try:
+                toks[name] = factory()
+            except Exception as e:
+                logger.error(f"Failed to train {name}: {e}")
+        return toks
 
 
 def load_benchmark_data() -> Dict[str, Any]:
@@ -448,204 +433,188 @@ def load_benchmark_data() -> Dict[str, Any]:
     }
 
 
-class DashboardHandler(BaseHTTPRequestHandler):
-    """HTTP request handler supporting static asset delivery and REST JSON APIs."""
+class ApiError(Exception):
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
 
-    def _set_headers(self, status: int = HTTPStatus.OK, content_type: str = "application/json") -> None:
+
+class DashboardHandler(BaseHTTPRequestHandler):
+    """Static assets plus a JSON API. Same-origin only: no CORS, Host/Origin pinned to loopback."""
+
+    def _send(self, status: int, body: Any, content_type: str = "application/json; charset=utf-8") -> None:
+        if not isinstance(body, bytes):
+            body = json.dumps(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
+        self.wfile.write(body)
 
-    def do_OPTIONS(self) -> None:
-        self._set_headers(HTTPStatus.NO_CONTENT)
+    def _origin_ok(self) -> bool:
+        """Reject DNS-rebinding (foreign Host) and cross-site requests (foreign Origin)."""
+        port = self.server.server_address[1]
+        allowed = {f"{h}:{port}" for h in LOOPBACK_HOSTS}
+        origin = self.headers.get("Origin")
+        if self.headers.get("Host") not in allowed or (origin is not None and origin not in {f"http://{h}" for h in allowed}):
+            self._send(HTTPStatus.FORBIDDEN, {"error": "forbidden host or origin"})
+            return False
+        return True
 
     def do_GET(self) -> None:
+        if not self._origin_ok():
+            return
         path = self.path.split("?")[0]
 
-        # API: Benchmarks
         if path == "/api/benchmarks":
             try:
-                data = load_benchmark_data()
-                body = json.dumps(data).encode("utf-8")
-                self._set_headers(HTTPStatus.OK, "application/json; charset=utf-8")
-                self.wfile.write(body)
+                self._send(HTTPStatus.OK, load_benchmark_data())
             except Exception as e:
                 logger.exception("Error loading benchmark data")
-                err_body = json.dumps({"error": str(e)}).encode("utf-8")
-                self._set_headers(HTTPStatus.INTERNAL_SERVER_ERROR, "application/json")
-                self.wfile.write(err_body)
+                self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
             return
 
-        # Static assets and index.html
+        static_root = STATIC_DIR.resolve()
         if path == "/" or path == "/index.html":
-            file_path = STATIC_DIR / "index.html"
+            file_path = static_root / "index.html"
         elif path.startswith("/static/"):
-            rel_path = path[len("/static/") :]
-            file_path = (STATIC_DIR / rel_path).resolve()
-            # Prevent path traversal
-            if not str(file_path).startswith(str(STATIC_DIR.resolve())):
-                self._set_headers(HTTPStatus.FORBIDDEN, "text/plain")
-                self.wfile.write(b"Forbidden")
+            file_path = (static_root / path[len("/static/"):]).resolve()
+            if not file_path.is_relative_to(static_root):
+                self._send(HTTPStatus.FORBIDDEN, b"Forbidden", "text/plain")
                 return
         else:
-            self._set_headers(HTTPStatus.NOT_FOUND, "text/plain")
-            self.wfile.write(b"Not Found")
+            self._send(HTTPStatus.NOT_FOUND, b"Not Found", "text/plain")
             return
 
-        if not file_path.exists() or not file_path.is_file():
-            self._set_headers(HTTPStatus.NOT_FOUND, "text/plain")
-            self.wfile.write(b"File Not Found")
+        if not file_path.is_file():
+            self._send(HTTPStatus.NOT_FOUND, b"File Not Found", "text/plain")
             return
 
         mime_type, _ = mimetypes.guess_type(str(file_path))
-        if mime_type is None:
-            if file_path.suffix == ".js":
-                mime_type = "application/javascript"
-            elif file_path.suffix == ".css":
-                mime_type = "text/css"
-            elif file_path.suffix == ".json":
-                mime_type = "application/json"
-            else:
-                mime_type = "application/octet-stream"
-
+        mime_type = mime_type or {".js": "application/javascript", ".css": "text/css", ".json": "application/json"}.get(
+            file_path.suffix, "application/octet-stream"
+        )
         if "text" in mime_type or mime_type in ("application/javascript", "application/json"):
             mime_type += "; charset=utf-8"
-
-        try:
-            content = file_path.read_bytes()
-            self._set_headers(HTTPStatus.OK, mime_type)
-            self.wfile.write(content)
-        except Exception as e:
-            logger.exception("Error serving file")
-            self._set_headers(HTTPStatus.INTERNAL_SERVER_ERROR, "text/plain")
-            self.wfile.write(f"Error reading file: {e}".encode("utf-8"))
+        self._send(HTTPStatus.OK, file_path.read_bytes(), mime_type)
 
     def do_POST(self) -> None:
-        path = self.path.split("?")[0]
-
-        # Read JSON body
-        content_len = int(self.headers.get("Content-Length", 0))
-        raw_body = self.rfile.read(content_len) if content_len > 0 else b"{}"
-
+        if not self._origin_ok():
+            return
+        if self.path.split("?")[0] != "/api/tokenize":
+            self._send(HTTPStatus.NOT_FOUND, {"error": "not found"})
+            return
         try:
-            payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            text, vocab_size = self._parse_tokenize_request()
+        except ApiError as e:
+            self._send(e.status, {"error": str(e)})
+            return
+        try:
+            self._send(HTTPStatus.OK, self._tokenize(text, vocab_size))
         except Exception as e:
-            self._set_headers(HTTPStatus.BAD_REQUEST, "application/json")
-            self.wfile.write(json.dumps({"error": f"Invalid JSON payload: {e}"}).encode("utf-8"))
-            return
+            logger.exception("Error in tokenize endpoint")
+            self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
 
-        if path == "/api/tokenize":
-            text = payload.get("text", "")
-            if not text:
-                text = "The internationalization of unhappily disproportionate misunderstandings requires robust subword tokenization."
-            vocab_size = int(payload.get("vocab_size", 400))
+    def _parse_tokenize_request(self) -> Tuple[str, int]:
+        content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        if content_type != "application/json":
+            raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type must be application/json")
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            raise ApiError(HTTPStatus.LENGTH_REQUIRED, "Content-Length required")
+        if length < 0:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid Content-Length")
+        if length > MAX_BODY_BYTES:
+            raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, f"body exceeds {MAX_BODY_BYTES} bytes")
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as e:
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"invalid JSON payload: {e}")
+        if not isinstance(payload, dict):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "JSON payload must be an object")
 
-            try:
-                tokenizers = _TOKENIZER_CACHE.get_tokenizers(vocab_size)
-                raw_bytes = len(text.encode("utf-8"))
-
-                results: List[Dict[str, Any]] = []
-                for name, tok in tokenizers.items():
-                    meta = ALGORITHM_METADATA.get(name, {})
-                    t0 = time.perf_counter()
-                    token_ids = tok.encode(text)
-                    elapsed_ms = round((time.perf_counter() - t0) * 1000, 3)
-
-                    # Extract decoded token string pieces
-                    token_details: List[Dict[str, Any]] = []
-                    tokens: List[str] = []
-                    for tid in token_ids:
-                        try:
-                            # Try id_to_bytes or decode
-                            if hasattr(tok, "id_to_bytes"):
-                                b_val = tok.id_to_bytes(tid)
-                                piece = b_val.decode("utf-8", errors="replace") if b_val else f"<{tid}>"
-                            else:
-                                piece = tok.decode([tid])
-                        except Exception:
-                            try:
-                                piece = tok.decode([tid])
-                            except Exception:
-                                piece = f"<{tid}>"
-
-                        tokens.append(piece)
-                        token_details.append(
-                            {
-                                "id": tid,
-                                "piece": piece,
-                                "byte_len": len(piece.encode("utf-8")),
-                            }
-                        )
-
-                    num_tokens = len(token_ids)
-                    bpt = round(raw_bytes / num_tokens, 3) if num_tokens > 0 else 0.0
-
-                    results.append(
-                        {
-                            "name": name,
-                            "display_name": meta.get("display_name", name),
-                            "family": meta.get("family", "Unknown"),
-                            "num_tokens": num_tokens,
-                            "raw_bytes": raw_bytes,
-                            "bytes_per_token": bpt,
-                            "encode_ms": elapsed_ms,
-                            "token_ids": token_ids,
-                            "tokens": tokens,
-                            "token_details": token_details,
-                        }
-                    )
-
-                response_data = {
-                    "text": text,
-                    "vocab_size": vocab_size,
-                    "raw_bytes": raw_bytes,
-                    "results": results,
-                }
-                self._set_headers(HTTPStatus.OK, "application/json; charset=utf-8")
-                self.wfile.write(json.dumps(response_data).encode("utf-8"))
-            except Exception as e:
-                logger.exception("Error in tokenize endpoint")
-                self._set_headers(HTTPStatus.INTERNAL_SERVER_ERROR, "application/json")
-                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
-            return
-
-        if path == "/api/run-suite":
-            vocab_size = int(payload.get("vocab_size", 400))
-            suite_type = payload.get("suite", "all")
-            # Return acknowledgment
-            self._set_headers(HTTPStatus.OK, "application/json; charset=utf-8")
-            self.wfile.write(
-                json.dumps(
-                    {
-                        "status": "acknowledged",
-                        "vocab_size": vocab_size,
-                        "suite": suite_type,
-                        "message": f"Benchmark suite '{suite_type}' dispatched for vocab_size={vocab_size}.",
-                    }
-                ).encode("utf-8")
+        text = payload.get("text") or DEFAULT_TEXT
+        if not isinstance(text, str):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "text must be a string")
+        if len(text) > MAX_TEXT_CHARS:
+            raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, f"text exceeds {MAX_TEXT_CHARS} characters")
+        vocab_size = payload.get("vocab_size", 400)
+        if type(vocab_size) is not int or not MIN_VOCAB_SIZE <= vocab_size <= MAX_VOCAB_SIZE:
+            raise ApiError(
+                HTTPStatus.BAD_REQUEST,
+                f"vocab_size must be an integer in [{MIN_VOCAB_SIZE}, {MAX_VOCAB_SIZE}], got {vocab_size!r}",
             )
-            return
+        return text, vocab_size
 
-        self._set_headers(HTTPStatus.NOT_FOUND, "text/plain")
-        self.wfile.write(b"Not Found")
+    def _tokenize(self, text: str, vocab_size: int) -> Dict[str, Any]:
+        cache: TokenizerCache = self.server.tokenizer_cache  # type: ignore[attr-defined]
+        tokenizers = cache.get_tokenizers(vocab_size)
+        raw_bytes = len(text.encode("utf-8"))
+        results: List[Dict[str, Any]] = []
+        for name, tok in tokenizers.items():
+            meta = ALGORITHM_METADATA.get(name, {})
+            t0 = time.perf_counter()
+            token_ids = tok.encode(text)
+            elapsed_ms = round((time.perf_counter() - t0) * 1000, 3)
+
+            token_details: List[Dict[str, Any]] = []
+            tokens: List[str] = []
+            for tid in token_ids:
+                try:
+                    if hasattr(tok, "id_to_bytes"):
+                        b_val = tok.id_to_bytes(tid)
+                        piece = b_val.decode("utf-8", errors="replace") if b_val else f"<{tid}>"
+                    else:
+                        piece = tok.decode([tid])
+                except Exception:
+                    try:
+                        piece = tok.decode([tid])
+                    except Exception:
+                        piece = f"<{tid}>"
+                tokens.append(piece)
+                token_details.append({"id": tid, "piece": piece, "byte_len": len(piece.encode("utf-8"))})
+
+            num_tokens = len(token_ids)
+            results.append(
+                {
+                    "name": name,
+                    "display_name": meta.get("display_name", name),
+                    "family": meta.get("family", "Unknown"),
+                    "num_tokens": num_tokens,
+                    "raw_bytes": raw_bytes,
+                    "bytes_per_token": round(raw_bytes / num_tokens, 3) if num_tokens > 0 else 0.0,
+                    "encode_ms": elapsed_ms,
+                    "token_ids": token_ids,
+                    "tokens": tokens,
+                    "token_details": token_details,
+                }
+            )
+        return {
+            "text": text,
+            "vocab_size": vocab_size,
+            "raw_bytes": raw_bytes,
+            "corpus": cache.corpus_info,
+            "results": results,
+        }
 
     def log_message(self, format: str, *args: Any) -> None:
-        # Avoid cluttering console output during testing
         if os.environ.get("TOKENISERS_DASHBOARD_VERBOSE"):
             super().log_message(format, *args)
 
 
 class DashboardServer:
-    """Encapsulates ThreadingHTTPServer with lifecycle controls."""
+    """ThreadingHTTPServer on loopback with lifecycle controls."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8765) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int = 8765, offline: bool = False) -> None:
+        if host not in LOOPBACK_HOSTS:
+            raise ValueError(f"dashboard binds loopback only ({', '.join(LOOPBACK_HOSTS)}), got {host!r}; use an SSH tunnel for remote access")
         self.host = host
         self.port = port
         self.server = ThreadingHTTPServer((host, port), DashboardHandler)
+        self.server.tokenizer_cache = TokenizerCache(offline=offline)  # type: ignore[attr-defined]
         self._thread: Optional[threading.Thread] = None
 
     def start(self, blocking: bool = True) -> None:
@@ -667,13 +636,13 @@ class DashboardServer:
         print("Server shutdown completed.")
 
 
-def create_server(host: str = "127.0.0.1", port: int = 8765) -> DashboardServer:
+def create_server(host: str = "127.0.0.1", port: int = 8765, offline: bool = False) -> DashboardServer:
     """Creates a configured DashboardServer instance."""
-    return DashboardServer(host=host, port=port)
+    return DashboardServer(host=host, port=port, offline=offline)
 
 
-def start_server(host: str = "127.0.0.1", port: int = 8765, blocking: bool = True) -> DashboardServer:
+def start_server(host: str = "127.0.0.1", port: int = 8765, blocking: bool = True, offline: bool = False) -> DashboardServer:
     """Factory creating and running the dashboard server."""
-    server = create_server(host, port)
+    server = create_server(host, port, offline=offline)
     server.start(blocking=blocking)
     return server

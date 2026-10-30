@@ -4,6 +4,7 @@ End-to-End Tests for Tokenisers Lab Benchmark Intelligence Dashboard & REST APIs
 
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import threading
@@ -14,7 +15,8 @@ from typing import Generator
 
 import pytest
 
-from tokenisers.dashboard.server import DashboardServer, create_server
+from tokenisers.dashboard import server as server_mod
+from tokenisers.dashboard.server import DashboardServer, TokenizerCache, create_server
 
 
 def find_free_port() -> int:
@@ -28,7 +30,7 @@ def find_free_port() -> int:
 def dashboard_server() -> Generator[str, None, None]:
     """Starts the dashboard server on an ephemeral port and tears it down."""
     port = find_free_port()
-    server = create_server(host="127.0.0.1", port=port)
+    server = create_server(host="127.0.0.1", port=port, offline=True)
     server.start(blocking=False)
 
     # Wait for server to bind and listen
@@ -143,18 +145,136 @@ def test_api_tokenize_live(dashboard_server: str) -> None:
             assert len(res["tokens"]) == res["num_tokens"]
 
 
-def test_api_run_suite(dashboard_server: str) -> None:
-    """Tests that POST /api/run-suite accepts benchmark suite runs."""
-    payload = {"suite": "intrinsic", "vocab_size": 320}
-    req = urllib.request.Request(
-        f"{dashboard_server}/api/run-suite",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+def _raw(base_url: str, method: str, path: str, body: bytes | None = None, headers: dict | None = None):
+    """Send a request with full control over headers; returns (status, headers, body bytes)."""
+    port = int(base_url.rsplit(":", 1)[1])
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    try:
+        conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+        hdrs = {"Host": f"127.0.0.1:{port}", **(headers or {})}
+        if body is not None:
+            hdrs.setdefault("Content-Length", str(len(body)))
+        for k, v in hdrs.items():
+            if v is not None:
+                conn.putheader(k, v)
+        conn.endheaders()
+        if body is not None:
+            conn.send(body)
+        resp = conn.getresponse()
+        return resp.status, dict(resp.getheaders()), resp.read()
+    finally:
+        conn.close()
 
-    with urllib.request.urlopen(req, timeout=3.0) as resp:
-        assert resp.status == 200
-        data = json.loads(resp.read().decode("utf-8"))
-        assert data["status"] == "acknowledged"
-        assert data["vocab_size"] == 320
+
+def _post_json(base_url: str, payload, headers: dict | None = None):
+    body = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+    return _raw(base_url, "POST", "/api/tokenize", body, {"Content-Type": "application/json", **(headers or {})})
+
+
+def test_api_tokenize_reports_synthetic_corpus(dashboard_server: str) -> None:
+    status, _, body = _post_json(dashboard_server, {"text": "hello world", "vocab_size": 320})
+    assert status == 200
+    corpus = json.loads(body)["corpus"]
+    assert corpus["synthetic"] is True
+    assert "fixture" in corpus["lexicon_source"]
+
+
+def test_no_wildcard_cors(dashboard_server: str) -> None:
+    for method, path in [("GET", "/"), ("GET", "/api/benchmarks")]:
+        status, headers, _ = _raw(dashboard_server, method, path)
+        assert status == 200
+        assert "Access-Control-Allow-Origin" not in headers
+    status, headers, _ = _raw(dashboard_server, "OPTIONS", "/api/tokenize", headers={"Origin": "https://evil.example"})
+    assert status >= 400 and "Access-Control-Allow-Origin" not in headers
+
+
+def test_foreign_host_header_rejected(dashboard_server: str) -> None:
+    """DNS rebinding: evil.example resolving to 127.0.0.1 must not reach the API."""
+    port = dashboard_server.rsplit(":", 1)[1]
+    status, _, _ = _raw(dashboard_server, "GET", "/api/benchmarks", headers={"Host": f"evil.example:{port}"})
+    assert status == 403
+    status, _, _ = _post_json(dashboard_server, {"text": "x"}, headers={"Host": f"evil.example:{port}"})
+    assert status == 403
+    status, _, _ = _raw(dashboard_server, "GET", "/", headers={"Host": f"localhost:{port}"})
+    assert status == 200
+
+
+def test_cross_origin_post_rejected(dashboard_server: str) -> None:
+    port = dashboard_server.rsplit(":", 1)[1]
+    status, _, _ = _post_json(dashboard_server, {"text": "x", "vocab_size": 320}, headers={"Origin": "https://evil.example"})
+    assert status == 403
+    # text/plain is a CORS "simple request": no preflight, so it must be refused outright.
+    status, _, _ = _raw(dashboard_server, "POST", "/api/tokenize", b'{"text": "x"}', {"Content-Type": "text/plain"})
+    assert status == 415
+    status, _, _ = _post_json(dashboard_server, {"text": "x", "vocab_size": 320}, headers={"Origin": f"http://127.0.0.1:{port}"})
+    assert status == 200
+
+
+@pytest.mark.parametrize("body", [b"abc", b"[1, 2]", b'"text"', b"\xff\xfe"])
+def test_malformed_json_is_400(dashboard_server: str, body: bytes) -> None:
+    status, _, payload = _post_json(dashboard_server, body)
+    assert status == 400
+    assert "error" in json.loads(payload)
+
+
+# Only just-out-of-range values: a huge vocab_size (the finding's 300_000 / 1e9) would train
+# 13 tokenizers without bound if validation ever regressed, which can OOM the machine.
+@pytest.mark.parametrize(
+    "vocab_size",
+    [server_mod.MAX_VOCAB_SIZE + 1, server_mod.MIN_VOCAB_SIZE - 1, 0, -5, "400", 400.5, None, True],
+)
+def test_vocab_size_outside_allow_list_is_400(dashboard_server: str, vocab_size) -> None:
+    status, _, payload = _post_json(dashboard_server, {"text": "abc", "vocab_size": vocab_size})
+    assert status == 400
+    assert "vocab_size" in json.loads(payload)["error"]
+
+
+def test_body_and_text_size_caps(dashboard_server: str) -> None:
+    status, _, _ = _post_json(dashboard_server, {"text": "a" * (server_mod.MAX_BODY_BYTES + 1)})
+    assert status == 413
+    # Raw UTF-8 keeps this body under MAX_BODY_BYTES, so only the text-length cap can fire.
+    body = json.dumps({"text": "é" * (server_mod.MAX_TEXT_CHARS + 1)}, ensure_ascii=False).encode("utf-8")
+    assert len(body) <= server_mod.MAX_BODY_BYTES
+    status, _, payload = _post_json(dashboard_server, body)
+    assert status == 413 and "text exceeds" in json.loads(payload)["error"]
+    status, _, _ = _raw(dashboard_server, "POST", "/api/tokenize", None, {"Content-Type": "application/json"})
+    assert status == 411
+
+
+def test_static_path_traversal_uses_real_containment(dashboard_server: str, tmp_path, monkeypatch) -> None:
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "ok.js").write_text("ok", encoding="utf-8")
+    sibling = tmp_path / "static_secrets"  # shares the string prefix ".../static"
+    sibling.mkdir()
+    (sibling / "key.txt").write_text("secret", encoding="utf-8")
+    monkeypatch.setattr(server_mod, "STATIC_DIR", static)
+
+    status, _, body = _raw(dashboard_server, "GET", "/static/ok.js")
+    assert status == 200 and body == b"ok"
+    status, _, body = _raw(dashboard_server, "GET", "/static/../static_secrets/key.txt")
+    assert status == 403 and b"secret" not in body
+    status, _, _ = _raw(dashboard_server, "GET", "/static/../../etc/passwd")
+    assert status == 403
+
+
+def test_run_suite_stub_removed(dashboard_server: str) -> None:
+    status, _, _ = _post_json(dashboard_server, {"suite": "intrinsic", "vocab_size": 320})
+    assert status == 200  # /api/tokenize itself still works
+    status, _, _ = _raw(dashboard_server, "POST", "/api/run-suite", b"{}", {"Content-Type": "application/json"})
+    assert status == 404
+
+
+def test_server_refuses_non_loopback_bind() -> None:
+    with pytest.raises(ValueError):
+        DashboardServer(host="0.0.0.0", port=find_free_port())
+
+
+def test_tokenizer_cache_is_bounded_lru(monkeypatch) -> None:
+    cache = TokenizerCache(offline=True, max_entries=2)
+    trained = []
+    monkeypatch.setattr(cache, "_train", lambda v: trained.append(v) or {"v": v})
+    for v in (300, 310, 300, 320, 310):
+        assert cache.get_tokenizers(v) == {"v": v}
+    assert list(cache._cache) == [320, 310]
+    assert trained == [300, 310, 320, 310]  # 310 was evicted by 320, 300 reused once
