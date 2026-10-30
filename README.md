@@ -192,7 +192,8 @@ budget and 3 seeds. Tokenizer training and every other step ran locally on an In
 155H (22 threads, no GPU, 15 GB RAM shared with a desktop session). Runs whose arguments include
 `--skip-memory-check` started after the desktop's memory use had grown: the preflight estimate
 (4.2 GiB) exceeded the 3.0 GiB it then allowed, so they ran inside a hard 4 GiB cgroup limit
-(`systemd-run -p MemoryMax=4G`) instead, above the measured 2.9 GiB peak. Each section's header
+(`systemd-run -p MemoryMax=4G`) instead, above the measured 2.9 GiB peak. Section 5 re-times the
+same tokenizers on a Colab CPU runtime and on one pinned laptop core. Each section's header
 lists the exact arguments, data sizes, backend and commit. Known limitations are listed after
 section 5.
 
@@ -501,10 +502,12 @@ Morph F1 by language:
 
 The MB/s columns of sections 2 and 4 come from the full suite runs on the shared laptop. Here the
 same tokenizers (all 13 variants at the three sizes, retrained with the same code, data and
-parameters) are timed again with the same `IntrinsicEvaluator.benchmark_throughput` on the same
-held-out documents, in two full passes over all tokenizers so the run-to-run spread is measured.
-Each tokenizer is saved, reloaded on the measuring machine and must produce token ids identical
-(sha256) to the original on every document before it is timed.
+parameters; each reproduced the bytes/token and vocabulary size of sections 2 and 4 exactly) are
+timed again with the same `IntrinsicEvaluator.benchmark_throughput` on the same held-out
+documents, in two full passes over all tokenizers so the run-to-run spread is measured. Each
+tokenizer is saved, reloaded on the measuring machine and must produce token ids identical
+(sha256) to the original on every document before it is timed. The three measurements are
+compared under Known limitations.
 
 ```bash
 # Train, save and verify all tokenizers once into a job directory, then time them.
@@ -520,13 +523,105 @@ extension on the VM, and runs the job there detached, polled like the proxy-LM j
 **Colab CPU runtime:**
 
 <!-- BEGIN GENERATED: throughput_colab -->
-_No results committed (`benchmarks/results/throughput/colab_cpu/throughput.json` is missing). Run `uv run python -m tokenisers.benchmarks.throughput --job-dir DIR --colab`, then `uv run python scripts/gen_readme_tables.py`._
+- Colab CPU runtime (no accelerator requested), session `tokenisers-throughput-d8a4e8da`; 2 vCPUs (1 core(s) x 2 threads, KVM VM): AMD EPYC 7B12, 12.7 GiB RAM, Python 3.13.18, glibc 2.39; extension built on the VM from commit `893cb9b516` (rustc 1.99.1 (58cf8f9c3 2026-10-13), 66.4 s); commit `893cb9b516`; generated 2026-10-30T15:11:02Z
+- 39 tokenizers: the suite's variants at V = 16384, 32768, 65536, retrained from the real train split (52.5 MB, dataset `hf-fb5b8df7af00b10f`), saved, reloaded on the measuring machine and checked there: identical token ids (sha256) on every throughput document
+- 666 documents, 3.1 MB, one encode/decode call per document; each cell is the median of 5 timed passes after 1 warm-up (`IntrinsicEvaluator.benchmark_throughput`), measured in 2 full runs over all 39 tokenizers: run 1 / run 2
+- run-to-run spread (max/min over the runs, per tokenizer): encode median 1.03x, max 1.50x; decode median 1.02x, max 1.52x
+- 1-min load average (the benchmark's own process adds about 1) and MemAvailable before -> after each run: run 1: 1.37 -> 1.26, 11.3 GiB -> 11.3 GiB (66 s); run 2: 1.26 -> 1.25, 11.3 GiB -> 11.3 GiB (66 s)
+
+| Tokenizer | \|V\| | Encode MB/s | Decode MB/s |
+| :--- | ---: | ---: | ---: |
+| `bpe_frequency` | 16384 | 14.39 / 14.15 | 65.90 / 66.52 |
+| `wordpiece_pmi` | 16384 | 35.48 / 36.88 | 48.04 / 47.73 |
+| `wp_bpe_base` | 16384 | 38.69 / 39.08 | 46.82 / 48.48 |
+| `wp_bpe_ft` | 16384 | 24.55 / 36.79 | 30.62 / 46.61 |
+| `wp_bpe_pig` | 16384 | 14.97 / 14.55 | 66.32 / 63.00 |
+| `wp_bpe_scp` | 16384 | 20.80 / 20.34 | 47.43 / 47.23 |
+| `wp_bpe_npmi` | 16384 | 15.63 / 11.33 | 64.84 / 46.72 |
+| `wp_bpe_ppig` | 16384 | 14.66 / 14.97 | 65.57 / 66.12 |
+| `mdl_bits` | 16384 | 15.05 / 14.21 | 62.72 / 60.63 |
+| `length_penalized` | 16384 | 14.16 / 14.47 | 67.87 / 68.87 |
+| `super_bpe` | 16384 | 5.44 / 7.30 | 92.39 / 90.95 |
+| `morpheme_bpe` | 16384 | 14.09 / 14.58 | 62.14 / 62.77 |
+| `unigram_lm` | 16384 | 9.28 / 6.54 | 64.88 / 47.82 |
+| `bpe_frequency` | 32768 | 12.78 / 12.97 | 65.32 / 59.56 |
+| `wordpiece_pmi` | 32768 | 36.02 / 36.15 | 47.24 / 46.26 |
+| `wp_bpe_base` | 32768 | 38.13 / 37.78 | 47.07 / 47.52 |
+| `wp_bpe_ft` | 32768 | 36.15 / 37.04 | 47.72 / 46.54 |
+| `wp_bpe_pig` | 32768 | 13.56 / 13.45 | 66.57 / 63.72 |
+| `wp_bpe_scp` | 32768 | 12.92 / 18.14 | 38.80 / 50.04 |
+| `wp_bpe_npmi` | 32768 | 14.25 / 14.01 | 63.76 / 65.25 |
+| `wp_bpe_ppig` | 32768 | 13.48 / 13.48 | 64.17 / 65.21 |
+| `mdl_bits` | 32768 | 13.99 / 14.14 | 63.58 / 64.44 |
+| `length_penalized` | 32768 | 13.67 / 12.99 | 70.47 / 62.74 |
+| `super_bpe` | 32768 | 6.24 / 6.41 | 93.52 / 96.24 |
+| `morpheme_bpe` | 32768 | 10.06 / 13.54 | 49.54 / 66.11 |
+| `unigram_lm` | 32768 | 8.17 / 8.17 | 64.73 / 63.98 |
+| `bpe_frequency` | 65536 | 11.43 / 8.80 | 66.36 / 45.52 |
+| `wordpiece_pmi` | 65536 | 34.74 / 34.77 | 47.86 / 46.00 |
+| `wp_bpe_base` | 65536 | 36.69 / 38.01 | 46.20 / 47.92 |
+| `wp_bpe_ft` | 65536 | 35.50 / 35.92 | 46.47 / 46.12 |
+| `wp_bpe_pig` | 65536 | 12.38 / 12.11 | 63.29 / 64.46 |
+| `wp_bpe_scp` | 65536 | 16.16 / 15.60 | 57.87 / 57.56 |
+| `wp_bpe_npmi` | 65536 | 9.66 / 13.08 | 63.66 / 63.99 |
+| `wp_bpe_ppig` | 65536 | 11.75 / 11.57 | 62.24 / 61.81 |
+| `mdl_bits` | 65536 | 12.53 / 9.10 | 61.22 / 45.02 |
+| `length_penalized` | 65536 | 12.00 / 11.72 | 64.44 / 63.10 |
+| `super_bpe` | 65536 | 5.46 / 5.25 | 85.93 / 87.81 |
+| `morpheme_bpe` | 65536 | 9.08 / 11.69 | 46.09 / 62.81 |
+| `unigram_lm` | 65536 | 7.06 / 6.73 | 66.36 / 65.75 |
 <!-- END GENERATED: throughput_colab -->
 
 **Laptop, pinned to one performance core (re-run):**
 
 <!-- BEGIN GENERATED: throughput_local -->
-_No results committed (`benchmarks/results/throughput/local/throughput.json` is missing). Run `uv run python -m tokenisers.benchmarks.throughput --job-dir DIR`, then `uv run python scripts/gen_readme_tables.py`._
+- local, pinned to CPU 3 (max 4800 MHz, governor powersave, SMT sibling(s) 3-4): Intel(R) Core(TM) Ultra 7 155H, 15.1 GiB RAM, Python 3.13.17, glibc 2.44; commit `893cb9b516`; generated 2026-10-30T15:06:11Z
+- 39 tokenizers: the suite's variants at V = 16384, 32768, 65536, retrained from the real train split (52.5 MB, dataset `hf-fb5b8df7af00b10f`), saved, reloaded on the measuring machine and checked there: identical token ids (sha256) on every throughput document
+- 666 documents, 3.1 MB, one encode/decode call per document; each cell is the median of 5 timed passes after 1 warm-up (`IntrinsicEvaluator.benchmark_throughput`), measured in 2 full runs over all 39 tokenizers: run 1 / run 2
+- run-to-run spread (max/min over the runs, per tokenizer): encode median 1.02x, max 1.15x; decode median 1.02x, max 1.13x
+- 1-min load average (the benchmark's own process adds about 1) and MemAvailable before -> after each run: run 1: 1.86 -> 1.57, 6.0 GiB -> 5.9 GiB (53 s); run 2: 1.57 -> 1.56, 5.9 GiB -> 5.8 GiB (53 s)
+
+| Tokenizer | \|V\| | Encode MB/s | Decode MB/s |
+| :--- | ---: | ---: | ---: |
+| `bpe_frequency` | 16384 | 16.08 / 16.18 | 75.57 / 78.14 |
+| `wordpiece_pmi` | 16384 | 41.71 / 43.01 | 63.88 / 65.44 |
+| `wp_bpe_base` | 16384 | 43.28 / 44.77 | 64.86 / 65.34 |
+| `wp_bpe_ft` | 16384 | 41.31 / 41.12 | 63.51 / 63.65 |
+| `wp_bpe_pig` | 16384 | 16.78 / 16.33 | 73.35 / 69.56 |
+| `wp_bpe_scp` | 16384 | 21.60 / 22.21 | 48.54 / 49.26 |
+| `wp_bpe_npmi` | 16384 | 16.30 / 17.48 | 67.04 / 72.23 |
+| `wp_bpe_ppig` | 16384 | 16.55 / 16.82 | 75.11 / 73.96 |
+| `mdl_bits` | 16384 | 17.02 / 16.70 | 69.64 / 67.06 |
+| `length_penalized` | 16384 | 15.98 / 16.16 | 75.95 / 75.41 |
+| `super_bpe` | 16384 | 8.55 / 8.56 | 108.64 / 102.47 |
+| `morpheme_bpe` | 16384 | 16.44 / 16.30 | 69.63 / 69.21 |
+| `unigram_lm` | 16384 | 10.88 / 11.29 | 67.48 / 70.35 |
+| `bpe_frequency` | 32768 | 15.52 / 15.71 | 78.63 / 77.56 |
+| `wordpiece_pmi` | 32768 | 42.25 / 43.24 | 64.62 / 65.47 |
+| `wp_bpe_base` | 32768 | 43.80 / 42.64 | 66.14 / 65.07 |
+| `wp_bpe_ft` | 32768 | 42.25 / 41.89 | 64.73 / 65.12 |
+| `wp_bpe_pig` | 32768 | 16.00 / 16.33 | 75.20 / 76.97 |
+| `wp_bpe_scp` | 32768 | 19.82 / 20.07 | 51.93 / 52.44 |
+| `wp_bpe_npmi` | 32768 | 16.47 / 16.56 | 74.23 / 72.79 |
+| `wp_bpe_ppig` | 32768 | 15.77 / 15.75 | 75.78 / 75.06 |
+| `mdl_bits` | 32768 | 15.67 / 14.70 | 70.51 / 64.90 |
+| `length_penalized` | 32768 | 15.41 / 15.10 | 77.03 / 75.58 |
+| `super_bpe` | 32768 | 7.69 / 7.81 | 108.73 / 113.49 |
+| `morpheme_bpe` | 32768 | 15.58 / 15.94 | 75.68 / 77.21 |
+| `unigram_lm` | 32768 | 9.79 / 10.00 | 70.34 / 70.32 |
+| `bpe_frequency` | 65536 | 13.04 / 14.89 | 70.60 / 78.10 |
+| `wordpiece_pmi` | 65536 | 38.56 / 41.05 | 61.80 / 64.37 |
+| `wp_bpe_base` | 65536 | 42.22 / 39.35 | 63.49 / 59.32 |
+| `wp_bpe_ft` | 65536 | 41.04 / 36.91 | 63.06 / 58.94 |
+| `wp_bpe_pig` | 65536 | 15.40 / 15.41 | 77.58 / 75.13 |
+| `wp_bpe_scp` | 65536 | 18.21 / 18.22 | 61.59 / 61.27 |
+| `wp_bpe_npmi` | 65536 | 15.36 / 16.04 | 75.50 / 75.75 |
+| `wp_bpe_ppig` | 65536 | 15.03 / 15.10 | 77.64 / 78.24 |
+| `mdl_bits` | 65536 | 15.60 / 13.52 | 73.84 / 65.48 |
+| `length_penalized` | 65536 | 14.57 / 12.87 | 76.68 / 70.16 |
+| `super_bpe` | 65536 | 7.17 / 7.21 | 113.90 / 117.59 |
+| `morpheme_bpe` | 65536 | 15.01 / 14.88 | 78.21 / 76.85 |
+| `unigram_lm` | 65536 | 8.86 / 8.73 | 74.76 / 74.15 |
 <!-- END GENERATED: throughput_local -->
 
 ### Known limitations
@@ -553,8 +648,26 @@ _No results committed (`benchmarks/results/throughput/local/throughput.json` is 
 - **Morphology.** Morph F1 uses SIGMORPHON 2022 gold for 5 languages (eng, fra, hun, rus, spa).
   `morpheme_bpe` is trained with a lexicon from the SIGMORPHON train split (gold test words
   removed), i.e. with supervision the other variants do not get.
-- **Throughput.** Single-process encode/decode on a shared laptop CPU, median of 5 passes. Two runs
-  of the V = 65,536 intrinsic suite differed by up to 1.7x in MB/s (1.55x encode, 1.71x decode;
-  the first overlapped a busier desktop and the start of another benchmark job; the committed
-  numbers are from the second, and all other metrics were identical). Compare MB/s within one
-  table, not across tables.
+- **Throughput.** Single-threaded encode/decode, one call per document, median of 5 timed passes
+  over the 3.1 MB test split. MB/s depend on the machine and its load; three measurements of the
+  same tokenizers exist:
+  - *Sections 2 and 4*: the full-suite runs on the shared laptop, unpinned, with the desktop
+    session active. Two runs of the V = 65,536 suite differed by up to 1.7x (1.55x encode, 1.71x
+    decode; the first overlapped a busier desktop and the start of another benchmark job; the
+    committed numbers are from the second, and all other metrics were identical).
+  - *Section 5, laptop*: the same tokenizers re-timed pinned to one performance core
+    (`taskset -c 3`, 4.8 GHz max, `powersave` governor, no system settings changed; the desktop
+    session and the Colab job's 30 s status polls ran on the other cores). Its two passes differ by a median of 1.02x and at most 1.15x
+    (encode) / 1.13x (decode). Against sections 2 and 4 it is a median 1.07x faster at encoding
+    and 1.18x at decoding, and up to 1.5x / 2.0x faster in the V = 65,536 table.
+  - *Section 5, Colab*: a CPU runtime whose 2 vCPUs are one AMD EPYC 7B12 core with 2 hyperthreads
+    (KVM). It was not quieter than the pinned laptop: the median pass-to-pass spread is the same
+    (1.03x encode, 1.02x decode) but single cells differ by up to 1.50x / 1.52x between its two
+    passes (`wp_bpe_ft` at V = 16,384; 10 of 39 tokenizers differ by more than 1.2x in encode or
+    decode). The cause was not isolated: the core's two hyperthreads also run the Jupyter kernel
+    that answers the job's status polls, and the host is shared. Its MB/s are a median 0.85x
+    (encode) / 0.84x (decode) of the pinned laptop's.
+
+  Compare MB/s between tokenizers within one table and one pass, not across tables, and treat a
+  difference smaller than the table's spread as noise. The pinned laptop table has the smallest
+  spread.

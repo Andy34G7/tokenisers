@@ -1,0 +1,982 @@
+{
+  "meta": {
+    "benchmark": "throughput",
+    "created_utc": "2026-10-30T15:06:11Z",
+    "command": [
+      "python",
+      "-m",
+      "tokenisers.benchmarks",
+      "--job-dir",
+      "/home/andey/.claude/jobs/a596b8d6/tmp/throughput/job_local",
+      "--output-dir",
+      "benchmarks/results/throughput/local"
+    ],
+    "tokenisers_version": "0.1.0",
+    "git_commit": "893cb9b516b8ba72af277e4f6ea802d33825edc0",
+    "git_dirty": false,
+    "native_extension": {
+      "file": "_core.cpython-313-x86_64-linux-gnu.so",
+      "sha256": "4da4c190961ff5aa3b1c70b3eb824d37e01c9442c4af3cb390e60ecb486ad1db",
+      "built_utc": "2026-10-30T14:10:06Z",
+      "stale_sources": []
+    },
+    "prepared": {
+      "command": [
+        "python",
+        "-m",
+        "tokenisers.benchmarks",
+        "--job-dir",
+        "/home/andey/.claude/jobs/a596b8d6/tmp/throughput/job",
+        "--prepare-only",
+        "--skip-memory-check"
+      ],
+      "git_commit": "893cb9b516b8ba72af277e4f6ea802d33825edc0",
+      "git_dirty": false,
+      "native_extension": {
+        "file": "_core.cpython-313-x86_64-linux-gnu.so",
+        "sha256": "4da4c190961ff5aa3b1c70b3eb824d37e01c9442c4af3cb390e60ecb486ad1db",
+        "built_utc": "2026-10-30T14:10:06Z",
+        "stale_sources": []
+      },
+      "created_utc": "2026-10-30T15:02:55Z",
+      "synthetic_data": false,
+      "dataset": {
+        "root": "hf-fb5b8df7af00b10f",
+        "created_utc": "2026-10-30T12:52:26.795572+00:00",
+        "manifest_sha256": "c9acae2c15063bf8b776278360dbf3ad37b5fbde429575a1d17952841cdd990e"
+      },
+      "train_bytes": 52512567,
+      "throughput_docs": 666,
+      "throughput_bytes": 3142895,
+      "variants": {
+        "16384": {
+          "bpe_frequency": {
+            "class": "BpeTokenizer",
+            "scorer": "frequency",
+            "min_frequency": 1,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 5.02,
+            "warnings": []
+          },
+          "wordpiece_pmi": {
+            "class": "BpeTokenizer",
+            "scorer": "wordpiece",
+            "min_frequency": 2,
+            "alpha": 1.0,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 3.48,
+            "warnings": []
+          },
+          "wp_bpe_base": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-base",
+            "min_frequency": 1,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 3.22,
+            "warnings": []
+          },
+          "wp_bpe_ft": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-ft",
+            "min_frequency": 2,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 3.39,
+            "warnings": []
+          },
+          "wp_bpe_pig": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-pig",
+            "min_frequency": 1,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 8.88,
+            "warnings": []
+          },
+          "wp_bpe_scp": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-scp",
+            "min_frequency": 2,
+            "alpha": 0.75,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 4.66,
+            "warnings": []
+          },
+          "wp_bpe_npmi": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-npmi",
+            "min_frequency": 2,
+            "alpha": 0.5,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 8.08,
+            "warnings": []
+          },
+          "wp_bpe_ppig": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-ppig",
+            "min_frequency": 2,
+            "penalty": 0.35,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 8.84,
+            "warnings": []
+          },
+          "mdl_bits": {
+            "class": "BpeTokenizer",
+            "scorer": "mdl",
+            "min_frequency": 2,
+            "penalty": 24.0,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 8.1,
+            "warnings": []
+          },
+          "length_penalized": {
+            "class": "BpeTokenizer",
+            "scorer": "length_penalized",
+            "min_frequency": 1,
+            "beta": 0.5,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 4.97,
+            "warnings": []
+          },
+          "super_bpe": {
+            "class": "SuperBpeTokenizer",
+            "v_switch": 14771,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 15.7,
+            "warnings": []
+          },
+          "morpheme_bpe": {
+            "class": "MorphemeBpeTokenizer",
+            "scorer": "frequency",
+            "min_frequency": 1,
+            "lambda_weight": 2.0,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 5.26,
+            "warnings": []
+          },
+          "unigram_lm": {
+            "class": "UnigramTokenizer",
+            "num_iterations": 10,
+            "shrinking_factor": 0.75,
+            "requested_vocab_size": 16384,
+            "vocab_size": 16384,
+            "train_seconds": 59.02,
+            "warnings": []
+          }
+        },
+        "32768": {
+          "bpe_frequency": {
+            "class": "BpeTokenizer",
+            "scorer": "frequency",
+            "min_frequency": 1,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 6.02,
+            "warnings": []
+          },
+          "wordpiece_pmi": {
+            "class": "BpeTokenizer",
+            "scorer": "wordpiece",
+            "min_frequency": 2,
+            "alpha": 1.0,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 4.63,
+            "warnings": []
+          },
+          "wp_bpe_base": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-base",
+            "min_frequency": 1,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 3.6,
+            "warnings": []
+          },
+          "wp_bpe_ft": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-ft",
+            "min_frequency": 2,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 4.27,
+            "warnings": []
+          },
+          "wp_bpe_pig": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-pig",
+            "min_frequency": 1,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 14.62,
+            "warnings": []
+          },
+          "wp_bpe_scp": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-scp",
+            "min_frequency": 2,
+            "alpha": 0.75,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 5.65,
+            "warnings": []
+          },
+          "wp_bpe_npmi": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-npmi",
+            "min_frequency": 2,
+            "alpha": 0.5,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 12.25,
+            "warnings": []
+          },
+          "wp_bpe_ppig": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-ppig",
+            "min_frequency": 2,
+            "penalty": 0.35,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 13.48,
+            "warnings": []
+          },
+          "mdl_bits": {
+            "class": "BpeTokenizer",
+            "scorer": "mdl",
+            "min_frequency": 2,
+            "penalty": 24.0,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 12.68,
+            "warnings": []
+          },
+          "length_penalized": {
+            "class": "BpeTokenizer",
+            "scorer": "length_penalized",
+            "min_frequency": 1,
+            "beta": 0.5,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 5.99,
+            "warnings": []
+          },
+          "super_bpe": {
+            "class": "SuperBpeTokenizer",
+            "v_switch": 29516,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 17.68,
+            "warnings": []
+          },
+          "morpheme_bpe": {
+            "class": "MorphemeBpeTokenizer",
+            "scorer": "frequency",
+            "min_frequency": 1,
+            "lambda_weight": 2.0,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 6.32,
+            "warnings": []
+          },
+          "unigram_lm": {
+            "class": "UnigramTokenizer",
+            "num_iterations": 10,
+            "shrinking_factor": 0.75,
+            "requested_vocab_size": 32768,
+            "vocab_size": 32768,
+            "train_seconds": 76.69,
+            "warnings": []
+          }
+        },
+        "65536": {
+          "bpe_frequency": {
+            "class": "BpeTokenizer",
+            "scorer": "frequency",
+            "min_frequency": 1,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 6.87,
+            "warnings": []
+          },
+          "wordpiece_pmi": {
+            "class": "BpeTokenizer",
+            "scorer": "wordpiece",
+            "min_frequency": 2,
+            "alpha": 1.0,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 7.16,
+            "warnings": []
+          },
+          "wp_bpe_base": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-base",
+            "min_frequency": 1,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 4.67,
+            "warnings": []
+          },
+          "wp_bpe_ft": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-ft",
+            "min_frequency": 2,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 7.61,
+            "warnings": []
+          },
+          "wp_bpe_pig": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-pig",
+            "min_frequency": 1,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 28.63,
+            "warnings": []
+          },
+          "wp_bpe_scp": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-scp",
+            "min_frequency": 2,
+            "alpha": 0.75,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 7.58,
+            "warnings": []
+          },
+          "wp_bpe_npmi": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-npmi",
+            "min_frequency": 2,
+            "alpha": 0.5,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 21.09,
+            "warnings": []
+          },
+          "wp_bpe_ppig": {
+            "class": "BpeTokenizer",
+            "scorer": "wp-bpe-ppig",
+            "min_frequency": 2,
+            "penalty": 0.35,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 24.33,
+            "warnings": []
+          },
+          "mdl_bits": {
+            "class": "BpeTokenizer",
+            "scorer": "mdl",
+            "min_frequency": 2,
+            "penalty": 24.0,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 23.49,
+            "warnings": []
+          },
+          "length_penalized": {
+            "class": "BpeTokenizer",
+            "scorer": "length_penalized",
+            "min_frequency": 1,
+            "beta": 0.5,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 7.08,
+            "warnings": []
+          },
+          "super_bpe": {
+            "class": "SuperBpeTokenizer",
+            "v_switch": 59008,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 20.49,
+            "warnings": []
+          },
+          "morpheme_bpe": {
+            "class": "MorphemeBpeTokenizer",
+            "scorer": "frequency",
+            "min_frequency": 1,
+            "lambda_weight": 2.0,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 7.72,
+            "warnings": []
+          },
+          "unigram_lm": {
+            "class": "UnigramTokenizer",
+            "num_iterations": 10,
+            "shrinking_factor": 0.75,
+            "requested_vocab_size": 65536,
+            "vocab_size": 65536,
+            "train_seconds": 98.5,
+            "warnings": []
+          }
+        }
+      }
+    },
+    "repeats": 5,
+    "warmup": 1,
+    "passes": 2,
+    "vocab_sizes": [
+      16384,
+      32768,
+      65536
+    ],
+    "ids_sha256": {
+      "16384/bpe_frequency": "dfc65779a20758d69ca824c88ea74277592e02b38dcea0e2cefb371113f68f9a",
+      "16384/wordpiece_pmi": "70340849f36f40dcec5fe19b59e76a23e8d1bed9390c8987378d834572405f7f",
+      "16384/wp_bpe_base": "6005321ea3431b1498349470a6d073b19dcffffe28efa2d528ca6c64c311fe5b",
+      "16384/wp_bpe_ft": "39b9bb51f9ec93647323d282608f523f81b2a5f4ebdf3ad5bccc6780385516af",
+      "16384/wp_bpe_pig": "7408a204f6f0ac2c5b00ed3a845209b2b147784e898eff294224b8b46070a5ee",
+      "16384/wp_bpe_scp": "9dd5527c15c0b76fdca3c81eeaca716cd897c2baa9bc56def58fe03388cbd57f",
+      "16384/wp_bpe_npmi": "f646a956f8263ff5b06b63409bbdb1371d51be1338d511e71766a4e5acba98f2",
+      "16384/wp_bpe_ppig": "ca50083a0d41ef7dda95dbdd1da8b7e38730303243c8fb1419c796ae007b21ec",
+      "16384/mdl_bits": "d9f43b9bd618145eee40c6602fb4ad8534ae476e4c9f8386b874cd457b8a2d81",
+      "16384/length_penalized": "383322e1ac7eb8b8a80996796893ccd12ec6f6fd880014eb6e0058f620a724c0",
+      "16384/super_bpe": "647fafcf2040d55a45b8544e87b8a1b110fa96e7490d09896b922f158186df0e",
+      "16384/morpheme_bpe": "372288b64cf008f17ff575dd25a83340b781df701dae13e377713bd7a1808cd1",
+      "16384/unigram_lm": "b95489f00e8f8938f8426cc1eea8808bab111a4a32eea7881ea7154d522969fc",
+      "32768/bpe_frequency": "9ce5e090a21133de879b45915c147f3992bea207eb723fb27ef1150e9677abe0",
+      "32768/wordpiece_pmi": "d6a177496cdb9420ce8d085e984e4b84ad00726957694c3e93d9843935fda56a",
+      "32768/wp_bpe_base": "981977f0f1c098dd70af281db9ff3e79e38a59e6a38788fc9310e3f46f137aaf",
+      "32768/wp_bpe_ft": "387b9cb290b66faa9461be163f5c6be17b6f8a1f659e89ce5a15d03dfddbc7a3",
+      "32768/wp_bpe_pig": "a2fd764e886f7be2d91bdb27a7960a705cc7b6fe6a95c018a64093af59f24952",
+      "32768/wp_bpe_scp": "473342d0909786723950e7f2d8221a4701b54ba5bb98f2849a1fc1a936994a14",
+      "32768/wp_bpe_npmi": "2bc52273860121733e69ce68ca2c52847b145423d53ff8804861c7661e66cc41",
+      "32768/wp_bpe_ppig": "ec960478ec823790149874aeedbbb531f39b0f945b5752f679cc6ea69ff119ae",
+      "32768/mdl_bits": "7085a47ffc048e730b7fcfe84318670c98179a0e6b200fae501ab6ec5b7a00df",
+      "32768/length_penalized": "41d23a14455b22d558b1c2cf867bc32acba400ffd10988e4b0382b76365f8b6b",
+      "32768/super_bpe": "f4f01dc17a18cf6f3024d8d658b9efb9ac4b1fa304ea0c80c24693bbe8c0e8ac",
+      "32768/morpheme_bpe": "daaca64af58e29822ba1ea705823c18864bf72862b805e94056bf78cdadcfaf9",
+      "32768/unigram_lm": "431b7bcd77c26d590b7f530474efe53c09ed139a26121a9230d18d4e1c5617bc",
+      "65536/bpe_frequency": "2a88914bacd95ea17fae1a392e970c7e89a3e2b9beb452efff8be3325c512715",
+      "65536/wordpiece_pmi": "2c710929a1a040630f9285859218ffcda128d433645c81810d20278288da1111",
+      "65536/wp_bpe_base": "059d4a834958ec78917ded40d14c6600408472de684fdd57d7e6427cdbf6e6d9",
+      "65536/wp_bpe_ft": "a639857044dc59d320008e7397b8d0036738b82a6ff9200f758826898e39a0a5",
+      "65536/wp_bpe_pig": "9e168dd67ad91af17ab3a20d1f9931a1f93856787ffe552ce09b4ea252e2fc79",
+      "65536/wp_bpe_scp": "2b6fb90fbf5e7f194517e3848e9885f0706d06bb65ab9c67a002a381f09edbfb",
+      "65536/wp_bpe_npmi": "e115d0eedb1c31424fe9132146e6f0708e70023a81f2a2d3aba01349964527c6",
+      "65536/wp_bpe_ppig": "7562dc8d40d0fcad363b975fd9abb255df8e522593f028332597856d3500a8a8",
+      "65536/mdl_bits": "ed91557cc91908078606385b6d3401fddd8a36ff973a2b7d479795ce5577b4d4",
+      "65536/length_penalized": "a05b4210b9c1dce204f66ca6d330912b2e27345d5eb015afcd8fe915d55d1b21",
+      "65536/super_bpe": "9309c090aab94bfdcd26c740d37f965f3ebc97901be0c1102a3ccc347680c740",
+      "65536/morpheme_bpe": "cc7c5a9371f78867b53e7855b0fbc65065490db94128991860fa0a7af9bb45b1",
+      "65536/unigram_lm": "fbb3e94f216343ff84f81eb62870eb912a025017f488919e860ece736aa97d59"
+    },
+    "backend": {
+      "kind": "local",
+      "cpu": "Intel(R) Core(TM) Ultra 7 155H",
+      "lscpu": {
+        "CPU(s)": "22",
+        "Model name": "Intel(R) Core(TM) Ultra 7 155H",
+        "Thread(s) per core": "2",
+        "Core(s) per socket": "16",
+        "Socket(s)": "1",
+        "L3 cache": "24 MiB (1 instance)"
+      },
+      "cpu_count": 22,
+      "affinity": [
+        {
+          "cpu": 3,
+          "max_mhz": 4800,
+          "governor": "powersave",
+          "thread_siblings": "3-4"
+        }
+      ],
+      "mem_total": 16178696192,
+      "python": "3.13.17",
+      "platform": "Linux-7.3.0-4-cachyos-x86_64-with-glibc2.44",
+      "libc": "glibc 2.44",
+      "build": null
+    },
+    "pass_load": [
+      {
+        "before": {
+          "loadavg": [
+            1.86,
+            3.36,
+            2.81
+          ],
+          "mem_available": 6399967232
+        },
+        "after": {
+          "loadavg": [
+            1.57,
+            3.05,
+            2.73
+          ],
+          "mem_available": 6381031424
+        },
+        "seconds": 53.1
+      },
+      {
+        "before": {
+          "loadavg": [
+            1.57,
+            3.05,
+            2.73
+          ],
+          "mem_available": 6381031424
+        },
+        "after": {
+          "loadavg": [
+            1.56,
+            2.8,
+            2.66
+          ],
+          "mem_available": 6230532096
+        },
+        "seconds": 53.1
+      }
+    ]
+  },
+  "models": {
+    "16384": {
+      "bpe_frequency": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          16.07881740065955,
+          16.18246763923783
+        ],
+        "decode_mb_per_sec": [
+          75.56572513155284,
+          78.13929665810464
+        ]
+      },
+      "wordpiece_pmi": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          41.71159156290539,
+          43.01241122461047
+        ],
+        "decode_mb_per_sec": [
+          63.876862608996916,
+          65.44427899637834
+        ]
+      },
+      "wp_bpe_base": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          43.28228318981086,
+          44.77307189197578
+        ],
+        "decode_mb_per_sec": [
+          64.85704955482397,
+          65.33681954990422
+        ]
+      },
+      "wp_bpe_ft": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          41.30540708549219,
+          41.124318937381744
+        ],
+        "decode_mb_per_sec": [
+          63.514704908306335,
+          63.65185065991465
+        ]
+      },
+      "wp_bpe_pig": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          16.77632211488476,
+          16.330678317532353
+        ],
+        "decode_mb_per_sec": [
+          73.35450165928418,
+          69.56197424347974
+        ]
+      },
+      "wp_bpe_scp": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          21.60303913828228,
+          22.205865426546286
+        ],
+        "decode_mb_per_sec": [
+          48.53856126144974,
+          49.26027923137907
+        ]
+      },
+      "wp_bpe_npmi": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          16.29836519910699,
+          17.482580028760655
+        ],
+        "decode_mb_per_sec": [
+          67.03972053764662,
+          72.23496407887517
+        ]
+      },
+      "wp_bpe_ppig": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          16.54817271000817,
+          16.820796165704035
+        ],
+        "decode_mb_per_sec": [
+          75.10854800492528,
+          73.95589431610196
+        ]
+      },
+      "mdl_bits": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          17.024795774047018,
+          16.69516374740245
+        ],
+        "decode_mb_per_sec": [
+          69.63674356756515,
+          67.05838199863642
+        ]
+      },
+      "length_penalized": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          15.981870036475001,
+          16.15762799174946
+        ],
+        "decode_mb_per_sec": [
+          75.94544289094024,
+          75.4074115037021
+        ]
+      },
+      "super_bpe": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          8.55355543131831,
+          8.563777304622644
+        ],
+        "decode_mb_per_sec": [
+          108.63818676311092,
+          102.47033695352799
+        ]
+      },
+      "morpheme_bpe": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          16.441623825562687,
+          16.296527226875792
+        ],
+        "decode_mb_per_sec": [
+          69.62662031927827,
+          69.21085038600883
+        ]
+      },
+      "unigram_lm": {
+        "vocab_size": 16384,
+        "encode_mb_per_sec": [
+          10.879399438461464,
+          11.290563002093663
+        ],
+        "decode_mb_per_sec": [
+          67.47741461563452,
+          70.349243250783
+        ]
+      }
+    },
+    "32768": {
+      "bpe_frequency": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          15.516150436283645,
+          15.705224138664425
+        ],
+        "decode_mb_per_sec": [
+          78.63025199942618,
+          77.56490817218314
+        ]
+      },
+      "wordpiece_pmi": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          42.253872782672495,
+          43.240299830589336
+        ],
+        "decode_mb_per_sec": [
+          64.61761830018148,
+          65.47091954431653
+        ]
+      },
+      "wp_bpe_base": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          43.797023736968434,
+          42.637151404922996
+        ],
+        "decode_mb_per_sec": [
+          66.13604171478346,
+          65.07331233960056
+        ]
+      },
+      "wp_bpe_ft": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          42.25311629763236,
+          41.893577990202125
+        ],
+        "decode_mb_per_sec": [
+          64.72724469352761,
+          65.11625397971164
+        ]
+      },
+      "wp_bpe_pig": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          15.997521354951742,
+          16.333843581679375
+        ],
+        "decode_mb_per_sec": [
+          75.20101576152942,
+          76.97328331566425
+        ]
+      },
+      "wp_bpe_scp": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          19.817917057700733,
+          20.071186094540156
+        ],
+        "decode_mb_per_sec": [
+          51.93063085499535,
+          52.443867467974776
+        ]
+      },
+      "wp_bpe_npmi": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          16.470332168200112,
+          16.555051087978768
+        ],
+        "decode_mb_per_sec": [
+          74.23000266958815,
+          72.7892670395363
+        ]
+      },
+      "wp_bpe_ppig": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          15.771956065471871,
+          15.752195171561489
+        ],
+        "decode_mb_per_sec": [
+          75.78420800473438,
+          75.05521259224015
+        ]
+      },
+      "mdl_bits": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          15.670541607459032,
+          14.698543358409715
+        ],
+        "decode_mb_per_sec": [
+          70.51276525849221,
+          64.90111427304163
+        ]
+      },
+      "length_penalized": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          15.40966954496205,
+          15.099501915292867
+        ],
+        "decode_mb_per_sec": [
+          77.02724468394189,
+          75.58253381906185
+        ]
+      },
+      "super_bpe": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          7.689667428922192,
+          7.809586775884251
+        ],
+        "decode_mb_per_sec": [
+          108.73205823458146,
+          113.48831087862703
+        ]
+      },
+      "morpheme_bpe": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          15.579171170185125,
+          15.938118823904544
+        ],
+        "decode_mb_per_sec": [
+          75.68214634220746,
+          77.21371195723462
+        ]
+      },
+      "unigram_lm": {
+        "vocab_size": 32768,
+        "encode_mb_per_sec": [
+          9.792659933716282,
+          9.998736223708367
+        ],
+        "decode_mb_per_sec": [
+          70.33865269491669,
+          70.31899054552687
+        ]
+      }
+    },
+    "65536": {
+      "bpe_frequency": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          13.03837396545169,
+          14.888697103572689
+        ],
+        "decode_mb_per_sec": [
+          70.6018414314348,
+          78.09817123650313
+        ]
+      },
+      "wordpiece_pmi": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          38.561537635518306,
+          41.052444338895505
+        ],
+        "decode_mb_per_sec": [
+          61.8011398509492,
+          64.37389070644821
+        ]
+      },
+      "wp_bpe_base": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          42.220321730395575,
+          39.35109220620649
+        ],
+        "decode_mb_per_sec": [
+          63.485177102839444,
+          59.317736598558085
+        ]
+      },
+      "wp_bpe_ft": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          41.035565060451546,
+          36.909705314473484
+        ],
+        "decode_mb_per_sec": [
+          63.05887898908674,
+          58.93588159593693
+        ]
+      },
+      "wp_bpe_pig": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          15.403994128898667,
+          15.414458617943344
+        ],
+        "decode_mb_per_sec": [
+          77.58387725252668,
+          75.13304622555134
+        ]
+      },
+      "wp_bpe_scp": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          18.209362659103856,
+          18.219817449939022
+        ],
+        "decode_mb_per_sec": [
+          61.58554950123913,
+          61.270051044626285
+        ]
+      },
+      "wp_bpe_npmi": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          15.363119145346714,
+          16.039202700562146
+        ],
+        "decode_mb_per_sec": [
+          75.49576578923148,
+          75.75289584596284
+        ]
+      },
+      "wp_bpe_ppig": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          15.030628719470108,
+          15.098252924772762
+        ],
+        "decode_mb_per_sec": [
+          77.63981861085128,
+          78.244862298315
+        ]
+      },
+      "mdl_bits": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          15.602951571572573,
+          13.524453366490816
+        ],
+        "decode_mb_per_sec": [
+          73.83635714086417,
+          65.47531167058335
+        ]
+      },
+      "length_penalized": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          14.573292314588373,
+          12.871559308606894
+        ],
+        "decode_mb_per_sec": [
+          76.68310443374861,
+          70.16323794386096
+        ]
+      },
+      "super_bpe": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          7.168003911402293,
+          7.209900564969373
+        ],
+        "decode_mb_per_sec": [
+          113.90345114962909,
+          117.59341121269202
+        ]
+      },
+      "morpheme_bpe": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          15.01484395887807,
+          14.875475087003153
+        ],
+        "decode_mb_per_sec": [
+          78.20511730257104,
+          76.85197629907336
+        ]
+      },
+      "unigram_lm": {
+        "vocab_size": 65536,
+        "encode_mb_per_sec": [
+          8.857481632051183,
+          8.728028383360948
+        ],
+        "decode_mb_per_sec": [
+          74.75917358959303,
+          74.15378381655316
+        ]
+      }
+    }
+  }
+}
