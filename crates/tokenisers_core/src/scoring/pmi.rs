@@ -1,10 +1,14 @@
 use crate::index::Pair;
-use super::{PairContext, PairScorer};
+use super::{PairContext, PairScorer, ScoreDeps};
 
-/// WordPiece / Pointwise Mutual Information (PMI) scorer with Laplace smoothing.
+/// Laplace-smoothed WordPiece / PMI scorer:
+/// score(u, v) = freq(uv) / ((freq(u) + alpha) * (freq(v) + alpha)), alpha = 1 by default.
+///
+/// The smoothing is what separates it from the Gen-1 variants: with alpha = 0 it is the same
+/// function as `WpBpeBaseScorer` (min_frequency 1) and `WpBpeFtScorer` (min_frequency >= 2).
 #[derive(Clone, Copy, Debug)]
 pub struct WordPieceScorer {
-    /// Additive Laplace smoothing parameter added to marginal token frequencies.
+    /// Additive smoothing on the marginals (0 = unsmoothed PMI ratio).
     pub alpha: f64,
     /// Minimum co-occurrence threshold required to consider merging.
     pub min_frequency: u64,
@@ -52,5 +56,9 @@ impl PairScorer for WordPieceScorer {
     #[inline(always)]
     fn name(&self) -> &'static str {
         "wordpiece"
+    }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::Marginals
     }
 }

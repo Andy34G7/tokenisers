@@ -1,6 +1,5 @@
 use tokenisers_core::engine::bottom_up::BottomUpTrainer;
 use tokenisers_core::engine::unigram::{CompactTrie, ViterbiDecoder};
-use tokenisers_core::inference::bpe_dropout::BpeDropoutEncoder;
 use tokenisers_core::inference::byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 use tokenisers_core::scoring::BpeScorer;
@@ -14,28 +13,29 @@ fn test_bpe_dropout_determinism_vs_diversity() {
     let scorer = BpeScorer::new();
     let model = BottomUpTrainer::new(&scorer, 275).train(&corpus).unwrap();
 
-    let encoder = BpeDropoutEncoder::new(&model.merges);
     let text = "the quick brown fox jumps over the lazy dog";
     let bytes = text.as_bytes();
 
     // 1. p = 0.0 matches greedy BPE exactly
     let greedy_tokens = model.encode(bytes);
-    let dropout_p0 = encoder.encode(bytes, 0.0, None);
+    let dropout_p0 = model.encode_with_dropout(bytes, 0.0, None);
     assert_eq!(greedy_tokens, dropout_p0);
 
     // 2. p = 1.0 produces 100% single-byte base tokens
-    let dropout_p1 = encoder.encode(bytes, 1.0, None);
+    let dropout_p1 = model.encode_with_dropout(bytes, 1.0, None);
     assert_eq!(dropout_p1.len(), bytes.len());
     for (i, &tok) in dropout_p1.iter().enumerate() {
         assert_eq!(tok, bytes[i] as u32);
     }
 
     // 3. For 0 < p < 1, outputs vary with seed but all decode losslessly
-    let sample1 = encoder.encode(bytes, 0.4, Some(42));
-    let sample2 = encoder.encode(bytes, 0.4, Some(12345));
+    let sample1 = model.encode_with_dropout(bytes, 0.4, Some(42));
+    let sample2 = model.encode_with_dropout(bytes, 0.4, Some(12345));
 
-    // Diverse segmentations
-    assert_ne!(sample1, sample2);
+    // Diverse segmentations (two fixed seeds may legitimately coincide, so look at many)
+    let distinct: std::collections::HashSet<Vec<u32>> =
+        (0..20).map(|seed| model.encode_with_dropout(bytes, 0.4, Some(seed))).collect();
+    assert!(distinct.len() > 1);
 
     // Both decode losslessly
     let decoded1 = model.decode_lossless(&sample1).unwrap();

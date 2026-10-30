@@ -217,15 +217,15 @@ def test_tier1_f4_length_penalized_beta_zero_equals_bpe(require_tokenisers, samp
     assert tok_bpe.get_vocab() == tok_lp0.get_vocab()
 
 
-def test_tier1_f4_length_penalized_positive_beta_favors_long(require_tokenisers, sample_english_text):
-    """F4.2: Beta > 0.0 rewards longer merges, producing longer average subword lengths."""
+def test_tier1_f4_length_penalized_positive_beta_favors_short(require_tokenisers, sample_english_text):
+    """F4.2: README score count(uv) / (|u|+|v|)^beta: beta > 0 penalizes longer merges."""
     tokenisers = require_tokenisers
     tok_bpe = tokenisers.BpeTokenizer.train(corpus=[sample_english_text * 5], vocab_size=290, scorer="frequency")
-    tok_long = tokenisers.BpeTokenizer.train(corpus=[sample_english_text * 5], vocab_size=290, scorer="length_penalized", beta=1.0)
-    # Average token byte length in vocab should be >= standard BPE
+    tok_short = tokenisers.BpeTokenizer.train(corpus=[sample_english_text * 5], vocab_size=290, scorer="length_penalized", beta=1.0)
+    # Average token byte length in vocab should be below standard BPE
     avg_len_bpe = sum(len(k.encode('utf-8')) if isinstance(k, str) else len(k) for k in tok_bpe.get_vocab().keys()) / 290
-    avg_len_lp = sum(len(k.encode('utf-8')) if isinstance(k, str) else len(k) for k in tok_long.get_vocab().keys()) / 290
-    assert avg_len_lp >= avg_len_bpe
+    avg_len_lp = sum(len(k.encode('utf-8')) if isinstance(k, str) else len(k) for k in tok_short.get_vocab().keys()) / 290
+    assert avg_len_lp < avg_len_bpe
 
 
 def test_tier1_f4_length_penalized_negative_beta_favors_short(require_tokenisers, sample_english_text):

@@ -1,5 +1,5 @@
 use crate::index::Pair;
-use super::{PairContext, PairScorer};
+use super::{PairContext, PairScorer, ScoreDeps};
 
 /// Standard Byte-Level BPE frequency scorer: score(u, v) = freq(uv).
 #[derive(Clone, Copy, Debug, Default)]
@@ -26,5 +26,9 @@ impl PairScorer for BpeScorer {
     #[inline(always)]
     fn name(&self) -> &'static str {
         "bpe"
+    }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::PairOnly
     }
 }
