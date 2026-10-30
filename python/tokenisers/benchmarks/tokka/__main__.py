@@ -1,85 +1,91 @@
-"""CLI entry point for tokenisers.benchmarks.tokka."""
+"""CLI: Tokka-Bench matrix on held-out text of every corpus language (natural and code)."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from tokenisers.benchmarks.tokka import TokkaBenchRunner
-from tokenisers.data.pipeline import DataPipeline, OfflineFallbackGenerator, SigmorphonLoader
-from tokenisers.models import (
-    BpeTokenizer,
-    MorphemeBpeTokenizer,
-    SuperBpeTokenizer,
-    UnigramTokenizer,
+from typing import Any, Dict, List
+
+from tokenisers.benchmarks.common import (
+    DEFAULT_MORPH_LANGS,
+    add_common_args,
+    assert_disjoint,
+    check_memory,
+    find_duplicates,
+    load_dataset,
+    load_morphology,
+    run_metadata,
+    train_suite,
 )
+from tokenisers.benchmarks.tokka import TokkaBenchRunner, short_lang
+
+# tokka-bench samples ~2 MB per language; longer held-out text is truncated (UTF-8 safe).
+MAX_BYTES_PER_LANG = 2 * 1024 * 1024
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Tokka-Bench Multilingual & Code Tokenizer Benchmark Runner")
-    parser.add_argument("--tokenizer-path", type=str, default=None, help="Path to HF tokenizer.json (optional; if omitted, trains & evaluates full suite)")
-    parser.add_argument("--corpus-path", type=str, default=None, help="Path to plain text evaluation corpus")
-    parser.add_argument("--lang", type=str, default="en", help="Language code (e.g. en, de, zh, code)")
-    parser.add_argument("--vocab-size", type=int, default=512, help="Vocab size when training full matrix")
-    parser.add_argument("--output-dir", type=str, default="benchmarks/results/tokka", help="Directory for output JSON/CSV/Markdown")
-    args = parser.parse_args()
+class _HfTokenizer:
+    """`tokenizers.Tokenizer` with the encode/vocab_size interface the runner uses."""
 
+    def __init__(self, path: str) -> None:
+        import tokenizers
+
+        self._tok = tokenizers.Tokenizer.from_file(path)
+        self.vocab_size = self._tok.get_vocab_size()
+
+    def encode(self, text: str) -> List[int]:
+        return self._tok.encode(text, add_special_tokens=False).ids
+
+
+def language_texts(docs: List[Dict[str, Any]], max_bytes: int = MAX_BYTES_PER_LANG) -> Dict[str, str]:
+    """{language key: held-out documents joined by newlines}, as tokka-bench builds its samples."""
+    by_lang: Dict[str, List[str]] = {}
+    for d in docs:
+        by_lang.setdefault(short_lang(d["lang"]), []).append(d["text"])
+    out = {}
+    for lang, texts in by_lang.items():
+        raw = "\n".join(texts).encode("utf-8")
+        out[lang] = raw[:max_bytes].decode("utf-8", errors="ignore")
+    return out
+
+
+def main(argv: List[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Tokka-Bench multilingual & code tokenizer benchmark")
+    add_common_args(parser, "benchmarks/results/tokka")
+    parser.add_argument("--tokenizer-path", default=None,
+                        help="Evaluate this HF tokenizer.json instead of training the suite")
+    parser.add_argument("--max-bytes-per-lang", type=int, default=MAX_BYTES_PER_LANG)
+    args = parser.parse_args(argv)
+
+    ds = load_dataset(args)
+    test_docs = ds.docs("test")
+    texts = language_texts(test_docs, args.max_bytes_per_lang)
     runner = TokkaBenchRunner()
 
     if args.tokenizer_path:
-        import tokenizers  # type: ignore
-        tok = tokenizers.Tokenizer.from_file(args.tokenizer_path)
-        text = (
-            Path(args.corpus_path).read_text(encoding="utf-8")
-            if args.corpus_path
-            else "\n".join(OfflineFallbackGenerator().SAMPLE_PROSE)
-        )
-        out_file = Path(args.output_dir) / "tokka_single.json"
-        metrics = runner.run_and_save(tok, text_sample=text, output_path=str(out_file), lang_code=args.lang)
-        print(f"Tokka-bench single result saved to: {out_file}")
-        print(metrics)
-        return
+        models = {Path(args.tokenizer_path).stem: _HfTokenizer(args.tokenizer_path)}
+        records: Dict[str, Any] = {}
+        duplicates: Dict[str, str] = {}
+    else:
+        train = ds.texts("train")
+        assert_disjoint(train, [d["text"] for d in test_docs], "test")
+        if not args.skip_memory_check:
+            check_memory(args.variants, ds.manifest["splits"]["train"]["text_bytes"])
+        lexicon = {}
+        if "morpheme_bpe" in args.variants:
+            lexicon, _, _ = load_morphology(args, train, DEFAULT_MORPH_LANGS)
+        print(f"Training {len(args.variants)} tokenizers at V={args.vocab_size} on {len(train)} train docs")
+        models, records = train_suite(args.variants, train, args.vocab_size, lexicon)
+        duplicates = find_duplicates(models)
+        models = {n: t for n, t in models.items() if n not in duplicates}
 
-    pipeline = DataPipeline(force_offline=True)
-    corpus = pipeline.sample_preset("smoke", max_bytes=120_000)
-    morph_samples = SigmorphonLoader().load_offline_fixture()
-    lexicon = {item["word"]: item["segments"] for item in morph_samples}
-    v_size = args.vocab_size
-    v_switch = max(260, int(v_size * 0.75))
-
-    models = {
-        "bpe_frequency": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="frequency"),
-        "wordpiece_pmi": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wordpiece"),
-        "wp_bpe_base": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-base"),
-        "wp_bpe_ft": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-ft", min_frequency=2),
-        "wp_bpe_pig": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-pig"),
-        "wp_bpe_scp": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-scp", min_frequency=2),
-        "wp_bpe_npmi": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-npmi", min_frequency=2),
-        "wp_bpe_ppig": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-ppig", min_frequency=2),
-        "mdl_bits": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="mdl"),
-        "length_penalized": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="length_penalized", beta=0.5),
-        "super_bpe": SuperBpeTokenizer.train(corpus=corpus, v_switch=v_switch, v_final=v_size),
-        "morpheme_bpe": MorphemeBpeTokenizer.train(corpus=corpus, vocab_size=v_size, morpheme_lexicon=lexicon, lambda_weight=2.0),
-        "unigram_lm": UnigramTokenizer.train(corpus=corpus, vocab_size=v_size),
-    }
-
-    gen = OfflineFallbackGenerator()
-    domain_texts = {
-        "en": "\n".join(gen.SAMPLE_PROSE * 5),
-        "de": gen.SAMPLE_MULTILINGUAL[0] * 5,
-        "fr": gen.SAMPLE_MULTILINGUAL[1] * 5,
-        "ru": gen.SAMPLE_MULTILINGUAL[2] * 5,
-        "zh": gen.SAMPLE_MULTILINGUAL[3] * 5,
-        "ja": gen.SAMPLE_MULTILINGUAL[4] * 5,
-        "ar": gen.SAMPLE_MULTILINGUAL[5] * 5,
-        "hi": gen.SAMPLE_MULTILINGUAL[6] * 5,
-        "hu": gen.SAMPLE_MULTILINGUAL[7] * 5,
-        "fi": gen.SAMPLE_MULTILINGUAL[8] * 5,
-        "code": "\n".join(gen.SAMPLE_CODE * 5),
-    }
-
-    runner.evaluate_matrix(models, domain_texts, output_dir=args.output_dir)
-    md_file = Path(args.output_dir) / "tokka_leaderboard.md"
-    print(md_file.read_text(encoding="utf-8"))
+    meta = run_metadata(
+        args, ds, "tokka", "test", records, duplicates,
+        tokka_bench="vendor/tokka-bench (tokka_bench.metrics.calculate_word_metrics)",
+        language_bytes={lang: len(t.encode("utf-8")) for lang, t in texts.items()},
+        tokenizer_path=args.tokenizer_path,
+    )
+    runner.evaluate_matrix(models, texts, output_dir=args.output_dir, meta=meta)
+    print((Path(args.output_dir) / "tokka_leaderboard.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
