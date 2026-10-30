@@ -6,6 +6,7 @@ import warnings
 
 import numpy as np
 import pytest
+import transformers
 
 import tokenisers
 
@@ -118,3 +119,48 @@ def test_special_token_that_is_a_learned_text_token_is_rejected():
     wrapper = tokenisers.DynamicResearchTokenizer(own, bos_token="<|bos|>", eos_token="<|eos|>")
     assert wrapper.pad_token_id == own.special_tokens()["<pad>"]
     assert wrapper(text)["input_ids"] == own.encode(text)
+
+
+def test_setting_a_learned_text_token_as_a_special_attribute_is_rejected(pair):
+    """Only __init__/add_special_tokens were checked: `w.pad_token = "el"` (a learned token) made
+    padding insert real "el" tokens and skip_special_tokens delete them from decoded text."""
+    tok, wrapper = pair
+    learned = tok.id_to_token(256)
+    for attr, value in [("pad_token", learned), ("pad_token_id", 256), ("bos_token", learned),
+                        ("extra_special_tokens", [learned])]:
+        with pytest.raises(ValueError, match="learned text token"):
+            setattr(wrapper, attr, value)
+    assert wrapper.pad_token == "<pad>" and 256 not in wrapper.all_special_ids
+    assert wrapper.decode(tok.encode("Hello world"), skip_special_tokens=True) == "Hello world"
+
+
+def test_model_special_tokens_are_special_like_in_auto_tokenizer(tmp_path):
+    """The model's own specials were not HF specials unless named bos/eos/pad/unk:
+    skip_special_tokens kept "<|endoftext|>", which AutoTokenizer on the export drops."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tok = tokenisers.BpeTokenizer.train(CORPUS, 300, special_tokens=["<|endoftext|>", "<pad>"])
+    tok.save(str(tmp_path / "model"))
+    auto = transformers.AutoTokenizer.from_pretrained(str(tmp_path / "model"))
+    wrapper = tokenisers.DynamicResearchTokenizer(tok)
+    ids = tok.encode("hello<|endoftext|>world<pad>")
+    assert auto.decode(ids, skip_special_tokens=True) == "helloworld"
+    assert wrapper.decode(ids, skip_special_tokens=True) == "helloworld"
+    assert set(tok.special_tokens().values()) <= set(wrapper.all_special_ids)
+    assert wrapper("hello<|endoftext|>world<pad>")["input_ids"] == ids
+
+    wrapper.save_pretrained(str(tmp_path / "wrapper"))
+    reloaded = tokenisers.DynamicResearchTokenizer.from_pretrained(str(tmp_path / "wrapper"))
+    assert reloaded.all_special_ids == wrapper.all_special_ids
+    assert reloaded.decode(ids, skip_special_tokens=True) == "helloworld"
+
+
+def test_saving_a_model_without_a_tokenizer_json_export_raises_clearly(tmp_path):
+    """Saving a wrapped ByteEntropyTokenizer died with AttributeError 'export_hf_json'."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tok = tokenisers.ByteEntropyTokenizer.train(CORPUS, 300)
+    wrapper = tokenisers.DynamicResearchTokenizer(tok)
+    assert wrapper("Hello world")["input_ids"] == tok.encode("Hello world")
+    with pytest.raises(NotImplementedError, match="ByteEntropyTokenizer has no tokenizer.json export"):
+        wrapper.save_pretrained(str(tmp_path))
