@@ -183,6 +183,23 @@ def test_super_bpe_honours_vocab_size(corpus):
     assert tokenisers.SuperBpeTokenizer.train(corpus, v_switch=300, v_final=360).vocab_size == 360
     with pytest.raises(ValueError):
         tokenisers.SuperBpeTokenizer.train(corpus, vocab_size=360, v_final=400)
+    # 0 used to mean "unset" and silently trained the default 320
+    for kwargs in ({"vocab_size": 0}, {"v_final": 0}):
+        with pytest.raises(ValueError, match="at least 256"):
+            tokenisers.SuperBpeTokenizer.train(corpus, **kwargs)
+
+
+def test_unigram_training_parameters_are_used_or_rejected(corpus):
+    """num_iterations was clamped to [1, 10] and 1 - shrinking_factor to [0.01, 0.5], silently;
+    a NaN shrinking_factor passed the clamps and pruned nothing per round: an endless loop."""
+    train = lambda size=600, **kw: tokenisers.UnigramTokenizer.train(corpus, vocab_size=size, **kw)
+    assert train(num_iterations=50).get_log_probs() != train(num_iterations=10).get_log_probs()
+    # 0.1 prunes the seed set down to 300 in fewer rounds than 0.5 (both were clamped to 0.5)
+    assert train(300, shrinking_factor=0.1).get_vocab() != train(300, shrinking_factor=0.5).get_vocab()
+    for bad in ({"num_iterations": 0}, {"shrinking_factor": float("nan")}, {"shrinking_factor": 1.0},
+                {"shrinking_factor": 0.0}, {"shrinking_factor": -0.5}):
+        with pytest.raises(ValueError):
+            train(**bad)
 
 
 def test_vocab_size_is_exact_and_includes_special_tokens(corpus):
@@ -417,6 +434,25 @@ def test_import_does_not_load_torch_or_transformers():
             "tokenisers.DynamicResearchTokenizer; print('transformers' in sys.modules)")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.split()
     assert out == ["False", "False", "True"]
+    # `from tokenisers import *` too: __all__ used to list the lazy names
+    code = "import sys; from tokenisers import *; print('torch' in sys.modules, 'transformers' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.split()
+    assert out == ["False", "False"]
+
+
+def test_byte_entropy_table_is_bounded_by_max_contexts(corpus, tmp_path):
+    """context_order <= 8 did not bound training memory (order 8: ~200 bytes of table per corpus
+    byte); the table now holds at most max_contexts contexts."""
+    tok = tokenisers.ByteEntropyTokenizer.train(corpus, context_order=8, max_contexts=500)
+    assert len(tok._patcher.transitions()) == 500
+    for text in TEXTS:
+        assert tok.decode(tok.encode(text)) == text
+    tok.save(str(tmp_path))
+    reloaded = tokenisers.ByteEntropyTokenizer.from_pretrained(str(tmp_path))
+    assert reloaded.config["max_contexts"] == 500
+    assert all(reloaded.encode(t) == tok.encode(t) for t in TEXTS)
+    with pytest.raises(ValueError):
+        tokenisers.ByteEntropyTokenizer(max_contexts=0)
 
 
 def test_broken_extension_fails_instead_of_skipping(tmp_path, repo_root):

@@ -3,7 +3,7 @@ High-level tokenizer classes of the Tokenisers platform.
 
 Every class has the same API: ``train`` (classmethod), ``encode``/``encode_bytes``,
 ``decode``/``decode_bytes``, ``id_to_bytes``, ``id_to_token``/``token_to_id``, ``get_vocab``,
-``vocab_size``, ``save`` and ``from_pretrained``. Token strings are the GPT-2 byte-level printable
+``special_tokens``, ``vocab_size``, ``save`` and ``from_pretrained``. Token strings are the GPT-2 byte-level printable
 form of the token bytes (special tokens: their raw content), i.e. the keys of the exported
 ``tokenizer.json``; ``id_to_bytes`` gives the raw bytes.
 
@@ -62,6 +62,10 @@ class _CoreTokenizer:
 
     def id_to_bytes(self, token_id: int) -> Optional[bytes]:
         return None if self._model is None else self._model.id_to_bytes(token_id)
+
+    def special_tokens(self) -> Dict[str, int]:
+        """``{content: id}`` of the special tokens."""
+        return {} if self._model is None else self._model.special_tokens()
 
     def decode_bytes(self, token_ids: Sequence[int]) -> bytes:
         """Raw bytes of ``token_ids``; ``ValueError`` on an unknown id."""
@@ -266,7 +270,8 @@ class SuperBpeTokenizer(BpeTokenizer):
         """
         if vocab_size is not None and v_final is not None and vocab_size != v_final:
             raise ValueError(f"vocab_size ({vocab_size}) and v_final ({v_final}) disagree")
-        v_final = v_final or vocab_size or 320
+        if v_final is None:
+            v_final = 320 if vocab_size is None else vocab_size
         if v_switch is None:
             v_switch = 256 + (max(v_final, 256) - 256) * 9 // 10
         model = _core.train_super_bpe(corpus, v_switch, v_final)
@@ -393,7 +398,9 @@ class ByteEntropyTokenizer:
 
     ``train`` fits the Markov model and freezes a patch vocabulary: ids 0..255 are the single bytes,
     then the most frequent multi-byte training patches. A patch outside the vocabulary is encoded
-    as its single bytes, so encoding is lossless and deterministic.
+    as its single bytes, so encoding is lossless and deterministic. The Markov table keeps at most
+    ``max_contexts`` contexts (~200 bytes each), which bounds training memory; once full, later
+    training text only updates contexts already in it.
     """
 
     _FILE = "byte_entropy.json"
@@ -405,21 +412,26 @@ class ByteEntropyTokenizer:
         max_patch_len: int = 16,
         context_order: int = 3,
         smoothing_alpha: float = 0.05,
+        max_contexts: Optional[int] = None,
     ) -> None:
-        """An untrained tokenizer; use ``ByteEntropyTokenizer.train`` or ``from_pretrained``."""
+        """An untrained tokenizer; use ``ByteEntropyTokenizer.train`` or ``from_pretrained``.
+        ``max_contexts`` None is the core default (2M contexts, about 400 MB)."""
         self.config = {
             "entropy_threshold": float(entropy_threshold),
             "min_patch_len": int(min_patch_len),
             "max_patch_len": int(max_patch_len),
             "context_order": int(context_order),
             "smoothing_alpha": float(smoothing_alpha),
+            "max_contexts": None if max_contexts is None else int(max_contexts),
         }
+        limit = {} if max_contexts is None else {"max_contexts": self.config["max_contexts"]}
         self._patcher = _core.PyByteEntropyPatcher(
             entropy_threshold=self.config["entropy_threshold"],
             context_order=self.config["context_order"],
             min_len=self.config["min_patch_len"],
             max_len=self.config["max_patch_len"],
             smoothing_alpha=self.config["smoothing_alpha"],
+            **limit,
         )
         self._patches: List[bytes] = []
         self._patch_ids: Dict[bytes, int] = {}
@@ -438,13 +450,14 @@ class ByteEntropyTokenizer:
         max_patch_len: int = 16,
         context_order: int = 3,
         smoothing_alpha: float = 0.05,
+        max_contexts: Optional[int] = None,
     ) -> ByteEntropyTokenizer:
         """``vocab_size`` caps 256 + patches (most frequent first); None keeps every patch seen."""
         if not corpus:
             raise ValueError("Training corpus cannot be empty")
         if vocab_size is not None and vocab_size < 256:
             raise ValueError(f"vocab_size must be at least 256, got {vocab_size}")
-        tok = cls(entropy_threshold, min_patch_len, max_patch_len, context_order, smoothing_alpha)
+        tok = cls(entropy_threshold, min_patch_len, max_patch_len, context_order, smoothing_alpha, max_contexts)
         docs = [d.encode("utf-8") if isinstance(d, str) else bytes(d) for d in corpus]
         for doc in docs:
             tok._patcher.train_transitions(doc)
@@ -513,6 +526,9 @@ class ByteEntropyTokenizer:
 
     def get_vocab(self) -> Dict[str, int]:
         return {self.id_to_token(i): i for i in range(self.vocab_size)}
+
+    def special_tokens(self) -> Dict[str, int]:
+        return {}
 
     def save(self, save_directory: str) -> None:
         """Writes config, patch vocabulary and Markov counts to ``byte_entropy.json``."""

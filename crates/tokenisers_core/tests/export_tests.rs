@@ -155,10 +155,10 @@ fn super_bpe_export_encodes_whole_text() {
 
     // A loader recovers the encoding mode from the file.
     let reparsed: HfTokenizerJson = serde_json::from_str(&exported).unwrap();
-    assert!(!reparsed.pretokenize());
+    assert!(!reparsed.pretokenize().unwrap());
     let plain = BottomUpTrainer::new(&scorer, 270).train(&[(b"ab".to_vec(), 3)]).unwrap();
     let plain_json = HfTokenizerJson::from_bpe_model(&plain, None).to_json_string().unwrap();
-    assert!(serde_json::from_str::<HfTokenizerJson>(&plain_json).unwrap().pretokenize());
+    assert!(serde_json::from_str::<HfTokenizerJson>(&plain_json).unwrap().pretokenize().unwrap());
 }
 
 #[test]

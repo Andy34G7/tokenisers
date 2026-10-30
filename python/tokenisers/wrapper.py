@@ -7,7 +7,11 @@ content), so ids round-trip exactly. Padding, truncation, tensors, pairs and bat
 no post-processor), no special-token template exists: ``add_special_tokens=True`` adds nothing,
 and bos/eos must be written into the text. Per-call encode options (``dropout``, ``seed``,
 ``temperature``, ``nbest_size``, ``sample``) are forwarded to the underlying ``encode``. Special
-tokens not in the underlying vocabulary get ids from ``vocab_size`` upwards.
+tokens are the underlying model's own special tokens (their ids) or new ids from ``vocab_size``
+upwards. A special token whose string is a learned text token of the underlying model (e.g. a
+corpus that contains "<pad>") raises ``ValueError``: Hugging Face would reuse that text token's id,
+so padding would insert real text and ``skip_special_tokens`` would delete it. Pass another string
+(``pad_token="<|pad|>"``) or train the model with it in ``special_tokens``.
 """
 
 from __future__ import annotations
@@ -80,6 +84,28 @@ class DynamicResearchTokenizer(PreTrainedTokenizer):
             elif piece:
                 tokens.extend(self._tokenize(piece, **options))
         return tokens
+
+    def _reject_learned(self, specials) -> None:
+        own = self._underlying.special_tokens()
+        for token in specials:
+            content = str(token)
+            learned = None if content in own else self._underlying.token_to_id(content)
+            if learned is not None:
+                raise ValueError(
+                    f"special token {content!r} is the learned text token id {learned} of the "
+                    "underlying tokenizer; pass a string that is not in its vocabulary, or train "
+                    "with it in special_tokens"
+                )
+
+    def _add_tokens(self, new_tokens, special_tokens: bool = False) -> int:
+        self._reject_learned(t for t in new_tokens or () if special_tokens or getattr(t, "special", False))
+        return super()._add_tokens(new_tokens, special_tokens=special_tokens)
+
+    def add_special_tokens(self, special_tokens_dict, *args: Any, **kwargs: Any) -> int:
+        # Checked up front: the base class sets e.g. pad_token before adding it.
+        values = special_tokens_dict.values()
+        self._reject_learned(t for v in values for t in (v if isinstance(v, (list, tuple)) else [v]))
+        return super().add_special_tokens(special_tokens_dict, *args, **kwargs)
 
     def _tokenize(self, text: str, **options: Any) -> List[str]:
         return [self._underlying.id_to_token(i) for i in self._underlying.encode(text, **options)]

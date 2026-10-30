@@ -1,7 +1,8 @@
 """
 tokenisers: Modular Rust & Python Research and Benchmarking Platform for Tokenizers.
 
-``data``, ``benchmarks`` and ``DynamicResearchTokenizer`` (torch/transformers) load on first use.
+``data``, ``benchmarks`` and ``DynamicResearchTokenizer`` (torch/transformers) load on first use;
+they are left out of ``__all__`` so ``from tokenisers import *`` stays light.
 """
 
 import importlib
@@ -47,8 +48,6 @@ def __getattr__(name):
 __all__ = [
     "__version__",
     "_core",
-    "data",
-    "benchmarks",
     "BpeTokenizer",
     "WordPieceTokenizer",
     "WpBpeBaseTokenizer",
@@ -64,5 +63,4 @@ __all__ = [
     "MorphemeBpeTokenizer",
     "UnigramTokenizer",
     "ByteEntropyTokenizer",
-    "DynamicResearchTokenizer",
 ]
