@@ -67,3 +67,27 @@ def test_external_tokenizer_header_does_not_claim_it_was_trained_here(require_to
     assert "| `ext_tokenizer` | 300 |" in md
     meta = json.loads((out / "tokka_matrix.json").read_text())["meta"]
     assert meta["requested_vocab_size"] is None and meta["train_split"] is None
+
+
+def test_dirty_flag_counts_code_not_results_or_readme(tmp_path, monkeypatch):
+    """Benchmarks run one after another write results (and README tables) into the tree; that must
+    not mark the next run's code as dirty, while a modified source file must."""
+    from tokenisers.benchmarks import common
+
+    repo = tmp_path / "repo"
+    pkg = repo / "python" / "tokenisers" / "benchmarks"
+    pkg.mkdir(parents=True)
+    (repo / "benchmarks" / "results" / "tokka").mkdir(parents=True)
+    files = [pkg / "common.py", repo / "README.md", repo / "benchmarks" / "results" / "tokka" / "m.json"]
+    for f in files:
+        f.write_text("v1")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "init")
+    monkeypatch.setattr(common, "_HERE", pkg)
+    assert common.start_provenance("m", [])["git_dirty"] is False
+    files[1].write_text("v2")
+    files[2].write_text("v2")
+    assert common.start_provenance("m", [])["git_dirty"] is False
+    files[0].write_text("v2")
+    assert common.start_provenance("m", [])["git_dirty"] is True

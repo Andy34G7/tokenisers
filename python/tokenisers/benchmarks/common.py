@@ -336,9 +336,11 @@ def _cpu_model() -> str:
 def start_provenance(module: str, argv: Optional[Sequence[str]]) -> Dict[str, Any]:
     """Command line, package version, and commit and dirty flag of the source checkout (None for an
     installed copy, which no commit identifies). CLIs call this when they start: a run can take
-    hours, and the tree may change before its results are written."""
+    hours, and the tree may change before its results are written. Dirty means modified tracked
+    code: result files and README.md (e.g. written by an earlier benchmark run) do not count."""
     in_checkout = _git("ls-files", "--error-unmatch", "--", Path(__file__).name) is not None
-    status = _git("status", "--porcelain", "--untracked-files=no") if in_checkout else None
+    status = _git("status", "--porcelain", "--untracked-files=no", "--", ":(top)",
+                  ":(top,exclude)benchmarks/results", ":(top,exclude)README.md") if in_checkout else None
     try:
         version: Optional[str] = importlib.metadata.version("tokenisers")
     except importlib.metadata.PackageNotFoundError:
