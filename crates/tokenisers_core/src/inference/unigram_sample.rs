@@ -4,8 +4,8 @@ use crate::curricula::super_bpe::SuperBpeTrainer;
 use crate::engine::unigram::{CompactTrie, logsumexp2};
 use crate::vocab::TokenId;
 
-/// Upper bound on the k-best table (`segment length * k` path entries, 32 bytes each, so about
-/// 32 MB) that [`UnigramSampler::sample_kbest`] builds for one segment.
+/// Upper bound on the k-best path entries (24 bytes each, so about 24 MB) that
+/// [`UnigramSampler::sample_kbest`] holds at once for one segment.
 const MAX_KBEST_ENTRIES: usize = 1 << 20;
 
 /// An edge in the subword lattice.
@@ -33,43 +33,37 @@ impl<'a> UnigramSampler<'a> {
         Self { trie }
     }
 
-    /// Constructs the incoming lattice edges for each position in the byte sequence. Edges stay
-    /// inside whitespace/non-whitespace segments, matching training and `UnigramModel::encode`.
-    pub fn build_incoming_lattice(&self, bytes: &[u8]) -> Vec<Vec<LatticeEdge>> {
-        let n = bytes.len();
-        let mut incoming = vec![Vec::new(); n + 1];
+    /// Positions processed together: the lattice and the k-best rows are built one block at a
+    /// time, so their memory grows with `sqrt(len)` instead of `len`. A block is at least
+    /// `max_token_len` long, so no token skips a whole block.
+    fn block_len(&self, len: usize) -> usize {
+        let l = self.trie.max_token_len.max(1);
+        (((len + 1) as f64 * l as f64).sqrt() as usize).max(l)
+    }
 
-        let mut seg_start = 0;
-        for seg in SuperBpeTrainer::segment_bytes(bytes) {
-            let seg_end = seg_start + seg.len();
-            for start in seg_start..seg_end {
-                for (len, token_id, log_prob) in self.trie.common_prefix_search(&bytes[start..seg_end]) {
-                    let end = start + len;
-                    incoming[end].push(LatticeEdge {
-                        start_pos: start,
-                        end_pos: end,
-                        token_id,
-                        log_prob,
-                    });
+    /// Incoming lattice edges of end positions `from..to` of one segment (`from >= 1`; entry
+    /// `i - from` is position `i`), in ascending start order. A position no token ends at gets a
+    /// byte fallback edge from the previous position, so every position is reachable.
+    fn incoming_window(&self, seg: &[u8], from: usize, to: usize) -> Vec<Vec<LatticeEdge>> {
+        let mut incoming = vec![Vec::new(); to - from];
+        for start in from.saturating_sub(self.trie.max_token_len)..to - 1 {
+            for (len, token_id, log_prob) in self.trie.common_prefix_search(&seg[start..]) {
+                let end = start + len;
+                if end >= to {
+                    break;
+                }
+                if end >= from {
+                    let edge = LatticeEdge { start_pos: start, end_pos: end, token_id, log_prob };
+                    incoming[end - from].push(edge);
                 }
             }
-            seg_start = seg_end;
         }
-
-        // Guarantee fallback connectivity at any unreached position
-        for i in 1..=n {
-            if incoming[i].is_empty() {
-                // Base byte fallback
-                let byte_val = bytes[i - 1];
-                incoming[i].push(LatticeEdge {
-                    start_pos: i - 1,
-                    end_pos: i,
-                    token_id: byte_val as TokenId,
-                    log_prob: -15.0,
-                });
+        for (i, edges) in (from..to).zip(&mut incoming) {
+            if edges.is_empty() {
+                let token_id = seg[i - 1] as TokenId;
+                edges.push(LatticeEdge { start_pos: i - 1, end_pos: i, token_id, log_prob: -15.0 });
             }
         }
-
         incoming
     }
 
@@ -77,8 +71,9 @@ impl<'a> UnigramSampler<'a> {
     /// (normalised over all segmentations). `seed = None` draws a fresh random seed.
     ///
     /// The lattice never spans a `segment_bytes` boundary, so `P(s)` factorises over segments
-    /// and sampling each segment on its own draws from exactly the same distribution. Memory is
-    /// that of the longest segment (~180 bytes per byte), not of the whole document.
+    /// and sampling each segment on its own draws from exactly the same distribution. Memory
+    /// grows with the longest segment, not the whole document: an 8-byte forward table per byte
+    /// of it, plus one block of the lattice (see `block_len`), which is never built whole.
     pub fn sample_ffbs(&self, bytes: &[u8], temperature: f64, seed: Option<u64>) -> Vec<TokenId> {
         let mut rng = Rng::new();
         if let Some(s) = seed {
@@ -91,32 +86,40 @@ impl<'a> UnigramSampler<'a> {
         tokens
     }
 
-    /// FFBS over one segment (`bytes` must not span a `segment_bytes` boundary).
-    fn sample_ffbs_segment(&self, bytes: &[u8], temperature: f64, rng: &mut Rng) -> Vec<TokenId> {
-        let n = bytes.len();
-        let incoming = self.build_incoming_lattice(bytes);
+    /// FFBS over one segment (`seg` must not span a `segment_bytes` boundary).
+    fn sample_ffbs_segment(&self, seg: &[u8], temperature: f64, rng: &mut Rng) -> Vec<TokenId> {
+        let n = seg.len();
+        let block = self.block_len(n);
         let inv_temp = 1.0 / temperature.max(1e-4);
 
         // Forward Pass: compute log_alpha(i)
         let mut log_alpha = vec![f64::NEG_INFINITY; n + 1];
         log_alpha[0] = 0.0;
 
-        for i in 1..=n {
-            for edge in &incoming[i] {
-                let prev_alpha = log_alpha[edge.start_pos];
-                if prev_alpha > f64::NEG_INFINITY {
-                    let weight = prev_alpha + inv_temp * edge.log_prob;
-                    log_alpha[i] = logsumexp2(log_alpha[i], weight);
+        for from in (1..=n).step_by(block) {
+            let to = (from + block).min(n + 1);
+            for (i, edges) in (from..to).zip(self.incoming_window(seg, from, to)) {
+                for edge in &edges {
+                    let prev_alpha = log_alpha[edge.start_pos];
+                    if prev_alpha > f64::NEG_INFINITY {
+                        let weight = prev_alpha + inv_temp * edge.log_prob;
+                        log_alpha[i] = logsumexp2(log_alpha[i], weight);
+                    }
                 }
             }
         }
 
-        // Backward Sampling Pass
+        // Backward Sampling Pass, rebuilding the lattice one block at a time.
         let mut curr_pos = n;
         let mut tokens = Vec::new();
+        let (mut from, mut incoming) = (n + 1, Vec::new());
 
         while curr_pos > 0 {
-            let edges = &incoming[curr_pos];
+            if curr_pos < from {
+                from = (curr_pos + 1).saturating_sub(block).max(1);
+                incoming = self.incoming_window(seg, from, curr_pos + 1);
+            }
+            let edges = &incoming[curr_pos - from];
             let mut probs = Vec::with_capacity(edges.len());
 
             for edge in edges {
@@ -157,11 +160,16 @@ impl<'a> UnigramSampler<'a> {
     ///
     /// The k-best choice is made per `segment_bytes` segment (word or whitespace run), like a
     /// k-best encoder applied to each pre-token: the lattice never spans segments, so they are
-    /// independent, and each one draws from its own top `k`. This keeps memory at
-    /// O(segment length * k) instead of O(text length * k), so a whole document costs no more
-    /// than its longest word. A segment of `len` bytes uses
-    /// `min(k, MAX_KBEST_ENTRIES / (len + 1))` (at least 1, i.e. Viterbi) so a single huge
-    /// segment or a huge `k` cannot exhaust memory.
+    /// independent, and each one draws from its own top `k`.
+    ///
+    /// Memory: the forward pass keeps the k-best rows of only the last `max_token_len`
+    /// positions, saves them at the start of every block of `B = sqrt(len * max_token_len)`
+    /// positions, and the trace-back recomputes one block at a time from those checkpoints
+    /// (twice the forward work). A segment of `len` bytes therefore holds about
+    /// `2 * k * sqrt(len * max_token_len)` path entries instead of `k * len`. `k` is capped so
+    /// that stays within `MAX_KBEST_ENTRIES` (about 24 MB): `k = 64` is kept in full up to a
+    /// 4 MB segment at `max_token_len = 16` (16 MB at 4); past that `k` shrinks as
+    /// `1 / sqrt(len)` (still about 30 at 20 MB) instead of exhausting memory.
     pub fn sample_kbest(&self, bytes: &[u8], k: usize, temperature: f64, seed: Option<u64>) -> Vec<TokenId> {
         let mut rng = Rng::new();
         if let Some(s) = seed {
@@ -169,106 +177,107 @@ impl<'a> UnigramSampler<'a> {
         }
         let mut tokens = Vec::with_capacity(bytes.len());
         for seg in SuperBpeTrainer::segment_bytes(bytes) {
-            // ponytail: fixed table budget, so k shrinks on segments longer than ~1M/k bytes;
-            // lazy k-best (Huang & Chiang 2005) would keep the full k if that ever matters.
-            let k_seg = k.clamp(1, (MAX_KBEST_ENTRIES / (seg.len() + 1)).max(1));
-            tokens.extend(self.sample_kbest_segment(seg, k_seg, temperature, &mut rng));
+            tokens.extend(self.sample_kbest_segment(seg, k, temperature, &mut rng));
         }
         tokens
     }
 
-    /// k-best sampling over one segment (`bytes` must not span a `segment_bytes` boundary).
-    fn sample_kbest_segment(&self, bytes: &[u8], k: usize, temperature: f64, rng: &mut Rng) -> Vec<TokenId> {
-        let n = bytes.len();
-        let incoming = self.build_incoming_lattice(bytes);
-
-        // PathEntry: (score, prev_pos, token_id, prev_rank)
-        #[derive(Clone, Debug)]
-        struct PathEntry {
-            score: f64,
-            prev_pos: usize,
-            token_id: TokenId,
-            prev_rank: usize,
-        }
-
-        let mut dp: Vec<Vec<PathEntry>> = vec![Vec::new(); n + 1];
-        dp[0].push(PathEntry {
-            score: 0.0,
-            prev_pos: 0,
-            token_id: 0,
-            prev_rank: 0,
-        });
-
+    /// Appends the top-`k` rows of positions `from..to` to `rows`, whose last row is position
+    /// `from - 1` and which holds at least the `max_token_len` rows before `from`.
+    fn push_kbest_rows(&self, seg: &[u8], k: usize, from: usize, to: usize, rows: &mut Vec<Vec<PathEntry>>) {
+        let base = from - rows.len();
         let mut cands = Vec::new();
-        for i in 1..=n {
+        for edges in self.incoming_window(seg, from, to) {
             cands.clear();
-            for edge in &incoming[i] {
-                for (prev_rank, prev_entry) in dp[edge.start_pos].iter().enumerate() {
-                    let total_score = prev_entry.score + edge.log_prob;
+            for edge in &edges {
+                for (prev_rank, prev_entry) in rows[edge.start_pos - base].iter().enumerate() {
                     cands.push(PathEntry {
-                        score: total_score,
+                        score: prev_entry.score + edge.log_prob,
                         prev_pos: edge.start_pos,
                         token_id: edge.token_id,
-                        prev_rank,
+                        prev_rank: prev_rank as u32,
                     });
                 }
             }
-
             cands.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
             // Copy out exactly the top k: `cands` holds up to (incoming edges) * k entries.
-            dp[i] = cands[..cands.len().min(k)].to_vec();
+            rows.push(cands[..cands.len().min(k)].to_vec());
+        }
+    }
+
+    /// k-best sampling over one segment (`seg` must not span a `segment_bytes` boundary).
+    fn sample_kbest_segment(&self, seg: &[u8], k: usize, temperature: f64, rng: &mut Rng) -> Vec<TokenId> {
+        let n = seg.len();
+        let l = self.trie.max_token_len.max(1);
+        let block = self.block_len(n);
+        let block_starts: Vec<usize> = (1..=n).step_by(block).collect();
+        let block_end = |from: usize| (from + block).min(n + 1);
+        // Rows held at once: `l` per checkpoint, plus the rows of one block and its context.
+        // ponytail: k still shrinks past ~4 MB segments; Eppstein's k-shortest-paths algorithm
+        // would keep the full k if that ever matters.
+        let k = k.clamp(1, (MAX_KBEST_ENTRIES / ((block_starts.len() + 1) * l + block)).max(1));
+
+        // Forward pass. `rows` ends at the last position computed; `checkpoints[j]` holds the
+        // `l` rows before block j, enough to recompute it.
+        let mut rows = vec![vec![PathEntry { score: 0.0, prev_pos: 0, token_id: 0, prev_rank: 0 }]];
+        let mut checkpoints = Vec::with_capacity(block_starts.len());
+        for &from in &block_starts {
+            rows.drain(..rows.len().saturating_sub(l));
+            checkpoints.push(rows.clone());
+            self.push_kbest_rows(seg, k, from, block_end(from), &mut rows);
         }
 
-        let terminal_paths = &dp[n];
-        if terminal_paths.is_empty() {
-            return bytes.iter().map(|&b| b as TokenId).collect();
-        }
+        let terminal_paths = rows.last().expect("row 0 always exists");
+        let chosen_rank = if k == 1 {
+            0 // Strictly deterministic Viterbi 1-best
+        } else {
+            let inv_temp = 1.0 / temperature.max(1e-4);
+            let max_score = terminal_paths[0].score;
+            let unnorm_probs: Vec<f64> = terminal_paths
+                .iter()
+                .map(|p| (inv_temp * (p.score - max_score)).exp())
+                .collect();
+            let sum_p: f64 = unnorm_probs.iter().sum();
 
-        if k == 1 {
-            // Strictly deterministic Viterbi 1-best
-            let mut tokens = Vec::new();
-            let mut curr_pos = n;
-            let mut curr_rank = 0;
-            while curr_pos > 0 {
-                let entry = &dp[curr_pos][curr_rank];
+            let mut r = rng.f64() * sum_p;
+            let mut chosen_rank = unnorm_probs.len() - 1;
+            for (idx, &p) in unnorm_probs.iter().enumerate() {
+                r -= p;
+                if r <= 0.0 {
+                    chosen_rank = idx;
+                    break;
+                }
+            }
+            chosen_rank
+        };
+
+        // Trace back block by block; the last block's rows are still in `rows`.
+        let mut tokens = Vec::new();
+        let (mut curr_pos, mut curr_rank) = (n, chosen_rank);
+        for (j, &from) in block_starts.iter().enumerate().rev() {
+            if j + 1 < block_starts.len() {
+                rows = std::mem::take(&mut checkpoints[j]);
+                self.push_kbest_rows(seg, k, from, block_end(from), &mut rows);
+            }
+            let base = block_end(from) - rows.len();
+            while curr_pos >= from {
+                let entry = &rows[curr_pos - base][curr_rank];
                 tokens.push(entry.token_id);
                 curr_pos = entry.prev_pos;
-                curr_rank = entry.prev_rank;
+                curr_rank = entry.prev_rank as usize;
             }
-            tokens.reverse();
-            return tokens;
-        }
-
-        let inv_temp = 1.0 / temperature.max(1e-4);
-        let max_score = terminal_paths[0].score;
-        let unnorm_probs: Vec<f64> = terminal_paths
-            .iter()
-            .map(|p| (inv_temp * (p.score - max_score)).exp())
-            .collect();
-        let sum_p: f64 = unnorm_probs.iter().sum();
-
-        let mut r = rng.f64() * sum_p;
-        let mut chosen_rank = unnorm_probs.len() - 1;
-        for (idx, &p) in unnorm_probs.iter().enumerate() {
-            r -= p;
-            if r <= 0.0 {
-                chosen_rank = idx;
-                break;
-            }
-        }
-
-        let mut tokens = Vec::new();
-        let mut curr_pos = n;
-        let mut curr_rank = chosen_rank;
-
-        while curr_pos > 0 {
-            let entry = &dp[curr_pos][curr_rank];
-            tokens.push(entry.token_id);
-            curr_pos = entry.prev_pos;
-            curr_rank = entry.prev_rank;
         }
 
         tokens.reverse();
         tokens
     }
+}
+
+/// A k-best table entry: a path to this position (`prev_rank` < k <= `MAX_KBEST_ENTRIES`).
+#[derive(Clone, Debug)]
+struct PathEntry {
+    score: f64,
+    prev_pos: usize,
+    token_id: TokenId,
+    prev_rank: u32,
 }
