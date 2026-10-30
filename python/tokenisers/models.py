@@ -1,52 +1,117 @@
 """
-High-level Object-Oriented Tokenizer implementations for Tokenisers platform.
+High-level tokenizer classes of the Tokenisers platform.
+
+Every class has the same API: ``train`` (classmethod), ``encode``/``encode_bytes``,
+``decode``/``decode_bytes``, ``id_to_bytes``, ``id_to_token``/``token_to_id``, ``get_vocab``,
+``special_tokens``, ``vocab_size``, ``save`` and ``from_pretrained``. Token strings are the GPT-2 byte-level printable
+form of the token bytes (special tokens: their raw content), i.e. the keys of the exported
+``tokenizer.json``; ``id_to_bytes`` gives the raw bytes. ``get_vocab`` is exactly that file's
+vocabulary, where a special token can also keep its byte-level key (a one-byte special "\\n" is
+both "\\n" and "Ċ"), so it can have more entries than ``vocab_size``.
+
+``vocab_size`` passed to ``train`` is the requested total size, special tokens included. Training
+never pads: when the corpus cannot supply that many tokens the real, smaller vocabulary is kept
+and a ``UserWarning`` reports its size.
 """
 
 from __future__ import annotations
 
 import json
-import math
 import os
-from typing import Any, Dict, List, Optional, Union
+import warnings
+from collections import Counter
+from typing import Dict, List, Optional, Sequence, Union
 
 from tokenisers import _core
 
 
-class BpeTokenizer:
-    """
-    High-level Byte-Level BPE Tokenizer supporting pluggable scoring objectives,
-    merge dropout, lossless reconstruction, and HuggingFace export.
-    """
+def _warn_if_short(name: str, actual: int, requested: Optional[int]) -> None:
+    if requested is not None and actual < requested:
+        warnings.warn(
+            f"{name}: requested vocab_size={requested}, but the corpus only supports "
+            f"{actual} tokens; the vocabulary has {actual} tokens",
+            UserWarning,
+            stacklevel=3,
+        )
 
-    def __init__(self, model: Optional[_core.PyBpeModel] = None) -> None:
+
+class _CoreTokenizer:
+    """Common API over a compiled ``_core`` model (``PyBpeModel`` / ``PyUnigramModel``)."""
+
+    _core_class: type
+    _model_type: str
+
+    def __init__(self, model=None) -> None:
         self._model = model
+
+    def _require(self):
+        if self._model is None:
+            raise RuntimeError(f"{type(self).__name__} is not trained or loaded")
+        return self._model
 
     @property
     def vocab_size(self) -> int:
-        if self._model is None:
-            return 0
-        return self._model.vocab_size()
+        return 0 if self._model is None else self._model.vocab_size()
 
     def get_vocab(self) -> Dict[str, int]:
-        if self._model is None:
-            return {}
-        return self._model.get_vocab()
+        return {} if self._model is None else self._model.get_vocab()
 
     def token_to_id(self, token: str) -> Optional[int]:
-        if self._model is None:
-            return None
-        return self._model.token_to_id(token)
+        return None if self._model is None else self._model.token_to_id(token)
 
     def id_to_token(self, token_id: int) -> Optional[str]:
-        if self._model is None:
-            return None
-        return self._model.id_to_token(token_id)
+        return None if self._model is None else self._model.id_to_token(token_id)
 
     def id_to_bytes(self, token_id: int) -> Optional[bytes]:
-        if self._model is None:
-            return None
-        raw = self._model.id_to_bytes(token_id)
-        return bytes(raw) if raw is not None else None
+        return None if self._model is None else self._model.id_to_bytes(token_id)
+
+    def special_tokens(self) -> Dict[str, int]:
+        """``{content: id}`` of the special tokens."""
+        return {} if self._model is None else self._model.special_tokens()
+
+    def decode_bytes(self, token_ids: Sequence[int]) -> bytes:
+        """Raw bytes of ``token_ids``; ``ValueError`` on an unknown id."""
+        return self._require().decode_bytes(list(token_ids))
+
+    def decode(self, token_ids: Sequence[int], errors: str = "replace") -> str:
+        """UTF-8 text of ``token_ids`` (``errors`` as in ``bytes.decode``)."""
+        return self.decode_bytes(token_ids).decode("utf-8", errors=errors)
+
+    def export_hf_json(self, path: str) -> None:
+        self._require().export_hf_json(str(path))
+
+    def save_pretrained(self, save_directory: str) -> None:
+        """Writes ``tokenizer.json`` (HF format) and ``tokenizer_config.json``."""
+        self._require()
+        os.makedirs(save_directory, exist_ok=True)
+        self.export_hf_json(os.path.join(save_directory, "tokenizer.json"))
+        with open(os.path.join(save_directory, "tokenizer_config.json"), "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "tokenizer_class": "PreTrainedTokenizerFast",
+                    "model_type": self._model_type,
+                    "clean_up_tokenization_spaces": False,
+                },
+                f,
+                indent=2,
+            )
+
+    save = save_pretrained
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path: str):
+        """Loads a directory written by ``save`` (or a ``tokenizer.json`` path)."""
+        return cls(model=cls._core_class.from_hf_json(str(pretrained_model_name_or_path)))
+
+
+class BpeTokenizer(_CoreTokenizer):
+    """
+    Byte-level BPE with pluggable merge scorers, BPE-dropout, lossless reconstruction and
+    HuggingFace export.
+    """
+
+    _core_class = _core.PyBpeModel
+    _model_type = "bpe"
 
     @classmethod
     def train(
@@ -54,47 +119,35 @@ class BpeTokenizer:
         corpus: List[str],
         vocab_size: int = 300,
         scorer: str = "frequency",
-        min_frequency: int = 0,
-        alpha: float = 1.0,
-        beta: float = 1.0,
-        penalty: float = 0.0,
+        min_frequency: Optional[int] = None,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        penalty: Optional[float] = None,
         special_tokens: Optional[List[str]] = None,
-        **kwargs: Any,
-    ) -> BpeTokenizer:
+    ):
+        """
+        Trains on ``corpus``. ``vocab_size`` includes ``special_tokens``, which are cut out of the
+        corpus before training (as ``encode`` cuts them out of the text) and take the top ids; a
+        one-byte special keeps that byte's id. Scorer parameters left
+        at ``None`` take the scorer's default: ``alpha`` (wordpiece smoothing 1.0, wp-bpe-scp
+        discount 0.75, wp-bpe-npmi support exponent 0.5), ``beta`` (length_penalized 0.5),
+        ``penalty`` (mdl entry cost 24 bits, wp-bpe-ppig length penalty 0.35); ``min_frequency``
+        defaults to 2 for wordpiece, mdl and wp-bpe-ft/scp/npmi/ppig, else 1. Passing a parameter
+        the scorer does not use (or a negative alpha/penalty) raises ``ValueError``.
+        """
         if not corpus:
             raise ValueError("Training corpus cannot be empty")
-        if vocab_size < 256:
-            raise ValueError(f"vocab_size must be at least 256, got {vocab_size}")
-
-        if "entry_cost" in kwargs:
-            penalty = float(kwargs["entry_cost"])
-
-        if "discount" in kwargs:
-            alpha = float(kwargs["discount"])
-
-        if "length_penalty" in kwargs:
-            penalty = float(kwargs["length_penalty"])
-
-        if "beta" in kwargs:
-            b_val = kwargs["beta"]
-            if not isinstance(b_val, (int, float)) or (isinstance(b_val, float) and math.isnan(b_val)):
-                raise TypeError(f"beta must be a valid float, got {b_val}")
-            beta = float(b_val)
-        else:
-            if not isinstance(beta, (int, float)) or (isinstance(beta, float) and math.isnan(beta)):
-                raise TypeError(f"beta must be a valid float, got {beta}")
-            beta = float(beta)
-
         model = _core.train_bpe(
             corpus=corpus,
             vocab_size=vocab_size,
             scorer_type=scorer,
             min_frequency=min_frequency,
-            alpha=float(alpha),
-            beta=float(beta),
-            penalty=float(penalty),
+            alpha=alpha,
+            beta=beta,
+            penalty=penalty,
             special_tokens=special_tokens,
         )
+        _warn_if_short(cls.__name__, model.vocab_size(), vocab_size)
         return cls(model=model)
 
     def encode(
@@ -102,230 +155,164 @@ class BpeTokenizer:
         text: str,
         dropout: Optional[float] = None,
         seed: Optional[int] = None,
-        **kwargs: Any,
+        split_special_tokens: bool = False,
     ) -> List[int]:
-        if self._model is None:
-            raise RuntimeError("Tokenizer is not trained or initialized")
-        if text == "":
-            return []
-        if dropout is not None:
-            if not isinstance(dropout, (int, float)) or not (0.0 <= float(dropout) <= 1.0) or math.isnan(float(dropout)):
-                raise ValueError(f"dropout must be between 0.0 and 1.0, got {dropout}")
-            return self._model.encode(text, dropout=float(dropout), seed=seed)
-        return self._model.encode(text, dropout=None, seed=seed)
+        """
+        BPE ids of ``text``; ``dropout`` is the BPE-dropout probability (HF semantics). Special
+        tokens in the text get their ids unless ``split_special_tokens`` (HF semantics: their text
+        is encoded as ordinary text).
+        """
+        return self._require().encode(
+            text, dropout=dropout, seed=seed, split_special_tokens=split_special_tokens
+        )
 
-    def decode(self, token_ids: List[int], **kwargs: Any) -> str:
-        if self._model is None:
-            raise RuntimeError("Tokenizer is not trained or initialized")
-        if not token_ids:
-            return ""
-        return self._model.decode(token_ids)
-
-    def export_hf_json(self, path: str) -> None:
-        if self._model is None:
-            raise RuntimeError("Tokenizer is not trained or initialized")
-        self._model.export_hf_json(str(path))
-
-    def save_pretrained(self, save_directory: str) -> None:
-        if self._model is None:
-            raise RuntimeError("Tokenizer is not trained or initialized")
-        os.makedirs(save_directory, exist_ok=True)
-        json_path = os.path.join(save_directory, "tokenizer.json")
-        self.export_hf_json(json_path)
-        config_path = os.path.join(save_directory, "tokenizer_config.json")
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "tokenizer_class": "PreTrainedTokenizerFast",
-                    "model_type": "bpe",
-                    "clean_up_tokenization_spaces": False,
-                },
-                f,
-                indent=2,
-            )
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs: Any) -> BpeTokenizer:
-        model = _core.PyBpeModel.from_hf_json(str(pretrained_model_name_or_path))
-        return cls(model=model)
+    def encode_bytes(
+        self,
+        data: bytes,
+        dropout: Optional[float] = None,
+        seed: Optional[int] = None,
+        split_special_tokens: bool = False,
+    ) -> List[int]:
+        return self._require().encode_bytes(
+            bytes(data), dropout=dropout, seed=seed, split_special_tokens=split_special_tokens
+        )
 
 
 class WordPieceTokenizer(BpeTokenizer):
-    """BPE Tokenizer configured with Pointwise Mutual Information (WordPiece/PMI) scoring."""
+    """BPE with the Laplace-smoothed WordPiece likelihood score (``alpha`` smoothing)."""
 
     @classmethod
-    def train(cls, corpus: List[str], vocab_size: int = 300, **kwargs: Any) -> WordPieceTokenizer:
-        return super().train(corpus=corpus, vocab_size=vocab_size, scorer="wordpiece", **kwargs)
+    def train(cls, corpus, vocab_size=300, alpha=None, min_frequency=None, special_tokens=None):
+        return super().train(
+            corpus, vocab_size, "wordpiece", min_frequency=min_frequency, alpha=alpha,
+            special_tokens=special_tokens,
+        )
 
 
 class WpBpeBaseTokenizer(BpeTokenizer):
-    """
-    wp-bpe-base: BPE merge rules learned using uncalibrated Pointwise Mutual Information (PMI).
-    Picks pairs by raw PMI = freq(uv) / (freq(u) * freq(v)) without frequency thresholding.
-    """
+    """wp-bpe-base: uncalibrated PMI f(uv) / (f(u) f(v)), no frequency cutoff by default."""
 
     @classmethod
-    def train(cls, corpus: List[str], vocab_size: int = 300, **kwargs: Any) -> WpBpeBaseTokenizer:
-        return super().train(corpus=corpus, vocab_size=vocab_size, scorer="wp-bpe-base", **kwargs)
+    def train(cls, corpus, vocab_size=300, min_frequency=None, special_tokens=None):
+        return super().train(
+            corpus, vocab_size, "wp-bpe-base", min_frequency=min_frequency, special_tokens=special_tokens
+        )
 
 
 class WpBpeFtTokenizer(BpeTokenizer):
-    """
-    wp-bpe-ft: BPE merge rules learned using Frequency-Thresholded PMI.
-    Filters out noise/singletons before computing PMI, balancing cohesion with statistical significance.
-    """
+    """wp-bpe-ft: the wp-bpe-base ratio restricted to pairs with f(uv) >= min_frequency (>= 2)."""
 
     @classmethod
-    def train(
-        cls, corpus: List[str], vocab_size: int = 300, min_frequency: int = 2, alpha: float = 1.0, **kwargs: Any
-    ) -> WpBpeFtTokenizer:
+    def train(cls, corpus, vocab_size=300, min_frequency=None, special_tokens=None):
         return super().train(
-            corpus=corpus,
-            vocab_size=vocab_size,
-            scorer="wp-bpe-ft",
-            min_frequency=min_frequency,
-            alpha=alpha,
-            **kwargs,
+            corpus, vocab_size, "wp-bpe-ft", min_frequency=min_frequency, special_tokens=special_tokens
         )
 
 
 class WpBpePigTokenizer(BpeTokenizer):
-    """
-    wp-bpe-pig: BPE merge rules learned using Pointwise Information Gain (PIG).
-    Score = freq(uv) * PMI(u, v), directly measuring total corpus information gain of the merge.
-    """
+    """wp-bpe-pig: pointwise information gain f(uv) * PMI(u, v)."""
 
     @classmethod
-    def train(
-        cls, corpus: List[str], vocab_size: int = 300, min_frequency: int = 1, **kwargs: Any
-    ) -> WpBpePigTokenizer:
+    def train(cls, corpus, vocab_size=300, min_frequency=None, special_tokens=None):
         return super().train(
-            corpus=corpus,
-            vocab_size=vocab_size,
-            scorer="wp-bpe-pig",
-            min_frequency=min_frequency,
-            **kwargs,
+            corpus, vocab_size, "wp-bpe-pig", min_frequency=min_frequency, special_tokens=special_tokens
         )
 
 
 class WpBpeScpTokenizer(BpeTokenizer):
-    """
-    wp-bpe-scp: BPE merge rules learned using Symmetric Conditional Probability /
-    Geometric-Mean Calibrated PMI with discounting.
-    """
+    """wp-bpe-scp: (f(uv) - discount)+ / sqrt(f(u) f(v)) (default discount 0.75)."""
 
     @classmethod
-    def train(
-        cls,
-        corpus: List[str],
-        vocab_size: int = 300,
-        min_frequency: int = 2,
-        discount: float = 0.75,
-        **kwargs: Any,
-    ) -> WpBpeScpTokenizer:
+    def train(cls, corpus, vocab_size=300, min_frequency=None, discount=None, special_tokens=None):
         return super().train(
-            corpus=corpus,
-            vocab_size=vocab_size,
-            scorer="wp-bpe-scp",
-            min_frequency=min_frequency,
-            alpha=discount,
-            **kwargs,
+            corpus, vocab_size, "wp-bpe-scp", min_frequency=min_frequency, alpha=discount,
+            special_tokens=special_tokens,
         )
 
 
 class WpBpeNpmiTokenizer(BpeTokenizer):
-    """
-    wp-bpe-npmi: BPE merge rules learned using Normalized Pointwise Mutual Information (Bouma 2009)
-    weighted by sub-linear frequency support.
-    """
+    """wp-bpe-npmi: normalized PMI weighted by f(uv)^alpha (default alpha 0.5)."""
 
     @classmethod
-    def train(
-        cls,
-        corpus: List[str],
-        vocab_size: int = 300,
-        min_frequency: int = 2,
-        alpha: float = 0.5,
-        **kwargs: Any,
-    ) -> WpBpeNpmiTokenizer:
+    def train(cls, corpus, vocab_size=300, min_frequency=None, alpha=None, special_tokens=None):
         return super().train(
-            corpus=corpus,
-            vocab_size=vocab_size,
-            scorer="wp-bpe-npmi",
-            min_frequency=min_frequency,
-            alpha=alpha,
-            **kwargs,
+            corpus, vocab_size, "wp-bpe-npmi", min_frequency=min_frequency, alpha=alpha,
+            special_tokens=special_tokens,
         )
 
 
 class WpBpePpigTokenizer(BpeTokenizer):
-    """
-    wp-bpe-ppig: BPE merge rules learned using Positive Length-Regularized Pointwise Information Gain (PIG).
-    Score = freq(uv) * PositivePMI(u, v) / (len_u + len_v)^length_penalty.
-    """
+    """wp-bpe-ppig: f(uv) * max(0, PMI) / (|u| + |v|)^length_penalty (default 0.35)."""
 
     @classmethod
-    def train(
-        cls,
-        corpus: List[str],
-        vocab_size: int = 300,
-        min_frequency: int = 2,
-        length_penalty: float = 0.35,
-        **kwargs: Any,
-    ) -> WpBpePpigTokenizer:
+    def train(cls, corpus, vocab_size=300, min_frequency=None, length_penalty=None, special_tokens=None):
         return super().train(
-            corpus=corpus,
-            vocab_size=vocab_size,
-            scorer="wp-bpe-ppig",
-            min_frequency=min_frequency,
-            penalty=length_penalty,
-            **kwargs,
+            corpus, vocab_size, "wp-bpe-ppig", min_frequency=min_frequency, penalty=length_penalty,
+            special_tokens=special_tokens,
         )
 
 
 class MdlTokenizer(BpeTokenizer):
-    """BPE Tokenizer configured with Minimum Description Length (MDL / Delta-Bits) scoring."""
+    """BPE with the Minimum Description Length (delta-bits) score; ``entry_cost`` in bits (24)."""
 
     @classmethod
-    def train(cls, corpus: List[str], vocab_size: int = 300, **kwargs: Any) -> MdlTokenizer:
-        return super().train(corpus=corpus, vocab_size=vocab_size, scorer="mdl", **kwargs)
+    def train(cls, corpus, vocab_size=300, entry_cost=None, min_frequency=None, special_tokens=None):
+        return super().train(
+            corpus, vocab_size, "mdl", min_frequency=min_frequency, penalty=entry_cost,
+            special_tokens=special_tokens,
+        )
 
 
 class LengthPenalizedTokenizer(BpeTokenizer):
-    """BPE Tokenizer configured with Length-Penalized scoring."""
+    """BPE with score f(uv) / (|u| + |v|)^beta (default beta 0.5)."""
 
     @classmethod
-    def train(
-        cls, corpus: List[str], vocab_size: int = 300, beta: float = 0.5, **kwargs: Any
-    ) -> LengthPenalizedTokenizer:
+    def train(cls, corpus, vocab_size=300, beta=None, min_frequency=None, special_tokens=None):
         return super().train(
-            corpus=corpus, vocab_size=vocab_size, scorer="length_penalized", beta=beta, **kwargs
+            corpus, vocab_size, "length_penalized", min_frequency=min_frequency, beta=beta,
+            special_tokens=special_tokens,
         )
 
 
 class SuperBpeTokenizer(BpeTokenizer):
-    """Two-Stage SuperBPE Tokenizer: word-constrained up to v_switch, then cross-word collocations."""
+    """Two-stage SuperBPE: whitespace-bounded merges up to v_switch, cross-word merges up to v_final."""
 
     @classmethod
     def train(
         cls,
         corpus: List[str],
-        v_switch: int = 280,
-        v_final: int = 320,
-        **kwargs: Any,
+        vocab_size: Optional[int] = None,
+        *,
+        v_switch: Optional[int] = None,
+        v_final: Optional[int] = None,
     ) -> SuperBpeTokenizer:
-        if not corpus:
-            raise ValueError("Training corpus cannot be empty")
-        if v_switch < 256:
-            raise ValueError(f"v_switch must be >= 256, got {v_switch}")
-        if v_switch > v_final:
-            raise ValueError(f"v_switch ({v_switch}) cannot exceed v_final ({v_final})")
+        """
+        ``vocab_size`` is ``v_final`` (default 320). ``v_switch`` defaults to 90% of the learned
+        merges (256 + 0.9 * (v_final - 256)), the best transition point in the SuperBPE paper.
+        """
+        if vocab_size is not None and v_final is not None and vocab_size != v_final:
+            raise ValueError(f"vocab_size ({vocab_size}) and v_final ({v_final}) disagree")
+        if v_final is None:
+            v_final = 320 if vocab_size is None else vocab_size
+        if v_switch is None:
+            v_switch = 256 + (max(v_final, 256) - 256) * 9 // 10
         model = _core.train_super_bpe(corpus, v_switch, v_final)
+        _warn_if_short(cls.__name__, model.vocab_size(), v_final)
         return cls(model=model)
 
 
 class MorphemeGuidedTokenizer(BpeTokenizer):
-    """BPE Tokenizer regularized by morphological boundary priors."""
+    """BPE Tokenizer regularized by morphological boundary priors.
+
+    Every candidate merge's score is scaled by exp(lambda_weight * M), where M in [-1, 1] measures
+    whether the token it would create stays inside one morpheme across the pair's current
+    occurrences in lexicon words (+1) or spans a boundary (-1). Pairs whose reweighted count
+    falls below one occurrence are never merged, so training may stop below vocab_size (with a
+    warning). ``morpheme_lexicon`` maps whitespace-free training words to surface morphemes that
+    concatenate to the word; supply it from training annotations or an unsupervised segmenter,
+    never from evaluation gold. ``alpha`` (wordpiece), ``beta`` (length_penalized) and
+    ``penalty`` (mdl entry cost in bits) default to the scorer's own defaults.
+    """
 
     @classmethod
     def train(
@@ -335,16 +322,25 @@ class MorphemeGuidedTokenizer(BpeTokenizer):
         morpheme_lexicon: Optional[Dict[str, List[str]]] = None,
         lambda_weight: float = 1.0,
         scorer: str = "frequency",
-        **kwargs: Any,
+        min_frequency: int = 1,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        penalty: Optional[float] = None,
+        special_tokens: Optional[List[str]] = None,
     ) -> MorphemeGuidedTokenizer:
         if not corpus:
             raise ValueError("Training corpus cannot be empty")
-        if vocab_size < 256:
-            raise ValueError(f"vocab_size must be >= 256, got {vocab_size}")
-        if morpheme_lexicon is None:
-            morpheme_lexicon = {}
         model = _core.train_morpheme_guided(
-            corpus, vocab_size, morpheme_lexicon, float(lambda_weight), scorer
+            corpus,
+            vocab_size,
+            morpheme_lexicon or {},
+            lambda_weight=float(lambda_weight),
+            scorer=scorer,
+            min_frequency=min_frequency,
+            alpha=alpha,
+            beta=beta,
+            penalty=penalty,
+            special_tokens=special_tokens,
         )
         return cls(model=model)
 
@@ -352,30 +348,17 @@ class MorphemeGuidedTokenizer(BpeTokenizer):
 MorphemeBpeTokenizer = MorphemeGuidedTokenizer
 
 
-class UnigramTokenizer:
+class UnigramTokenizer(_CoreTokenizer):
     """
-    Top-Down Unigram Language Model Tokenizer supporting EM training,
-    loss-based vocabulary pruning, Viterbi 1-best decoding, and stochastic lattice sampling.
+    Unigram LM tokenizer: EM training with loss-based pruning, Viterbi decoding and subword
+    regularization (FFBS / k-best lattice sampling).
     """
 
-    def __init__(self, model: Optional[_core.PyUnigramModel] = None) -> None:
-        self._model = model
-
-    @property
-    def vocab_size(self) -> int:
-        if self._model is None:
-            return 0
-        return self._model.vocab_size()
-
-    def get_vocab(self) -> Dict[str, int]:
-        if self._model is None:
-            return {}
-        return self._model.get_vocab()
+    _core_class = _core.PyUnigramModel
+    _model_type = "unigram"
 
     def get_log_probs(self) -> Dict[str, float]:
-        if self._model is None:
-            return {}
-        return self._model.get_log_probs()
+        return {} if self._model is None else self._model.get_log_probs()
 
     @classmethod
     def train(
@@ -384,18 +367,16 @@ class UnigramTokenizer:
         vocab_size: int = 300,
         num_iterations: int = 10,
         shrinking_factor: float = 0.75,
-        **kwargs: Any,
     ) -> UnigramTokenizer:
         if not corpus:
             raise ValueError("Training corpus cannot be empty")
-        if vocab_size < 256:
-            raise ValueError(f"vocab_size must be at least 256, got {vocab_size}")
         model = _core.train_unigram(
             corpus=corpus,
             vocab_size=vocab_size,
             num_iterations=num_iterations,
             shrinking_factor=float(shrinking_factor),
         )
+        _warn_if_short(cls.__name__, model.vocab_size(), vocab_size)
         return cls(model=model)
 
     def encode(
@@ -405,68 +386,46 @@ class UnigramTokenizer:
         temperature: Optional[float] = None,
         nbest_size: Optional[int] = None,
         seed: Optional[int] = None,
-        **kwargs: Any,
     ) -> List[int]:
-        if self._model is None:
-            raise RuntimeError("UnigramTokenizer is not trained or initialized")
-        if text == "":
-            return []
-        if temperature is not None:
-            if not isinstance(temperature, (int, float)) or float(temperature) < 0.0 or math.isnan(float(temperature)):
-                raise ValueError(f"temperature must be non-negative, got {temperature}")
-            temp_val: Optional[float] = float(temperature)
-        else:
-            temp_val = None
-
-        return self._model.encode(
-            text,
-            temperature=temp_val,
-            nbest_size=nbest_size,
-            sample=sample,
-            seed=seed,
+        """
+        Viterbi ids, or a sampled segmentation (subword regularization). ``sample`` defaults to
+        True when ``temperature`` is given or ``nbest_size`` is > 1 or < 0. A sample has
+        probability proportional to P(s)^(1/temperature): temperature 1 (default) is the exact
+        posterior, SentencePiece ``alpha`` = 1/temperature, 0 gives Viterbi. ``nbest_size``
+        (SentencePiece convention): None or < 0 samples from all segmentations (FFBS), k > 1 from
+        the k best of each whitespace / non-whitespace segment, 0 or 1 is Viterbi.
+        """
+        return self._require().encode(
+            text, temperature=temperature, nbest_size=nbest_size, sample=sample, seed=seed
         )
 
-    def decode(self, token_ids: List[int], **kwargs: Any) -> str:
-        if self._model is None:
-            raise RuntimeError("UnigramTokenizer is not trained or initialized")
-        if not token_ids:
-            return ""
-        return self._model.decode(token_ids)
-
-    def export_hf_json(self, path: str) -> None:
-        if self._model is None:
-            raise RuntimeError("UnigramTokenizer is not trained or initialized")
-        self._model.export_hf_json(str(path))
-
-    def save_pretrained(self, save_directory: str) -> None:
-        if self._model is None:
-            raise RuntimeError("UnigramTokenizer is not trained or initialized")
-        os.makedirs(save_directory, exist_ok=True)
-        json_path = os.path.join(save_directory, "tokenizer.json")
-        self.export_hf_json(json_path)
-        config_path = os.path.join(save_directory, "tokenizer_config.json")
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "tokenizer_class": "PreTrainedTokenizerFast",
-                    "model_type": "unigram",
-                    "clean_up_tokenization_spaces": False,
-                },
-                f,
-                indent=2,
-            )
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs: Any) -> UnigramTokenizer:
-        model = _core.PyUnigramModel.from_hf_json(str(pretrained_model_name_or_path))
-        return cls(model=model)
+    def encode_bytes(
+        self,
+        data: bytes,
+        sample: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        nbest_size: Optional[int] = None,
+        seed: Optional[int] = None,
+    ) -> List[int]:
+        return self._require().encode_bytes(
+            bytes(data), temperature=temperature, nbest_size=nbest_size, sample=sample, seed=seed
+        )
 
 
 class ByteEntropyTokenizer:
     """
-    Dynamic Byte-Entropy Dynamic Patching Tokenizer based on Markov transition surprise
-    and predictive entropy thresholds with min_patch_len and max_patch_len guardrails.
+    BLT-style dynamic patching: a backoff Markov model of next-byte entropy cuts a new patch before
+    a byte whose predictive entropy exceeds ``entropy_threshold`` (bits), within
+    ``min_patch_len <= len <= max_patch_len``.
+
+    ``train`` fits the Markov model and freezes a patch vocabulary: ids 0..255 are the single bytes,
+    then the most frequent multi-byte training patches. A patch outside the vocabulary is encoded
+    as its single bytes, so encoding is lossless and deterministic. The Markov table keeps at most
+    ``max_contexts`` contexts (~200 bytes each), which bounds training memory; once full, later
+    training text only updates contexts already in it.
     """
+
+    _FILE = "byte_entropy.json"
 
     def __init__(
         self,
@@ -475,66 +434,153 @@ class ByteEntropyTokenizer:
         max_patch_len: int = 16,
         context_order: int = 3,
         smoothing_alpha: float = 0.05,
+        max_contexts: Optional[int] = None,
     ) -> None:
-        if not isinstance(entropy_threshold, (int, float)) or float(entropy_threshold) <= 0.0 or math.isnan(float(entropy_threshold)):
-            raise ValueError(f"entropy_threshold must be strictly positive, got {entropy_threshold}")
-
-        self.entropy_threshold = float(entropy_threshold)
-        self.min_patch_len = int(min_patch_len)
-        self.max_patch_len = int(max_patch_len)
-
+        """An untrained tokenizer; use ``ByteEntropyTokenizer.train`` or ``from_pretrained``.
+        ``max_contexts`` None is the core default (2M contexts, about 400 MB)."""
+        self.config = {
+            "entropy_threshold": float(entropy_threshold),
+            "min_patch_len": int(min_patch_len),
+            "max_patch_len": int(max_patch_len),
+            "context_order": int(context_order),
+            "smoothing_alpha": float(smoothing_alpha),
+            "max_contexts": None if max_contexts is None else int(max_contexts),
+        }
+        limit = {} if max_contexts is None else {"max_contexts": self.config["max_contexts"]}
         self._patcher = _core.PyByteEntropyPatcher(
-            entropy_threshold=self.entropy_threshold,
-            context_order=context_order,
-            min_len=self.min_patch_len,
-            max_len=self.max_patch_len,
-            smoothing_alpha=smoothing_alpha,
+            entropy_threshold=self.config["entropy_threshold"],
+            context_order=self.config["context_order"],
+            min_len=self.config["min_patch_len"],
+            max_len=self.config["max_patch_len"],
+            smoothing_alpha=self.config["smoothing_alpha"],
+            **limit,
         )
+        self._patches: List[bytes] = []
+        self._patch_ids: Dict[bytes, int] = {}
 
-        self._patch_to_id: Dict[bytes, int] = {}
-        self._id_to_patch: Dict[int, bytes] = {}
+    def _set_patches(self, patches: List[bytes]) -> None:
+        self._patches = patches
+        self._patch_ids = {p: 256 + i for i, p in enumerate(patches)}
 
-        # Prepopulate base 256 bytes
-        for b in range(256):
-            bv = bytes([b])
-            self._patch_to_id[bv] = b
-            self._id_to_patch[b] = bv
+    @classmethod
+    def train(
+        cls,
+        corpus: List[Union[str, bytes]],
+        vocab_size: Optional[int] = None,
+        entropy_threshold: float = 4.2,
+        min_patch_len: int = 2,
+        max_patch_len: int = 16,
+        context_order: int = 3,
+        smoothing_alpha: float = 0.05,
+        max_contexts: Optional[int] = None,
+    ) -> ByteEntropyTokenizer:
+        """``vocab_size`` caps 256 + patches (most frequent first); None keeps every patch seen."""
+        if not corpus:
+            raise ValueError("Training corpus cannot be empty")
+        if vocab_size is not None and vocab_size < 256:
+            raise ValueError(f"vocab_size must be at least 256, got {vocab_size}")
+        tok = cls(entropy_threshold, min_patch_len, max_patch_len, context_order, smoothing_alpha, max_contexts)
+        docs = [d.encode("utf-8") if isinstance(d, str) else bytes(d) for d in corpus]
+        for doc in docs:
+            tok._patcher.train_transitions(doc)
+        if not tok._patcher.is_trained():
+            raise ValueError("Corpus contains only empty documents")
+        counts = Counter(p for doc in docs for p in tok._patcher.segment_stream(doc) if len(p) > 1)
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        if vocab_size is not None:
+            ranked = ranked[: vocab_size - 256]
+        tok._set_patches([p for p, _ in ranked])
+        _warn_if_short(cls.__name__, tok.vocab_size, vocab_size)
+        return tok
+
+    def _require(self) -> None:
+        if not self._patcher.is_trained():
+            raise RuntimeError("ByteEntropyTokenizer is not trained; use ByteEntropyTokenizer.train(corpus)")
 
     @property
     def vocab_size(self) -> int:
-        return len(self._id_to_patch)
+        return 256 + len(self._patches)
 
-    def _get_or_create_id(self, patch: bytes) -> int:
-        if patch in self._patch_to_id:
-            return self._patch_to_id[patch]
-        new_id = len(self._id_to_patch)
-        self._patch_to_id[patch] = new_id
-        self._id_to_patch[new_id] = patch
-        return new_id
+    def encode_bytes(self, data: bytes) -> List[int]:
+        self._require()
+        ids: List[int] = []
+        for patch in self._patcher.segment_stream(bytes(data)):
+            pid = self._patch_ids.get(patch)
+            if pid is None:
+                ids.extend(patch)  # unseen patch: its single-byte ids
+            else:
+                ids.append(pid)
+        return ids
 
     def encode(self, text: str) -> List[int]:
-        if text == "":
-            return []
-        raw_bytes = text.encode("utf-8")
-        patches = self._patcher.segment_stream(raw_bytes)
-        return [self._get_or_create_id(bytes(p)) for p in patches]
+        return self.encode_bytes(text.encode("utf-8"))
 
-    def encode_bytes(self, raw_bytes: bytes) -> List[int]:
-        if len(raw_bytes) == 0:
-            return []
-        patches = self._patcher.segment_stream(raw_bytes)
-        return [self._get_or_create_id(bytes(p)) for p in patches]
+    def id_to_bytes(self, token_id: int) -> Optional[bytes]:
+        if 0 <= token_id < 256:
+            return bytes([token_id])
+        if 256 <= token_id < self.vocab_size:
+            return self._patches[token_id - 256]
+        return None
 
-    def id_to_bytes(self, patch_id: int) -> bytes:
-        if patch_id in self._id_to_patch:
-            return self._id_to_patch[patch_id]
-        return bytes([patch_id % 256])
+    def decode_bytes(self, token_ids: Sequence[int]) -> bytes:
+        """Raw bytes of ``token_ids``; ``ValueError`` on an unknown id."""
+        out = []
+        for tid in token_ids:
+            data = self.id_to_bytes(tid)
+            if data is None:
+                raise ValueError(f"Invalid token ID: {tid}")
+            out.append(data)
+        return b"".join(out)
 
-    def decode(self, patch_ids: List[int]) -> str:
-        if not patch_ids:
-            return ""
-        raw = b"".join(self.id_to_bytes(pid) for pid in patch_ids)
+    def decode(self, token_ids: Sequence[int], errors: str = "replace") -> str:
+        return self.decode_bytes(token_ids).decode("utf-8", errors=errors)
+
+    def id_to_token(self, token_id: int) -> Optional[str]:
+        data = self.id_to_bytes(token_id)
+        return None if data is None else _core.bytes_to_printable(data)
+
+    def token_to_id(self, token: str) -> Optional[int]:
         try:
-            return raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return raw.decode("latin-1")
+            data = _core.printable_to_bytes(token)
+        except ValueError:
+            return None
+        return data[0] if len(data) == 1 else self._patch_ids.get(data)
+
+    def get_vocab(self) -> Dict[str, int]:
+        return {self.id_to_token(i): i for i in range(self.vocab_size)}
+
+    def special_tokens(self) -> Dict[str, int]:
+        return {}
+
+    def save(self, save_directory: str) -> None:
+        """Writes config, patch vocabulary and Markov counts to ``byte_entropy.json``."""
+        self._require()
+        os.makedirs(save_directory, exist_ok=True)
+        state = {
+            "type": "ByteEntropy",
+            "config": self.config,
+            "patches": [p.hex() for p in self._patches],
+            "transitions": [
+                [ctx.hex(), counts] for ctx, counts in self._patcher.transitions()
+            ],
+        }
+        with open(os.path.join(save_directory, self._FILE), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+
+    save_pretrained = save
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path: str) -> ByteEntropyTokenizer:
+        path = str(pretrained_model_name_or_path)
+        if os.path.isdir(path):
+            path = os.path.join(path, cls._FILE)
+        with open(path, encoding="utf-8") as f:
+            state = json.load(f)
+        if state.get("type") != "ByteEntropy":
+            raise ValueError(f"{path} is not a saved ByteEntropyTokenizer")
+        tok = cls(**state["config"])
+        tok._patcher.load_transitions(
+            [(bytes.fromhex(ctx), [tuple(bc) for bc in counts]) for ctx, counts in state["transitions"]]
+        )
+        tok._set_patches([bytes.fromhex(p) for p in state["patches"]])
+        return tok

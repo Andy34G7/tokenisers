@@ -5,7 +5,8 @@ use ahash::AHashMap;
 pub struct ByteEntropyConfig {
     /// Markov context order in bytes (e.g. 2, 3, or 4).
     pub context_order: usize,
-    /// Entropy / surprise threshold in bits (e.g. 3.5 to 5.0).
+    /// Next-byte entropy threshold in bits (e.g. 3.5 to 5.0): a new patch starts before a byte
+    /// whose predictive entropy H(next | history) exceeds it.
     pub tau_threshold: f64,
     /// Minimum patch length in bytes (e.g. 2).
     pub min_len: usize,
@@ -24,17 +25,23 @@ impl Default for ByteEntropyConfig {
     }
 }
 
-/// Dynamic byte stream patcher based on Markov transition surprise and predictive entropy.
+/// BLT-style dynamic byte patcher driven by the predictive entropy of a backoff Markov model.
 #[derive(Debug, Clone)]
 pub struct ByteEntropyPatcher {
     pub config: ByteEntropyConfig,
-    /// Markov transition counts: context byte sequence -> 256 byte frequency counts.
-    transition_table: AHashMap<Vec<u8>, [u32; 256]>,
-    /// Total transitions observed per context.
-    context_totals: AHashMap<Vec<u8>, u32>,
+    /// Next-byte counts `(byte, count)` for every context of length 0..=context_order seen in
+    /// training, sparse: a dense `[u32; 256]` per context cost ~1 KB each (GBs on large corpora).
+    pub transition_table: AHashMap<Vec<u8>, Vec<(u8, u32)>>,
     /// Additive Laplace smoothing constant.
     pub smoothing_alpha: f64,
+    /// Bound on `transition_table.len()` (each context costs ~150-200 bytes): once reached,
+    /// training only updates contexts already in the table, so memory stays bounded however large
+    /// the corpus or `context_order` (unseen long contexts back off to shorter ones).
+    pub max_contexts: usize,
 }
+
+/// Default `max_contexts`: 2M contexts, about 400 MB.
+pub const DEFAULT_MAX_CONTEXTS: usize = 1 << 21;
 
 impl Default for ByteEntropyPatcher {
     fn default() -> Self {
@@ -47,66 +54,74 @@ impl ByteEntropyPatcher {
         Self {
             config,
             transition_table: AHashMap::default(),
-            context_totals: AHashMap::default(),
             smoothing_alpha: 0.05,
+            max_contexts: DEFAULT_MAX_CONTEXTS,
         }
     }
 
-    /// Trains the Markov transition table on raw byte corpus.
+    /// Trains the Markov model on a raw byte corpus: for every byte, counts it after each of
+    /// its preceding contexts of length 0..=context_order (shorter ones serve as backoff).
+    /// New contexts are not added once the table holds `max_contexts`.
     pub fn train_transitions(&mut self, corpus_bytes: &[u8]) {
         let order = self.config.context_order;
-        if corpus_bytes.len() <= order {
-            return;
-        }
-
-        for i in 0..(corpus_bytes.len() - order) {
-            let ctx = corpus_bytes[i..(i + order)].to_vec();
-            let next_byte = corpus_bytes[i + order];
-
-            let counts = self.transition_table.entry(ctx.clone()).or_insert([0; 256]);
-            counts[next_byte as usize] += 1;
-            *self.context_totals.entry(ctx).or_insert(0) += 1;
-        }
-    }
-
-    /// Computes transition surprise S(b | c) = -log2 P(b | c) in bits.
-    pub fn compute_surprise(&self, context: &[u8], next_byte: u8) -> f64 {
-        let alpha = self.smoothing_alpha;
-        let v = 256.0;
-
-        if let Some(counts) = self.transition_table.get(context) {
-            let total = self.context_totals[context] as f64;
-            let count = counts[next_byte as usize] as f64;
-            let prob = (count + alpha) / (total + v * alpha);
-            -prob.log2()
-        } else {
-            // Unseen context: uniform prior
-            8.0 // -log2(1/256) = 8.0 bits
-        }
-    }
-
-    /// Computes predictive conditional entropy H(B | c) = -sum P log2 P in bits.
-    pub fn compute_entropy(&self, context: &[u8]) -> f64 {
-        let alpha = self.smoothing_alpha;
-        let v = 256.0;
-
-        if let Some(counts) = self.transition_table.get(context) {
-            let total = self.context_totals[context] as f64;
-            let denom = total + v * alpha;
-            let mut h = 0.0;
-            for &c in counts.iter() {
-                let p = (c as f64 + alpha) / denom;
-                if p > 0.0 {
-                    h -= p * p.log2();
+        for (i, &next_byte) in corpus_bytes.iter().enumerate() {
+            for k in 0..=order.min(i) {
+                let ctx = &corpus_bytes[i - k..i];
+                if !self.transition_table.contains_key(ctx) {
+                    if self.transition_table.len() >= self.max_contexts {
+                        break; // the longer contexts at this position are new too
+                    }
+                    self.transition_table.insert(ctx.to_vec(), Vec::new());
+                }
+                let counts = self.transition_table.get_mut(ctx).expect("inserted above");
+                match counts.iter_mut().find(|(b, _)| *b == next_byte) {
+                    Some((_, c)) => *c += 1,
+                    None => counts.push((next_byte, 1)),
                 }
             }
-            h
-        } else {
-            8.0
         }
     }
 
-    /// Segments an input byte stream into dynamic patches with [min_len, max_len] guardrails.
+    /// True once `train_transitions` has seen at least one byte. An untrained patcher predicts
+    /// 8 bits everywhere, i.e. cuts a patch every `min_len` bytes whenever `tau < 8`.
+    pub fn is_trained(&self) -> bool {
+        !self.transition_table.is_empty()
+    }
+
+    /// Entropy (bits) of the next byte given everything before it, using the longest suffix of
+    /// `history` (at most `context_order` bytes) seen in training; 8.0 if none was seen.
+    pub fn next_byte_entropy(&self, history: &[u8]) -> f64 {
+        let longest = self.config.context_order.min(history.len());
+        (0..=longest)
+            .rev()
+            .map(|k| &history[history.len() - k..])
+            .find(|ctx| self.transition_table.contains_key(*ctx))
+            .map_or(8.0, |ctx| self.compute_entropy(ctx))
+    }
+
+    /// Predictive entropy H(B | c) = -sum P log2 P in bits for the exact context `c` (Laplace
+    /// smoothed); 8.0 for a context never seen in training.
+    pub fn compute_entropy(&self, context: &[u8]) -> f64 {
+        let Some(counts) = self.transition_table.get(context) else {
+            return 8.0;
+        };
+        let alpha = self.smoothing_alpha;
+        let total: u64 = counts.iter().map(|&(_, c)| c as u64).sum();
+        let denom = total as f64 + 256.0 * alpha;
+        let term = |c: f64| {
+            let p = (c + alpha) / denom;
+            if p > 0.0 { -p * p.log2() } else { 0.0 }
+        };
+        // Bytes absent from the sparse list have count 0.
+        counts.iter().map(|&(_, c)| term(c as f64)).sum::<f64>()
+            + (256 - counts.len()) as f64 * term(0.0)
+    }
+
+    /// Segments a byte stream into patches (lossless: their concatenation is `bytes`).
+    ///
+    /// A new patch starts before byte `i` when `next_byte_entropy(&bytes[..i]) > tau_threshold`
+    /// (BLT global-threshold rule: no look-ahead at byte `i` itself), subject to the guardrails
+    /// `min_len <= patch length <= max_len` (the final patch may be shorter than `min_len`).
     pub fn segment_stream(&self, bytes: &[u8]) -> Vec<Vec<u8>> {
         if bytes.is_empty() {
             return Vec::new();
@@ -114,7 +129,6 @@ impl ByteEntropyPatcher {
 
         let mut patches = Vec::new();
         let mut curr_patch = Vec::new();
-        let order = self.config.context_order;
 
         for (idx, &byte) in bytes.iter().enumerate() {
             curr_patch.push(byte);
@@ -132,17 +146,12 @@ impl ByteEntropyPatcher {
                 continue;
             }
 
-            // Guardrail 3: Evaluate transition surprise at boundary
-            if idx + 1 < bytes.len() {
-                let next_byte = bytes[idx + 1];
-                let ctx_start = (idx + 1).saturating_sub(order);
-                let ctx = &bytes[ctx_start..=idx];
-
-                let surprise = self.compute_surprise(ctx, next_byte);
-                if surprise >= self.config.tau_threshold {
-                    patches.push(curr_patch);
-                    curr_patch = Vec::new();
-                }
+            // Entropy rule: cut before the next byte if it is hard to predict.
+            if idx + 1 < bytes.len()
+                && self.next_byte_entropy(&bytes[..=idx]) > self.config.tau_threshold
+            {
+                patches.push(curr_patch);
+                curr_patch = Vec::new();
             }
         }
 

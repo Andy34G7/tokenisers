@@ -1,218 +1,88 @@
 """
-Google Colab Extrinsic Small-LM Benchmark suite.
-Trains a controlled Llama/GPT-style Transformer proxy language model under a fixed
-UTF-8 byte budget and evaluates validation Bits-Per-Byte (BPB) across English,
-Multilingual, and Code splits.
+Extrinsic proxy-LM benchmark: a small causal Transformer is trained per tokenizer under a fixed
+UTF-8 byte budget and scored by validation bits per byte (BPB).
+
+The model, trainer, evaluator and job runner live in ``colab/lm.py``, which is imported locally
+and uploaded unchanged to Colab, so local and remote runs share one implementation.
+``ColabOrchestrator`` runs a job directory on a Colab VM through the ``colab`` CLI (>= 0.7.5); the
+job script is ``lm.py`` here and ``benchmarks/throughput.py`` for the throughput benchmark.
 """
 
 from __future__ import annotations
 
 import contextlib
-import csv
 from dataclasses import dataclass
 import json
-import math
 from pathlib import Path
+import re
 import subprocess
-import tempfile
-from typing import Any, Dict, Iterator, List, Optional, Union
+import time
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+import uuid
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from tokenisers.benchmarks.colab.lm import (
+    BpbEvaluator,
+    ByteBudgetTrainer,
+    ProxyLanguageModel,
+    run_job,
+)
 
+LM_SOURCE = Path(__file__).with_name("lm.py")
+REMOTE_DIR = "/content"
+# 0.6.0's `exec` fails with AttributeError (jupyter_kernel_client has no KernelClient).
+MIN_CLI_VERSION: Tuple[int, int, int] = (0, 7, 5)
+UPGRADE_HINT = "uv tool upgrade google-colab-cli"
+STATUS_MARKER = "TOKENISERS_JOB "
+# One poll: a short `colab exec`. A call that hangs (e.g. "Connection was lost") is killed after
+# EXEC_TIMEOUT seconds and counts as a failed poll.
+EXEC_TIMEOUT = 300.0
 
-class ProxyLanguageModel(nn.Module):
-    """
-    Lightweight Llama/GPT-style causal Transformer with tied input/output embeddings.
-    """
+# Run in the Colab kernel on every poll (``colab exec`` exits 0 even when the code raises, so the
+# state is read from the STATUS_MARKER line, never from the exit code). Idempotent: the first call
+# launches the job script (``python lm.py <dir>``) detached (own session, output in job.log, pid in
+# job.pid) and returns at once; later calls report "running", or the final status.json that the
+# script's ``main`` writes ("ok"/"error"),
+# or "died" when the process is gone without one. A poll lost to a dropped connection is retried.
+CONTROL_SCRIPT = """\
+import json, os, subprocess, sys
+d = {remote_dir!r}
+pid_path, status_path, log_path = (os.path.join(d, f) for f in ("job.pid", "status.json", "job.log"))
 
-    def __init__(
-        self,
-        vocab_size: int = 1000,
-        d_model: int = 128,
-        n_layers: int = 2,
-        n_heads: int = 2,
-        d_ffn: int = 256,
-        max_seq_len: int = 512,
-    ) -> None:
-        super().__init__()
-        self.vocab_size = vocab_size
-        self.d_model = d_model
-        self.max_seq_len = max_seq_len
+def alive(pid):
+    try:
+        with open(f"/proc/{{pid}}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
 
-        self.embedding = nn.Embedding(vocab_size, d_model)
-        # Backbone layers (independent of vocab_size)
-        self.layers = nn.ModuleList([
-            nn.TransformerEncoderLayer(
-                d_model=d_model,
-                nhead=n_heads,
-                dim_feedforward=d_ffn,
-                batch_first=True,
-                norm_first=True,
-            )
-            for _ in range(n_layers)
-        ])
-        self.norm = nn.LayerNorm(d_model)
-
-        # Output projection head tied to input embeddings
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.embedding.weight
-
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
-        seq_len = input_ids.shape[1]
-        if seq_len > self.max_seq_len:
-            input_ids = input_ids[:, : self.max_seq_len]
-            seq_len = self.max_seq_len
-
-        h = self.embedding(input_ids)
-        causal_mask = nn.Transformer.generate_square_subsequent_mask(
-            seq_len, device=input_ids.device
-        )
-        for layer in self.layers:
-            h = layer(h, src_mask=causal_mask, is_causal=True)
-        h = self.norm(h)
-        logits = self.lm_head(h)
-        return logits
-
-
-class ByteBudgetTrainer:
-    """Trainer tracking consumed bytes towards a fixed UTF-8 training budget."""
-
-    def __init__(
-        self,
-        model: nn.Module,
-        byte_budget: int = 10_000,
-        lr: float = 3e-3,
-        device: Optional[str] = None,
-    ) -> None:
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = model.to(self.device)
-        self.byte_budget = byte_budget
-        self.bytes_consumed = 0
-        self.tokens_consumed = 0
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=0.01)
-
-    def step_batch(self, text: str) -> None:
-        raw_bytes = len(text.encode("utf-8"))
-        self.bytes_consumed += raw_bytes
-
-    def step_loss(self, loss_val: float) -> None:
-        if math.isnan(loss_val) or math.isinf(loss_val):
-            raise ValueError(f"Encountered NaN/Inf loss during training step: {loss_val}")
-
-    def train_on_token_stream(
-        self,
-        token_ids: List[int],
-        total_utf8_bytes: int,
-        seq_len: int = 64,
-        batch_size: int = 8,
-    ) -> List[Dict[str, float]]:
-        """
-        Trains the proxy language model on a stream of token IDs up to `self.byte_budget`
-        UTF-8 bytes, returning the training curve (bytes_consumed, tokens_consumed, loss_nats).
-        """
-        if len(token_ids) < seq_len + 1:
-            repeats = ((seq_len + 2) // max(1, len(token_ids))) + 2
-            token_ids = (token_ids * repeats)[: seq_len + 2]
-
-        bytes_per_token = max(1e-3, total_utf8_bytes / max(1, len(token_ids)))
-        self.model.train()
-        history: List[Dict[str, float]] = []
-
-        n_tokens = len(token_ids)
-        cursor = 0
-        step = 0
-
-        while self.bytes_consumed < self.byte_budget:
-            batch_seqs = []
-            for _ in range(batch_size):
-                if cursor + seq_len + 1 > n_tokens:
-                    cursor = 0
-                batch_seqs.append(token_ids[cursor : cursor + seq_len + 1])
-                cursor += seq_len
-
-            tensor = torch.tensor(batch_seqs, dtype=torch.long, device=self.device)
-            x = tensor[:, :-1]
-            y = tensor[:, 1:]
-
-            self.optimizer.zero_grad()
-            logits = self.model(x)
-            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
-            loss_val = float(loss.item())
-            self.step_loss(loss_val)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-            self.optimizer.step()
-
-            batch_tokens = batch_size * seq_len
-            batch_bytes = int(round(batch_tokens * bytes_per_token))
-            self.tokens_consumed += batch_tokens
-            self.bytes_consumed += max(1, batch_bytes)
-            step += 1
-
-            history.append({
-                "step": step,
-                "bytes_consumed": self.bytes_consumed,
-                "tokens_consumed": self.tokens_consumed,
-                "train_loss_nats": loss_val,
-                "train_bpb": loss_val / (math.log(2.0) * bytes_per_token),
-            })
-
-        return history
+if not os.path.exists(pid_path):
+    with open(log_path, "ab") as log:
+        p = subprocess.Popen([sys.executable, "-u", os.path.join(d, {script!r}), d], cwd=d, stdin=subprocess.DEVNULL,
+                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    with open(pid_path, "w") as f:
+        f.write(str(p.pid))
+    out = {{"state": "launched", "pid": p.pid}}
+else:
+    with open(pid_path) as f:
+        pid = int(f.read())
+    running = alive(pid)  # before reading the status: the script writes status.json, then exits
+    if os.path.exists(status_path):
+        with open(status_path) as f:
+            out = json.load(f)
+    else:
+        out = {{"state": "running" if running else "died", "pid": pid}}
+try:
+    with open(log_path, "rb") as f:
+        f.seek(max(0, os.path.getsize(log_path) - 4000))
+        out["log_tail"] = f.read().decode("utf-8", "replace")
+except OSError:
+    out["log_tail"] = ""
+print({marker!r} + json.dumps(out))
+"""
 
 
-class BpbEvaluator:
-    """Evaluates validation Bits-Per-Byte: BPB = loss_nats / (ln(2) * bytes_per_token)."""
-
-    def compute_bpb(self, loss_nats: float, bytes_per_token: float) -> float:
-        if bytes_per_token <= 0.0:
-            return 0.0
-        return loss_nats / (math.log(2.0) * bytes_per_token)
-
-    @torch.no_grad()
-    def evaluate_validation_bpb(
-        self,
-        model: nn.Module,
-        token_ids: List[int],
-        utf8_bytes: int,
-        seq_len: int = 64,
-    ) -> Dict[str, float]:
-        """Computes exact validation NLL (nats/token) and Bits-Per-Byte (BPB) on a validation stream."""
-        if not token_ids or utf8_bytes <= 0:
-            return {"loss_nats": 0.0, "bytes_per_token": 0.0, "bpb": 0.0}
-
-        device = next(model.parameters()).device
-        model.eval()
-
-        if len(token_ids) < 2:
-            token_ids = token_ids * 2
-
-        total_nll = 0.0
-        total_pred_tokens = 0
-        for i in range(0, len(token_ids) - 1, seq_len):
-            chunk = token_ids[i : i + seq_len + 1]
-            if len(chunk) < 2:
-                continue
-            t = torch.tensor([chunk], dtype=torch.long, device=device)
-            logits = model(t[:, :-1])
-            targets = t[:, 1:]
-            nll = F.cross_entropy(
-                logits.reshape(-1, logits.size(-1)),
-                targets.reshape(-1),
-                reduction="sum",
-            )
-            total_nll += float(nll.item())
-            total_pred_tokens += targets.numel()
-
-        avg_loss_nats = total_nll / max(1, total_pred_tokens)
-        bpt = utf8_bytes / max(1, len(token_ids))
-        bpb = self.compute_bpb(avg_loss_nats, bpt)
-        return {
-            "loss_nats": avg_loss_nats,
-            "bytes_per_token": bpt,
-            "bpb": bpb,
-        }
+class ColabError(RuntimeError):
+    """A ``colab`` CLI step or the remote job failed (the message carries the remote traceback)."""
 
 
 @dataclass
@@ -222,86 +92,163 @@ class ColabSession:
 
 
 class ColabOrchestrator:
-    """Orchestrator for managing remote Google Colab GPU sessions via colab-cli."""
+    """Runs benchmark jobs on Google Colab via the ``colab`` CLI. ``mock=True`` never calls the CLI."""
 
-    def __init__(self, mock: bool = True, colab_bin: Optional[str] = None) -> None:
+    def __init__(self, mock: bool = False, colab_bin: Optional[str] = None) -> None:
         self.mock = mock
         self.colab_bin = colab_bin or str(Path.home() / ".local" / "bin" / "colab")
 
-    @contextlib.contextmanager
-    def managed_session(self, session_name: str, gpu: str = "T4") -> Iterator[ColabSession]:
-        session = ColabSession(session_id=session_name, active=True)
-        if not self.mock:
-            subprocess.run(
-                [self.colab_bin, "--auth=oauth2", "new", "-s", session_name, "--gpu", gpu],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+    def _colab(self, *args: str, timeout: Optional[float] = 600) -> str:
+        """Runs one CLI command; returns its stdout + stderr. A non-zero exit raises ColabError, but
+        exit 0 does not mean the remote code succeeded (see CONTROL_SCRIPT)."""
+        cmd = [self.colab_bin, *args]
         try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise ColabError(f"`colab {args[0]}` failed: {e}") from e
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout).strip()[-2000:]
+            raise ColabError(f"`colab {args[0]}` exited with {proc.returncode}: {tail}")
+        return proc.stdout + proc.stderr
+
+    def check_cli_version(self) -> Tuple[int, ...]:
+        """Raises ColabError unless ``colab version`` reports >= MIN_CLI_VERSION."""
+        need = ".".join(map(str, MIN_CLI_VERSION))
+        try:
+            out = self._colab("version", timeout=60)
+        except ColabError as e:
+            raise ColabError(f"{e}\nthe benchmark needs colab CLI >= {need}; upgrade with `{UPGRADE_HINT}`") from e
+        m = re.search(r"Version:\s*(\d+)\.(\d+)\.(\d+)", out)
+        if not m:
+            raise ColabError(f"cannot read the colab CLI version from `colab version` ({out.strip()[-200:]!r}); "
+                             f"the benchmark needs >= {need}; upgrade with `{UPGRADE_HINT}`")
+        version = tuple(int(g) for g in m.groups())
+        if version < MIN_CLI_VERSION:
+            raise ColabError(f"colab CLI {'.'.join(m.groups())} is too old: the benchmark needs >= {need} "
+                             f"(0.6.0's `exec` is broken); upgrade with `{UPGRADE_HINT}`")
+        return version
+
+    @contextlib.contextmanager
+    def managed_session(self, session_name: str, gpu: Optional[str] = "T4") -> Iterator[ColabSession]:
+        """Creates a session and always stops it afterwards, also when ``colab new`` fails or times
+        out (the VM may exist even though the client gave up)."""
+        session = ColabSession(session_id=session_name, active=True)
+        try:
+            if not self.mock:
+                self._colab("new", "-s", session_name, *(["--gpu", gpu] if gpu else []))
             yield session
         finally:
             session.active = False
             if not self.mock:
-                subprocess.run(
-                    [self.colab_bin, "--auth=oauth2", "stop", "-s", session_name],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
+                try:
+                    self._colab("stop", "-s", session_name, timeout=120)
+                except ColabError:
+                    pass
 
-    def run_ephemeral_script(
+    def _colab_retry(self, *args: str, attempts: int, delay: float, timeout: float) -> str:
+        """``_colab`` for an idempotent step (upload, download): a transient failure such as a lost
+        connection is retried, ``delay`` s apart, up to ``attempts`` calls in all."""
+        for _ in range(attempts - 1):
+            try:
+                return self._colab(*args, timeout=timeout)
+            except ColabError:
+                time.sleep(delay)
+        return self._colab(*args, timeout=timeout)
+
+    def _poll(self, name: str, control: Path) -> Dict[str, Any]:
+        out = self._colab("exec", "-s", name, "-f", str(control), "--timeout", "120", timeout=EXEC_TIMEOUT)
+        for line in out.splitlines():
+            if line.startswith(STATUS_MARKER):
+                return json.loads(line[len(STATUS_MARKER):])
+        raise ColabError(f"`colab exec` of the job control script printed no status:\n{out.strip()[-3000:]}")
+
+    def _wait(self, name: str, control: Path, timeout: float, poll_interval: float,
+              max_poll_failures: int) -> Dict[str, Any]:
+        """Launches the job (first poll) and polls until it is ok/error/died; raises ColabError
+        after ``max_poll_failures`` consecutive failed polls or when ``timeout`` seconds pass."""
+        deadline = time.monotonic() + timeout
+        failures = 0
+        last: Dict[str, Any] = {}
+        while True:
+            try:
+                last = self._poll(name, control)
+                failures = 0
+            except ColabError as e:
+                failures += 1
+                if failures >= max_poll_failures:
+                    raise ColabError(f"{failures} consecutive job polls failed; last error: {e}") from e
+            if last.get("state") in ("ok", "error", "died"):
+                return last
+            if time.monotonic() >= deadline:
+                raise ColabError(f"the remote job did not finish within {timeout:.0f} s; "
+                                 f"log tail:\n{last.get('log_tail', '')}")
+            time.sleep(poll_interval)
+
+    def run_job(
         self,
-        script_code: str,
+        job_dir: Path,
         gpu: Optional[str] = "T4",
-        timeout: int = 300,
+        timeout: float = 6 * 3600,
+        poll_interval: float = 60.0,
+        max_poll_failures: int = 5,
+        script: Optional[Path] = None,
+        files: Optional[Sequence[Path]] = None,
     ) -> Dict[str, Any]:
         """
-        Executes a self-contained Python training script on Google Colab via `colab run`
-        (which provisions the VM, executes the script, and automatically stops the VM).
-        Falls back cleanly to CPU Colab VM or local PyTorch if GPU entitlement is unavailable.
+        Checks the CLI version, uploads ``script`` and the job ``files`` (default: ``lm.py`` and the
+        proxy-LM job's config.json and *.npz), starts ``python script <dir>`` detached on the VM
+        (``gpu=None``: a CPU runtime) and polls it every ``poll_interval`` s with short ``colab exec``
+        calls (no exec stays open for the whole job), then downloads result.json and returns it with
+        ``backend.kind = "colab"``. Polls, uploads and the download are each retried until
+        ``max_poll_failures`` consecutive calls failed. A remote exception, a job that dies or runs
+        past ``timeout``, or a CLI step that keeps failing raises ColabError (with the remote
+        traceback / log tail); the session is always stopped. There is no silent local fallback.
         """
-        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as f:
-            f.write(script_code)
-            script_path = f.name
+        job_dir = Path(job_dir)
+        if not self.mock:
+            self.check_cli_version()
+        script = Path(script or LM_SOURCE)
+        name = f"tokenisers-{script.stem}-{uuid.uuid4().hex[:8]}"
+        if files is None:
+            files = [job_dir / "config.json", *sorted(job_dir.glob("*.npz"))]
+        uploads: List[Path] = [script, *map(Path, files)]
+        control = job_dir / "control.py"
+        control.write_text(CONTROL_SCRIPT.format(remote_dir=REMOTE_DIR, marker=STATUS_MARKER, script=script.name),
+                           encoding="utf-8")
+        local_result = job_dir / "result.json"
+        local_result.unlink(missing_ok=True)
+        with self.managed_session(name, gpu):
+            retry = {"attempts": max_poll_failures, "delay": poll_interval}
+            for f in uploads:
+                self._colab_retry("upload", "-s", name, str(f), f"{REMOTE_DIR}/{f.name}", timeout=3600, **retry)
+            status = self._wait(name, control, timeout, poll_interval, max_poll_failures)
+            if status["state"] != "ok":
+                detail = status.get("traceback") or f"no status.json; log tail:\n{status.get('log_tail', '')}"
+                raise ColabError(f"the remote job failed ({status['state']}):\n{detail}")
+            # The finished job's only copy is on the VM, released when the session stops: a download
+            # lost to a dropped connection is retried like a poll.
+            self._colab_retry("download", "-s", name, f"{REMOTE_DIR}/result.json", str(local_result),
+                              timeout=600, **retry)
+        if not local_result.is_file():
+            raise ColabError("the Colab job produced no result.json")
+        result = json.loads(local_result.read_text(encoding="utf-8"))
+        result["backend"].update({"kind": "colab", "requested_gpu": gpu, "session": name})
+        return result
 
-        try:
-            if not self.mock and Path(self.colab_bin).exists():
-                cmd = [self.colab_bin, "--auth=oauth2", "run"]
-                if gpu:
-                    cmd.extend(["--gpu", gpu])
-                cmd.append(script_path)
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-                if proc.returncode != 0 and gpu:
-                    # Fallback to Colab CPU runtime if GPU tier is unavailable
-                    cmd_cpu = [self.colab_bin, "--auth=oauth2", "run", script_path]
-                    proc = subprocess.run(cmd_cpu, capture_output=True, text=True, timeout=timeout)
-                if proc.returncode == 0 and proc.stdout.strip():
-                    for line in reversed(proc.stdout.strip().splitlines()):
-                        line = line.strip()
-                        if line.startswith("{") and line.endswith("}"):
-                            return json.loads(line)
 
-            # Local fallback execution
-            proc_local = subprocess.run(
-                ["uv", "run", "python", script_path],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            for line in reversed(proc_local.stdout.strip().splitlines()):
-                line = line.strip()
-                if line.startswith("{") and line.endswith("}"):
-                    return json.loads(line)
-            raise RuntimeError(f"Failed to parse benchmark output: {proc_local.stderr}")
-        finally:
-            Path(script_path).unlink(missing_ok=True)
+def run_local(job_dir: Path, device: Optional[str] = None) -> Dict[str, Any]:
+    result = run_job(str(job_dir), device=device)
+    result["backend"]["kind"] = "local"
+    return result
 
 
 __all__ = [
     "ProxyLanguageModel",
     "ByteBudgetTrainer",
     "BpbEvaluator",
+    "ColabError",
     "ColabOrchestrator",
     "ColabSession",
+    "run_job",
+    "run_local",
 ]

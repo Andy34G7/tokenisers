@@ -67,9 +67,12 @@ def test_tier2_f1_bpe_extreme_repeated_char_avalanche(require_tokenisers):
 # ==============================================================================
 
 def test_tier2_f2_wordpiece_singleton_pairs(require_tokenisers):
-    """F2-B1: Pairs occurring only once do not cause divide-by-zero or score explosion."""
+    """F2-B1: Pairs occurring only once do not cause divide-by-zero or score explosion.
+    (min_frequency=1: the wordpiece default of 2 would exclude every singleton pair.)"""
     tokenisers = require_tokenisers
-    tok = tokenisers.BpeTokenizer.train(corpus=["ab cd ef gh ij kl mn op"], vocab_size=260, scorer="wordpiece")
+    tok = tokenisers.BpeTokenizer.train(
+        corpus=["ab cd ef gh ij kl mn op"], vocab_size=260, scorer="wordpiece", min_frequency=1
+    )
     assert tok.vocab_size == 260
     assert tok.decode(tok.encode("ab cd")) == "ab cd"
 
@@ -421,8 +424,8 @@ def test_tier2_f9_sampling_empty_string(require_tokenisers):
 def test_tier2_f10_entropy_zero_entropy_run(require_tokenisers):
     """F10-B1: Run of identical bytes (b'A' * 100) forces boundary at max_patch_len."""
     tokenisers = require_tokenisers
-    tok = tokenisers.ByteEntropyTokenizer(entropy_threshold=5.0, min_patch_len=1, max_patch_len=8)
     text = "A" * 100
+    tok = tokenisers.ByteEntropyTokenizer.train([text], entropy_threshold=5.0, min_patch_len=1, max_patch_len=8)
     patches = tok.encode(text)
     assert len(patches) >= 100 // 8
     assert tok.decode(patches) == text
@@ -434,15 +437,16 @@ def test_tier2_f10_entropy_max_entropy_run(require_tokenisers):
     import random
     rng = random.Random(10)
     rand_bytes = bytes(rng.randint(0, 255) for _ in range(50))
-    tok = tokenisers.ByteEntropyTokenizer(entropy_threshold=0.5, min_patch_len=3, max_patch_len=16)
-    patches = tok.encode_bytes(rand_bytes) if hasattr(tok, "encode_bytes") else tok.encode(rand_bytes.decode('latin1'))
-    assert len(patches) > 0
+    tok = tokenisers.ByteEntropyTokenizer.train([rand_bytes], entropy_threshold=0.5, min_patch_len=3, max_patch_len=16)
+    patches = tok.encode_bytes(rand_bytes)
+    assert tok.decode_bytes(patches) == rand_bytes
+    assert all(len(tok.id_to_bytes(p)) >= 3 for p in patches[:-1])
 
 
 def test_tier2_f10_entropy_single_byte_input(require_tokenisers):
     """F10-B3: 1-byte input emits a single patch of length 1."""
     tokenisers = require_tokenisers
-    tok = tokenisers.ByteEntropyTokenizer(entropy_threshold=3.0, min_patch_len=1, max_patch_len=16)
+    tok = tokenisers.ByteEntropyTokenizer.train(["xyz"], entropy_threshold=3.0, min_patch_len=1, max_patch_len=16)
     patches = tok.encode("x")
     assert len(patches) == 1
     assert tok.decode(patches) == "x"
@@ -451,8 +455,9 @@ def test_tier2_f10_entropy_single_byte_input(require_tokenisers):
 def test_tier2_f10_entropy_empty_input(require_tokenisers):
     """F10-B4: Empty input string emits empty list []."""
     tokenisers = require_tokenisers
-    tok = tokenisers.ByteEntropyTokenizer(entropy_threshold=3.0, min_patch_len=1, max_patch_len=16)
+    tok = tokenisers.ByteEntropyTokenizer.train(["xyz"], entropy_threshold=3.0, min_patch_len=1, max_patch_len=16)
     assert tok.encode("") == []
+    assert tok.decode([]) == ""
 
 
 def test_tier2_f10_entropy_invalid_threshold_raises(require_tokenisers):
@@ -475,7 +480,11 @@ def test_tier2_f11_hf_export_bytelevel_config(require_tokenisers, sample_english
     tok.export_hf_json(str(out))
     with open(out, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert data["pre_tokenizer"]["add_prefix_space"] is False
+    # Pre-tokenizer is Sequence[Split(whitespace runs), ByteLevel] to mirror native segmentation.
+    byte_level = [p for p in data["pre_tokenizer"]["pretokenizers"] if p["type"] == "ByteLevel"]
+    assert len(byte_level) == 1
+    assert byte_level[0]["add_prefix_space"] is False
+    assert byte_level[0]["use_regex"] is False
     assert data["decoder"]["add_prefix_space"] is False
 
 
@@ -514,11 +523,13 @@ def test_tier2_f11_hf_export_uninitialized_model_raises(require_tokenisers, tmp_
         uninit_tok.export_hf_json(str(tmp_path / "empty.json"))
 
 
-def test_tier2_f11_hf_export_large_vocab_json(require_tokenisers, sample_english_text, tmp_path):
-    """F11-B5: Serializing 500+ token vocabulary formats valid non-truncated JSON."""
+def test_tier2_f11_hf_export_large_vocab_json(require_tokenisers, sample_english_text, sample_multilingual_text, tmp_path):
+    """F11-B5: Serializing a 400-token vocabulary formats valid non-truncated JSON."""
     tokenisers = require_tokenisers
     import json
-    tok = tokenisers.BpeTokenizer.train(corpus=[sample_english_text * 15], vocab_size=400)
+    corpus = [sample_english_text] + list(sample_multilingual_text.values())
+    tok = tokenisers.BpeTokenizer.train(corpus=corpus, vocab_size=400)
+    assert tok.vocab_size == 400
     out = tmp_path / "large_vocab.json"
     tok.export_hf_json(str(out))
     with open(out, "r", encoding="utf-8") as f:
@@ -537,6 +548,13 @@ def test_tier2_f12_wrapper_special_tokens(require_tokenisers, sample_english_tex
     wrapper = tokenisers.DynamicResearchTokenizer(tok, unk_token="<unk>", pad_token="<pad>")
     assert wrapper.unk_token == "<unk>"
     assert wrapper.pad_token == "<pad>"
+    # Specials missing from the model vocab get fresh ids above it, never a real token's id
+    special_ids = [wrapper.unk_token_id, wrapper.pad_token_id, wrapper.bos_token_id, wrapper.eos_token_id]
+    assert sorted(special_ids) == list(range(tok.vocab_size, tok.vocab_size + 4))
+    assert len(wrapper) == tok.vocab_size + 4
+    assert wrapper.convert_ids_to_tokens(wrapper.pad_token_id) == "<pad>"
+    assert wrapper.decode([wrapper.pad_token_id]) == "<pad>"
+    assert wrapper.decode([wrapper.pad_token_id], skip_special_tokens=True) == ""
 
 
 def test_tier2_f12_wrapper_empty_string_input(require_tokenisers, sample_english_text):
@@ -575,6 +593,12 @@ def test_tier2_f12_wrapper_save_and_reload(require_tokenisers, sample_english_te
     wrapper.save_pretrained(str(save_dir))
     reloaded = transformers.AutoTokenizer.from_pretrained(str(save_dir))
     assert reloaded.vocab_size == wrapper.vocab_size
+    # The wrapper class itself reloads its underlying model and its special-token ids
+    own = tokenisers.DynamicResearchTokenizer.from_pretrained(str(save_dir))
+    text = sample_english_text + "</s>"
+    assert own(text)["input_ids"] == wrapper(text)["input_ids"]
+    assert own.pad_token_id == wrapper.pad_token_id and len(own) == len(wrapper)
+    assert own.decode(own(text)["input_ids"]) == text
 
 
 # ==============================================================================
@@ -586,6 +610,10 @@ def test_tier2_f13_lossless_arbitrary_binary_bytes(require_tokenisers):
     tokenisers = require_tokenisers
     tok = tokenisers.BpeTokenizer.train(corpus=["standard text"], vocab_size=265)
     binary_bytes = bytes([0, 1, 128, 255, 254, 253, 127])
+    ids = tok.encode_bytes(binary_bytes)
+    assert tok.decode_bytes(ids) == binary_bytes
+    # Text decoding replaces invalid UTF-8 per sequence (not latin-1 for the whole string)
+    assert tok.decode(ids) == binary_bytes.decode("utf-8", errors="replace")
     binary_str = binary_bytes.decode("latin1")
     assert tok.decode(tok.encode(binary_str)) == binary_str
 
@@ -635,13 +663,13 @@ def test_tier2_f14_pipeline_zero_target_size_raises(require_tokenisers):
 
 
 def test_tier2_f14_pipeline_corrupted_cache_regeneration(require_tokenisers, tmp_path):
-    """F14-B2: Corrupted cache file is detected and regenerated cleanly."""
+    """F14-B2: Corrupted cache file is detected (checksum) and regenerated cleanly."""
     tokenisers = require_tokenisers
-    pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path)
-    corrupt_file = tmp_path / "corpus_smoke_train.txt"
-    corrupt_file.write_text("CORRUPTED_INCOMPLETE", encoding="utf-8")
-    path = pipeline.prepare_corpus(preset="smoke", max_bytes=50_000, verify_cache=True)
-    assert Path(path).stat().st_size > len("CORRUPTED_INCOMPLETE")
+    pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path, force_offline=True)
+    ds = pipeline.prepare(train_bytes=50_000)
+    good = ds.path("train").read_bytes()
+    ds.path("train").write_text("CORRUPTED_INCOMPLETE", encoding="utf-8")
+    assert pipeline.prepare(train_bytes=50_000).path("train").read_bytes() == good
 
 
 def test_tier2_f14_pipeline_hash_collision_resistance(require_tokenisers):
@@ -656,15 +684,16 @@ def test_tier2_f14_pipeline_hash_collision_resistance(require_tokenisers):
 
 
 def test_tier2_f14_pipeline_sigmorphon_gold_parsing(require_tokenisers, tmp_path):
-    """F14-B4: SIGMORPHON TSV parser handles malformed rows and valid morpheme cuts."""
+    """F14-B4: SIGMORPHON 2022 TSV parser handles malformed rows and valid morpheme cuts."""
     tokenisers = require_tokenisers
-    tsv_content = "unhappiness\tun\thappi\tness\nmalformed_row_single_col\n"
+    tsv_content = "unhappiness\tun @@happi @@ness\t110\nmalformed_row_single_col\n"
     tsv_file = tmp_path / "sigmorphon.tsv"
     tsv_file.write_text(tsv_content, encoding="utf-8")
     loader = tokenisers.data.SigmorphonLoader()
     parsed = loader.load_tsv(str(tsv_file))
-    assert len(parsed) >= 1
+    assert len(parsed) == 1
     assert parsed[0]["word"] == "unhappiness"
+    assert parsed[0]["gold_cuts"] == {2, 7}
 
 
 def test_tier2_f14_pipeline_zero_network_sandbox(require_tokenisers):
@@ -877,18 +906,6 @@ def test_tier2_f18_git_uncommitted_changes_detection(repo_root):
     assert proc.returncode == 0
     # There should be untracked or modified files during active testing
     assert isinstance(proc.stdout, str)
-
-
-def test_tier2_f18_git_remote_connectivity(repo_root):
-    """F18-B4: Remote connectivity to https://github.com/Andy34G7/tokenisers.git is reachable."""
-    proc = subprocess.run(
-        ["git", "ls-remote", "origin", "HEAD"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        timeout=15
-    )
-    assert proc.returncode == 0 or "main" in proc.stdout or proc.returncode == 2
 
 
 def test_tier2_f18_git_tag_versioning_support(repo_root):

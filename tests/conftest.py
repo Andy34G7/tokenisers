@@ -2,19 +2,21 @@
 Pytest configuration and shared fixtures for Tokenisers E2E test suite.
 """
 
-import os
-import sys
 from pathlib import Path
 import pytest
 
-# Ensure python/ and project root are in sys.path
+# Tests use the installed package (`uv run maturin develop`), never a sys.path shim onto python/.
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PYTHON_PKG_PATH = REPO_ROOT / "python"
 
-if str(PYTHON_PKG_PATH) not in sys.path:
-    sys.path.insert(0, str(PYTHON_PKG_PATH))
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_data_cache(tmp_path_factory):
+    """Datasets that tests build without an explicit cache_dir (DataPipeline, SigmorphonLoader, the
+    dashboard's TokenizerCache, CLI subprocesses) go to a per-session temp dir, never the user's
+    ~/.cache/tokenisers/data, which concurrent runs would otherwise share and rewrite."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TOKENISERS_CACHE_DIR", str(tmp_path_factory.mktemp("tokenisers-cache")))
+        yield
 
 
 @pytest.fixture(scope="session")
@@ -25,8 +27,8 @@ def repo_root() -> Path:
 
 @pytest.fixture(scope="session")
 def colab_cli_path() -> Path:
-    """Return path to colab CLI binary."""
-    return Path("/home/andey/.local/bin/colab")
+    """The colab CLI where the Colab benchmark looks by default (ColabRunner.colab_bin)."""
+    return Path.home() / ".local" / "bin" / "colab"
 
 
 @pytest.fixture(scope="session")
@@ -125,13 +127,28 @@ def sample_morpheme_annotations() -> list[dict]:
     ]
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
+def two_path_unigram(require_tokenisers, tmp_path_factory):
+    """Unigram model in which "ab" has exactly two segmentations: [ab] with P = 0.03 and [a, b]
+    with P = 0.1 * 0.1 = 0.01, so the exact posterior (temperature 1) picks [ab] with 0.75."""
+    import json
+    import math
+
+    tokenisers = require_tokenisers
+    path = tmp_path_factory.mktemp("two_path") / "tokenizer.json"
+    tokenisers.UnigramTokenizer.train(["ab ab"], vocab_size=256).export_hf_json(str(path))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    printable = tokenisers._core.bytes_to_printable
+    vocab = [[printable(bytes([b])), math.log(0.1 if b in b"ab" else 1e-3)] for b in range(256)]
+    data["model"]["vocab"] = vocab + [[printable(b"ab"), math.log(0.03)]]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return tokenisers.UnigramTokenizer.from_pretrained(str(path))
+
+
+@pytest.fixture(scope="session")
 def require_tokenisers():
-    """Skip test if tokenisers module is not yet compiled or installed, or BpeTokenizer is not implemented."""
-    pkg = pytest.importorskip(
-        "tokenisers",
-        reason="tokenisers package not yet built/installed (M1/M2 implementation in progress)"
-    )
-    if getattr(pkg, "BpeTokenizer", None) is None:
-        pytest.skip("tokenisers.BpeTokenizer not yet implemented (M1 in progress, planned for M2)")
-    return pkg
+    """The installed tokenisers package. A missing or broken compiled extension is a test error, never a skip."""
+    import tokenisers
+    from tokenisers import _core  # noqa: F401  (the compiled extension itself)
+
+    return tokenisers

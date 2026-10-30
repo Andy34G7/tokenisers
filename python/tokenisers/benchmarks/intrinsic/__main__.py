@@ -1,57 +1,76 @@
-"""CLI entry point for tokenisers.benchmarks.intrinsic."""
+"""CLI: extended intrinsic suite on held-out text, SIGMORPHON test gold and held-out code identifiers."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from tokenisers.benchmarks.intrinsic import IntrinsicEvaluator
-from tokenisers.data.pipeline import DataPipeline, SigmorphonLoader
-from tokenisers.models import (
-    BpeTokenizer,
-    MorphemeBpeTokenizer,
-    SuperBpeTokenizer,
-    UnigramTokenizer,
+from typing import List
+
+from tokenisers.benchmarks.common import (
+    DEFAULT_MORPH_LANGS,
+    add_common_args,
+    assert_disjoint,
+    check_memory,
+    find_duplicates,
+    start_provenance,
+    load_dataset,
+    load_morphology,
+    run_metadata,
+    train_suite,
 )
+from tokenisers.benchmarks.intrinsic import IntrinsicEvaluator, mine_identifiers
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Extended Intrinsic Tokenizer Benchmark Suite")
-    parser.add_argument("--vocab-size", type=int, default=400, help="Target vocabulary size")
-    parser.add_argument("--output-dir", type=str, default="benchmarks/results/intrinsic", help="Directory for output JSON/CSV/Markdown")
-    args = parser.parse_args()
+THROUGHPUT_BYTES = 1024 * 1024
 
-    pipeline = DataPipeline(force_offline=True)
-    corpus = pipeline.sample_preset("smoke", max_bytes=120_000)
-    eval_text = "\n".join(corpus[:80])
-    gold_annotations = SigmorphonLoader().load_builtin_samples()
-    lexicon = {item["word"]: item["segments"] for item in gold_annotations}
 
-    v_size = args.vocab_size
-    v_switch = max(260, int(v_size * 0.75))
-    morph_corpus = corpus + [item["word"] for item in gold_annotations] * 15
+def throughput_docs(ds) -> List[str]:
+    """Test documents, topped up with val then train documents to at least 1 MiB when the test split is smaller."""
+    docs: List[str] = []
+    n = 0
+    for split in ("test", "val", "train"):
+        for d in ds.texts(split):
+            if n >= THROUGHPUT_BYTES and split != "test":
+                return docs
+            docs.append(d)
+            n += len(d.encode("utf-8"))
+    return docs
 
-    models = {
-        "bpe_frequency": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="frequency"),
-        "wordpiece_pmi": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wordpiece"),
-        "wp_bpe_base": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-base"),
-        "wp_bpe_ft": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-ft", min_frequency=2),
-        "wp_bpe_pig": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-pig"),
-        "wp_bpe_scp": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-scp", min_frequency=2),
-        "wp_bpe_npmi": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-npmi", min_frequency=2),
-        "wp_bpe_ppig": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="wp-bpe-ppig", min_frequency=2),
-        "mdl_bits": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="mdl"),
-        "length_penalized": BpeTokenizer.train(corpus=morph_corpus, vocab_size=v_size, scorer="length_penalized", beta=0.5),
-        "super_bpe": SuperBpeTokenizer.train(corpus=morph_corpus, v_switch=v_switch, v_final=v_size),
-        "morpheme_bpe": MorphemeBpeTokenizer.train(
-            corpus=morph_corpus, vocab_size=v_size, morpheme_lexicon=lexicon, lambda_weight=2.5
-        ),
-        "unigram_lm": UnigramTokenizer.train(corpus=morph_corpus, vocab_size=v_size),
-    }
 
-    evaluator = IntrinsicEvaluator()
-    evaluator.evaluate_suite(models, eval_text, gold_annotations, output_dir=args.output_dir)
-    md_file = Path(args.output_dir) / "intrinsic_leaderboard.md"
-    print(md_file.read_text(encoding="utf-8"))
+def main(argv: List[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Extended intrinsic tokenizer benchmark suite")
+    add_common_args(parser, "benchmarks/results/intrinsic")
+    parser.add_argument("--morph-langs", nargs="+", default=list(DEFAULT_MORPH_LANGS),
+                        help="SIGMORPHON 2022 languages (gold: test split; morpheme_bpe lexicon: train split)")
+    parser.add_argument("--max-identifiers", type=int, default=2000)
+    parser.add_argument("--throughput-repeats", type=int, default=5)
+    args = parser.parse_args(argv)
+    start = start_provenance(__package__, argv)  # before the tree can change during a long run
+
+    if not args.skip_memory_check:  # before downloading/preparing anything
+        check_memory(args.variants, args.train_bytes)
+    ds = load_dataset(args)
+    train = ds.texts("train")
+    test = ds.texts("test")
+    assert_disjoint(train, test, "test")
+    lexicon, gold, morph_prov = load_morphology(args, train, args.morph_langs)
+    identifiers = mine_identifiers(ds.texts("test", domain="code"), args.max_identifiers)
+
+    print(f"Training {len(args.variants)} tokenizers at V={args.vocab_size} on {len(train)} train docs")
+    models, records = train_suite(args.variants, train, args.vocab_size, lexicon)
+    duplicates = find_duplicates(models)
+    models = {n: t for n, t in models.items() if n not in duplicates}
+
+    meta = run_metadata(
+        args, ds, "intrinsic", "test", records, duplicates, start=start,
+        morphology=morph_prov,
+        identifier_source=f"{len(identifiers)} most frequent multi-part identifiers of the test split's code",
+    )
+    IntrinsicEvaluator().evaluate_suite(
+        models, test, gold, output_dir=args.output_dir, identifiers=identifiers, meta=meta,
+        repeats=args.throughput_repeats, throughput_docs=throughput_docs(ds),
+    )
+    print((Path(args.output_dir) / "intrinsic_leaderboard.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

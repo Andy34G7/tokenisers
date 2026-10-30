@@ -1,0 +1,4501 @@
+{
+  "device": "cpu",
+  "hardware": "CPU",
+  "byte_budget": 150000,
+  "models": {
+    "bpe_frequency": {
+      "vocab_size": 400,
+      "steps": 176,
+      "bytes_consumed": 150832,
+      "tokens_consumed": 90112,
+      "train_bytes_per_token": 1.6739900779588943,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.77779904845133,
+          "bytes_per_token": 1.8157134604274985,
+          "bpb": 2.207130694973903
+        },
+        "multilingual": {
+          "loss_nats": 2.537048098707446,
+          "bytes_per_token": 1.4132573795960641,
+          "bpb": 2.589893931102739
+        },
+        "code": {
+          "loss_nats": 3.8214109787870383,
+          "bytes_per_token": 1.613315400134499,
+          "bpb": 3.417267738121809
+        }
+      },
+      "macro_val_bpb": 2.738097454732817,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 857,
+          "tokens_consumed": 512,
+          "train_loss_nats": 115.9505,
+          "train_bpb": 99.9297
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4285,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 32.0068,
+          "train_bpb": 27.5844
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 8570,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 17.8424,
+          "train_bpb": 15.3771
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 12855,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 11.6523,
+          "train_bpb": 10.0423
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 17140,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 10.2059,
+          "train_bpb": 8.7957
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 21425,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 9.4953,
+          "train_bpb": 8.1833
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 25710,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 8.7207,
+          "train_bpb": 7.5158
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 29995,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 8.1762,
+          "train_bpb": 7.0465
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 34280,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 6.6189,
+          "train_bpb": 5.7044
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 38565,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 6.1112,
+          "train_bpb": 5.2668
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 42850,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 5.873,
+          "train_bpb": 5.0615
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 47135,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 5.9923,
+          "train_bpb": 5.1644
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 51420,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.8432,
+          "train_bpb": 5.0358
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 55705,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 5.1624,
+          "train_bpb": 4.4491
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 59990,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 4.9019,
+          "train_bpb": 4.2246
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 64275,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 5.5171,
+          "train_bpb": 4.7548
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 68560,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 5.6253,
+          "train_bpb": 4.848
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 72845,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 4.7144,
+          "train_bpb": 4.063
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 77130,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 4.3919,
+          "train_bpb": 3.785
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 81415,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 4.4625,
+          "train_bpb": 3.8459
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 85700,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 4.1906,
+          "train_bpb": 3.6115
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 89985,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.9053,
+          "train_bpb": 3.3657
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 94270,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.5774,
+          "train_bpb": 3.0831
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 98555,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.2891,
+          "train_bpb": 2.8346
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 102840,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 3.4039,
+          "train_bpb": 2.9335
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 107125,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.4227,
+          "train_bpb": 2.9498
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 111410,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.9622,
+          "train_bpb": 3.4148
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 115695,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.8092,
+          "train_bpb": 3.2829
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 119980,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.8423,
+          "train_bpb": 2.4496
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 124265,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.4336,
+          "train_bpb": 2.0974
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 128550,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 2.4759,
+          "train_bpb": 2.1338
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 132835,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.6309,
+          "train_bpb": 2.2674
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 137120,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.2984,
+          "train_bpb": 1.9809
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 141405,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.2014,
+          "train_bpb": 1.8972
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 145690,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 1.9914,
+          "train_bpb": 1.7163
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 149975,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 1.8466,
+          "train_bpb": 1.5915
+        },
+        {
+          "step": 176,
+          "bytes_consumed": 150832,
+          "tokens_consumed": 90112,
+          "train_loss_nats": 1.9428,
+          "train_bpb": 1.6744
+        }
+      ]
+    },
+    "wordpiece_pmi": {
+      "vocab_size": 400,
+      "steps": 275,
+      "bytes_consumed": 150150,
+      "tokens_consumed": 140800,
+      "train_bytes_per_token": 1.0663656884875847,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.6347205473042328,
+          "bytes_per_token": 1.0025518341307815,
+          "bpb": 3.7914231846372783
+        },
+        "multilingual": {
+          "loss_nats": 2.1642482941703682,
+          "bytes_per_token": 1.1652433817250214,
+          "bpb": 2.6795692043576977
+        },
+        "code": {
+          "loss_nats": 3.087076108428446,
+          "bytes_per_token": 1.052654673102238,
+          "bpb": 4.230931098563563
+        }
+      },
+      "macro_val_bpb": 3.5673078291861793,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 546,
+          "tokens_consumed": 512,
+          "train_loss_nats": 116.0299,
+          "train_bpb": 156.9778
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 2730,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 23.9121,
+          "train_bpb": 32.3509
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 5460,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 10.2551,
+          "train_bpb": 13.8742
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 8190,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 7.2048,
+          "train_bpb": 9.7474
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 10920,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 11.5076,
+          "train_bpb": 15.5688
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 13650,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 9.6583,
+          "train_bpb": 13.0668
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 16380,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 6.0654,
+          "train_bpb": 8.2059
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 19110,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 4.9541,
+          "train_bpb": 6.7025
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 21840,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 4.8892,
+          "train_bpb": 6.6147
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 24570,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 4.0598,
+          "train_bpb": 5.4926
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 27300,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 4.2379,
+          "train_bpb": 5.7335
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 30030,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 4.4167,
+          "train_bpb": 5.9754
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 32760,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 4.0061,
+          "train_bpb": 5.4198
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 35490,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 4.6606,
+          "train_bpb": 6.3054
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 38220,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 3.6303,
+          "train_bpb": 4.9115
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 40950,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 3.568,
+          "train_bpb": 4.8272
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 43680,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 3.3333,
+          "train_bpb": 4.5096
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 46410,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 3.4613,
+          "train_bpb": 4.6829
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 49140,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 3.2969,
+          "train_bpb": 4.4604
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 51870,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.3685,
+          "train_bpb": 4.5572
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 54600,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.7831,
+          "train_bpb": 5.1182
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 57330,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.1987,
+          "train_bpb": 4.3275
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 60060,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.1298,
+          "train_bpb": 4.2343
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 62790,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 2.4976,
+          "train_bpb": 3.379
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 65520,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 2.4475,
+          "train_bpb": 3.3113
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 68250,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.7391,
+          "train_bpb": 5.0587
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 70980,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.3223,
+          "train_bpb": 4.4948
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 73710,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.2393,
+          "train_bpb": 4.3825
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 76440,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 3.0578,
+          "train_bpb": 4.137
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 79170,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.9269,
+          "train_bpb": 3.9598
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 81900,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 1.9984,
+          "train_bpb": 2.7037
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 84630,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.6771,
+          "train_bpb": 3.6219
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 87360,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 3.566,
+          "train_bpb": 4.8245
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 90090,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.8727,
+          "train_bpb": 3.8865
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 92820,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.9133,
+          "train_bpb": 3.9414
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 95550,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 2.1049,
+          "train_bpb": 2.8477
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 98280,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 2.1674,
+          "train_bpb": 2.9323
+        },
+        {
+          "step": 185,
+          "bytes_consumed": 101010,
+          "tokens_consumed": 94720,
+          "train_loss_nats": 2.5766,
+          "train_bpb": 3.4858
+        },
+        {
+          "step": 190,
+          "bytes_consumed": 103740,
+          "tokens_consumed": 97280,
+          "train_loss_nats": 2.7808,
+          "train_bpb": 3.7622
+        },
+        {
+          "step": 195,
+          "bytes_consumed": 106470,
+          "tokens_consumed": 99840,
+          "train_loss_nats": 3.2565,
+          "train_bpb": 4.4057
+        },
+        {
+          "step": 200,
+          "bytes_consumed": 109200,
+          "tokens_consumed": 102400,
+          "train_loss_nats": 2.7343,
+          "train_bpb": 3.6992
+        },
+        {
+          "step": 205,
+          "bytes_consumed": 111930,
+          "tokens_consumed": 104960,
+          "train_loss_nats": 2.6688,
+          "train_bpb": 3.6107
+        },
+        {
+          "step": 210,
+          "bytes_consumed": 114660,
+          "tokens_consumed": 107520,
+          "train_loss_nats": 1.4882,
+          "train_bpb": 2.0134
+        },
+        {
+          "step": 215,
+          "bytes_consumed": 117390,
+          "tokens_consumed": 110080,
+          "train_loss_nats": 1.8144,
+          "train_bpb": 2.4547
+        },
+        {
+          "step": 220,
+          "bytes_consumed": 120120,
+          "tokens_consumed": 112640,
+          "train_loss_nats": 3.0734,
+          "train_bpb": 4.158
+        },
+        {
+          "step": 225,
+          "bytes_consumed": 122850,
+          "tokens_consumed": 115200,
+          "train_loss_nats": 2.7225,
+          "train_bpb": 3.6832
+        },
+        {
+          "step": 230,
+          "bytes_consumed": 125580,
+          "tokens_consumed": 117760,
+          "train_loss_nats": 2.4774,
+          "train_bpb": 3.3516
+        },
+        {
+          "step": 235,
+          "bytes_consumed": 128310,
+          "tokens_consumed": 120320,
+          "train_loss_nats": 2.3733,
+          "train_bpb": 3.2109
+        },
+        {
+          "step": 240,
+          "bytes_consumed": 131040,
+          "tokens_consumed": 122880,
+          "train_loss_nats": 2.1241,
+          "train_bpb": 2.8737
+        },
+        {
+          "step": 245,
+          "bytes_consumed": 133770,
+          "tokens_consumed": 125440,
+          "train_loss_nats": 1.7816,
+          "train_bpb": 2.4104
+        },
+        {
+          "step": 250,
+          "bytes_consumed": 136500,
+          "tokens_consumed": 128000,
+          "train_loss_nats": 1.9474,
+          "train_bpb": 2.6346
+        },
+        {
+          "step": 255,
+          "bytes_consumed": 139230,
+          "tokens_consumed": 130560,
+          "train_loss_nats": 2.855,
+          "train_bpb": 3.8625
+        },
+        {
+          "step": 260,
+          "bytes_consumed": 141960,
+          "tokens_consumed": 133120,
+          "train_loss_nats": 2.6293,
+          "train_bpb": 3.5572
+        },
+        {
+          "step": 265,
+          "bytes_consumed": 144690,
+          "tokens_consumed": 135680,
+          "train_loss_nats": 2.539,
+          "train_bpb": 3.4351
+        },
+        {
+          "step": 270,
+          "bytes_consumed": 147420,
+          "tokens_consumed": 138240,
+          "train_loss_nats": 1.6336,
+          "train_bpb": 2.2101
+        },
+        {
+          "step": 275,
+          "bytes_consumed": 150150,
+          "tokens_consumed": 140800,
+          "train_loss_nats": 1.5791,
+          "train_bpb": 2.1364
+        }
+      ]
+    },
+    "wp_bpe_base": {
+      "vocab_size": 400,
+      "steps": 275,
+      "bytes_consumed": 150150,
+      "tokens_consumed": 140800,
+      "train_bytes_per_token": 1.0663656884875847,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.717967040080817,
+          "bytes_per_token": 1.0025518341307815,
+          "bpb": 3.911216793517665
+        },
+        "multilingual": {
+          "loss_nats": 2.1927941186669444,
+          "bytes_per_token": 1.1652433817250214,
+          "bpb": 2.7149119662949768
+        },
+        "code": {
+          "loss_nats": 3.1202413912296714,
+          "bytes_per_token": 1.052654673102238,
+          "bpb": 4.2763851209031
+        }
+      },
+      "macro_val_bpb": 3.6341712935719137,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 546,
+          "tokens_consumed": 512,
+          "train_loss_nats": 116.0299,
+          "train_bpb": 156.9778
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 2730,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 23.737,
+          "train_bpb": 32.114
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 5460,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 10.224,
+          "train_bpb": 13.8322
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 8190,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 7.2168,
+          "train_bpb": 9.7637
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 10920,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 11.4148,
+          "train_bpb": 15.4432
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 13650,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 9.5823,
+          "train_bpb": 12.964
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 16380,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 5.9532,
+          "train_bpb": 8.0541
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 19110,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 4.9786,
+          "train_bpb": 6.7356
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 21840,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 4.8139,
+          "train_bpb": 6.5128
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 24570,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 4.0313,
+          "train_bpb": 5.454
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 27300,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 4.2819,
+          "train_bpb": 5.7931
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 30030,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 4.4003,
+          "train_bpb": 5.9532
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 32760,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 4.0095,
+          "train_bpb": 5.4245
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 35490,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 4.5969,
+          "train_bpb": 6.2192
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 38220,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 3.722,
+          "train_bpb": 5.0356
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 40950,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 3.6673,
+          "train_bpb": 4.9616
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 43680,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 3.3933,
+          "train_bpb": 4.5909
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 46410,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 3.5842,
+          "train_bpb": 4.8491
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 49140,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 3.2052,
+          "train_bpb": 4.3364
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 51870,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.3566,
+          "train_bpb": 4.5412
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 54600,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.8131,
+          "train_bpb": 5.1588
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 57330,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.23,
+          "train_bpb": 4.3699
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 60060,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.184,
+          "train_bpb": 4.3077
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 62790,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 2.4608,
+          "train_bpb": 3.3292
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 65520,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 2.6745,
+          "train_bpb": 3.6184
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 68250,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.8327,
+          "train_bpb": 5.1852
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 70980,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.3101,
+          "train_bpb": 4.4782
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 73710,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.2575,
+          "train_bpb": 4.4071
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 76440,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.9665,
+          "train_bpb": 4.0134
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 79170,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.8734,
+          "train_bpb": 3.8875
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 81900,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 2.0522,
+          "train_bpb": 2.7765
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 84630,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.4282,
+          "train_bpb": 3.2852
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 87360,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 3.8186,
+          "train_bpb": 5.1662
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 90090,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.9112,
+          "train_bpb": 3.9386
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 92820,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.9507,
+          "train_bpb": 3.9921
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 95550,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 2.0883,
+          "train_bpb": 2.8252
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 98280,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 2.1769,
+          "train_bpb": 2.9452
+        },
+        {
+          "step": 185,
+          "bytes_consumed": 101010,
+          "tokens_consumed": 94720,
+          "train_loss_nats": 2.6651,
+          "train_bpb": 3.6056
+        },
+        {
+          "step": 190,
+          "bytes_consumed": 103740,
+          "tokens_consumed": 97280,
+          "train_loss_nats": 2.8653,
+          "train_bpb": 3.8765
+        },
+        {
+          "step": 195,
+          "bytes_consumed": 106470,
+          "tokens_consumed": 99840,
+          "train_loss_nats": 3.048,
+          "train_bpb": 4.1237
+        },
+        {
+          "step": 200,
+          "bytes_consumed": 109200,
+          "tokens_consumed": 102400,
+          "train_loss_nats": 2.6947,
+          "train_bpb": 3.6457
+        },
+        {
+          "step": 205,
+          "bytes_consumed": 111930,
+          "tokens_consumed": 104960,
+          "train_loss_nats": 2.7015,
+          "train_bpb": 3.6549
+        },
+        {
+          "step": 210,
+          "bytes_consumed": 114660,
+          "tokens_consumed": 107520,
+          "train_loss_nats": 1.4593,
+          "train_bpb": 1.9743
+        },
+        {
+          "step": 215,
+          "bytes_consumed": 117390,
+          "tokens_consumed": 110080,
+          "train_loss_nats": 1.855,
+          "train_bpb": 2.5097
+        },
+        {
+          "step": 220,
+          "bytes_consumed": 120120,
+          "tokens_consumed": 112640,
+          "train_loss_nats": 3.2965,
+          "train_bpb": 4.4599
+        },
+        {
+          "step": 225,
+          "bytes_consumed": 122850,
+          "tokens_consumed": 115200,
+          "train_loss_nats": 2.675,
+          "train_bpb": 3.619
+        },
+        {
+          "step": 230,
+          "bytes_consumed": 125580,
+          "tokens_consumed": 117760,
+          "train_loss_nats": 2.5827,
+          "train_bpb": 3.4941
+        },
+        {
+          "step": 235,
+          "bytes_consumed": 128310,
+          "tokens_consumed": 120320,
+          "train_loss_nats": 2.4707,
+          "train_bpb": 3.3426
+        },
+        {
+          "step": 240,
+          "bytes_consumed": 131040,
+          "tokens_consumed": 122880,
+          "train_loss_nats": 2.2036,
+          "train_bpb": 2.9812
+        },
+        {
+          "step": 245,
+          "bytes_consumed": 133770,
+          "tokens_consumed": 125440,
+          "train_loss_nats": 1.9778,
+          "train_bpb": 2.6758
+        },
+        {
+          "step": 250,
+          "bytes_consumed": 136500,
+          "tokens_consumed": 128000,
+          "train_loss_nats": 1.9824,
+          "train_bpb": 2.6821
+        },
+        {
+          "step": 255,
+          "bytes_consumed": 139230,
+          "tokens_consumed": 130560,
+          "train_loss_nats": 2.9076,
+          "train_bpb": 3.9337
+        },
+        {
+          "step": 260,
+          "bytes_consumed": 141960,
+          "tokens_consumed": 133120,
+          "train_loss_nats": 2.608,
+          "train_bpb": 3.5284
+        },
+        {
+          "step": 265,
+          "bytes_consumed": 144690,
+          "tokens_consumed": 135680,
+          "train_loss_nats": 2.5288,
+          "train_bpb": 3.4212
+        },
+        {
+          "step": 270,
+          "bytes_consumed": 147420,
+          "tokens_consumed": 138240,
+          "train_loss_nats": 1.6897,
+          "train_bpb": 2.286
+        },
+        {
+          "step": 275,
+          "bytes_consumed": 150150,
+          "tokens_consumed": 140800,
+          "train_loss_nats": 1.6065,
+          "train_bpb": 2.1735
+        }
+      ]
+    },
+    "wp_bpe_ft": {
+      "vocab_size": 400,
+      "steps": 275,
+      "bytes_consumed": 150150,
+      "tokens_consumed": 140800,
+      "train_bytes_per_token": 1.0663656884875847,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.6347205473042328,
+          "bytes_per_token": 1.0025518341307815,
+          "bpb": 3.7914231846372783
+        },
+        "multilingual": {
+          "loss_nats": 2.1642482941703682,
+          "bytes_per_token": 1.1652433817250214,
+          "bpb": 2.6795692043576977
+        },
+        "code": {
+          "loss_nats": 3.087076108428446,
+          "bytes_per_token": 1.052654673102238,
+          "bpb": 4.230931098563563
+        }
+      },
+      "macro_val_bpb": 3.5673078291861793,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 546,
+          "tokens_consumed": 512,
+          "train_loss_nats": 116.0299,
+          "train_bpb": 156.9778
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 2730,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 23.9121,
+          "train_bpb": 32.3509
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 5460,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 10.2551,
+          "train_bpb": 13.8742
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 8190,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 7.2048,
+          "train_bpb": 9.7474
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 10920,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 11.5076,
+          "train_bpb": 15.5688
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 13650,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 9.6583,
+          "train_bpb": 13.0668
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 16380,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 6.0654,
+          "train_bpb": 8.2059
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 19110,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 4.9541,
+          "train_bpb": 6.7025
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 21840,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 4.8892,
+          "train_bpb": 6.6147
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 24570,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 4.0598,
+          "train_bpb": 5.4926
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 27300,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 4.2379,
+          "train_bpb": 5.7335
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 30030,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 4.4167,
+          "train_bpb": 5.9754
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 32760,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 4.0061,
+          "train_bpb": 5.4198
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 35490,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 4.6606,
+          "train_bpb": 6.3054
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 38220,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 3.6303,
+          "train_bpb": 4.9115
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 40950,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 3.568,
+          "train_bpb": 4.8272
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 43680,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 3.3333,
+          "train_bpb": 4.5096
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 46410,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 3.4613,
+          "train_bpb": 4.6829
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 49140,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 3.2969,
+          "train_bpb": 4.4604
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 51870,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.3685,
+          "train_bpb": 4.5572
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 54600,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.7831,
+          "train_bpb": 5.1182
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 57330,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.1987,
+          "train_bpb": 4.3275
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 60060,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.1298,
+          "train_bpb": 4.2343
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 62790,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 2.4976,
+          "train_bpb": 3.379
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 65520,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 2.4475,
+          "train_bpb": 3.3113
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 68250,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.7391,
+          "train_bpb": 5.0587
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 70980,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.3223,
+          "train_bpb": 4.4948
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 73710,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.2393,
+          "train_bpb": 4.3825
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 76440,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 3.0578,
+          "train_bpb": 4.137
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 79170,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.9269,
+          "train_bpb": 3.9598
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 81900,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 1.9984,
+          "train_bpb": 2.7037
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 84630,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.6771,
+          "train_bpb": 3.6219
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 87360,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 3.566,
+          "train_bpb": 4.8245
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 90090,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.8727,
+          "train_bpb": 3.8865
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 92820,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.9133,
+          "train_bpb": 3.9414
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 95550,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 2.1049,
+          "train_bpb": 2.8477
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 98280,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 2.1674,
+          "train_bpb": 2.9323
+        },
+        {
+          "step": 185,
+          "bytes_consumed": 101010,
+          "tokens_consumed": 94720,
+          "train_loss_nats": 2.5766,
+          "train_bpb": 3.4858
+        },
+        {
+          "step": 190,
+          "bytes_consumed": 103740,
+          "tokens_consumed": 97280,
+          "train_loss_nats": 2.7808,
+          "train_bpb": 3.7622
+        },
+        {
+          "step": 195,
+          "bytes_consumed": 106470,
+          "tokens_consumed": 99840,
+          "train_loss_nats": 3.2565,
+          "train_bpb": 4.4057
+        },
+        {
+          "step": 200,
+          "bytes_consumed": 109200,
+          "tokens_consumed": 102400,
+          "train_loss_nats": 2.7343,
+          "train_bpb": 3.6992
+        },
+        {
+          "step": 205,
+          "bytes_consumed": 111930,
+          "tokens_consumed": 104960,
+          "train_loss_nats": 2.6688,
+          "train_bpb": 3.6107
+        },
+        {
+          "step": 210,
+          "bytes_consumed": 114660,
+          "tokens_consumed": 107520,
+          "train_loss_nats": 1.4882,
+          "train_bpb": 2.0134
+        },
+        {
+          "step": 215,
+          "bytes_consumed": 117390,
+          "tokens_consumed": 110080,
+          "train_loss_nats": 1.8144,
+          "train_bpb": 2.4547
+        },
+        {
+          "step": 220,
+          "bytes_consumed": 120120,
+          "tokens_consumed": 112640,
+          "train_loss_nats": 3.0734,
+          "train_bpb": 4.158
+        },
+        {
+          "step": 225,
+          "bytes_consumed": 122850,
+          "tokens_consumed": 115200,
+          "train_loss_nats": 2.7225,
+          "train_bpb": 3.6832
+        },
+        {
+          "step": 230,
+          "bytes_consumed": 125580,
+          "tokens_consumed": 117760,
+          "train_loss_nats": 2.4774,
+          "train_bpb": 3.3516
+        },
+        {
+          "step": 235,
+          "bytes_consumed": 128310,
+          "tokens_consumed": 120320,
+          "train_loss_nats": 2.3733,
+          "train_bpb": 3.2109
+        },
+        {
+          "step": 240,
+          "bytes_consumed": 131040,
+          "tokens_consumed": 122880,
+          "train_loss_nats": 2.1241,
+          "train_bpb": 2.8737
+        },
+        {
+          "step": 245,
+          "bytes_consumed": 133770,
+          "tokens_consumed": 125440,
+          "train_loss_nats": 1.7816,
+          "train_bpb": 2.4104
+        },
+        {
+          "step": 250,
+          "bytes_consumed": 136500,
+          "tokens_consumed": 128000,
+          "train_loss_nats": 1.9474,
+          "train_bpb": 2.6346
+        },
+        {
+          "step": 255,
+          "bytes_consumed": 139230,
+          "tokens_consumed": 130560,
+          "train_loss_nats": 2.855,
+          "train_bpb": 3.8625
+        },
+        {
+          "step": 260,
+          "bytes_consumed": 141960,
+          "tokens_consumed": 133120,
+          "train_loss_nats": 2.6293,
+          "train_bpb": 3.5572
+        },
+        {
+          "step": 265,
+          "bytes_consumed": 144690,
+          "tokens_consumed": 135680,
+          "train_loss_nats": 2.539,
+          "train_bpb": 3.4351
+        },
+        {
+          "step": 270,
+          "bytes_consumed": 147420,
+          "tokens_consumed": 138240,
+          "train_loss_nats": 1.6336,
+          "train_bpb": 2.2101
+        },
+        {
+          "step": 275,
+          "bytes_consumed": 150150,
+          "tokens_consumed": 140800,
+          "train_loss_nats": 1.5791,
+          "train_bpb": 2.1364
+        }
+      ]
+    },
+    "wp_bpe_pig": {
+      "vocab_size": 400,
+      "steps": 185,
+      "bytes_consumed": 150405,
+      "tokens_consumed": 94720,
+      "train_bytes_per_token": 1.5884330867518495,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.813235145731964,
+          "bytes_per_token": 1.526469159786304,
+          "bpb": 2.6588420523151797
+        },
+        "multilingual": {
+          "loss_nats": 2.187715949373764,
+          "bytes_per_token": 1.4265551489806587,
+          "bpb": 2.212467532916957
+        },
+        "code": {
+          "loss_nats": 3.954800904990834,
+          "bytes_per_token": 1.600400266844563,
+          "bpb": 3.5650904161512535
+        }
+      },
+      "macro_val_bpb": 2.8121333337944634,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 813,
+          "tokens_consumed": 512,
+          "train_loss_nats": 115.3554,
+          "train_bpb": 104.7716
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4065,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 30.3836,
+          "train_bpb": 27.596
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 8130,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 14.2668,
+          "train_bpb": 12.9578
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 12195,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 11.6853,
+          "train_bpb": 10.6132
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 16260,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 9.9795,
+          "train_bpb": 9.0639
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 20325,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 10.7148,
+          "train_bpb": 9.7317
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 24390,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 6.1951,
+          "train_bpb": 5.6267
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 28455,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 6.421,
+          "train_bpb": 5.8319
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 32520,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 8.0521,
+          "train_bpb": 7.3133
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 36585,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 5.9123,
+          "train_bpb": 5.3698
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 40650,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 5.2537,
+          "train_bpb": 4.7717
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 44715,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 5.6812,
+          "train_bpb": 5.1599
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 48780,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.5631,
+          "train_bpb": 5.0527
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 52845,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 5.0665,
+          "train_bpb": 4.6016
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 56910,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 4.2828,
+          "train_bpb": 3.8898
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 60975,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 4.5457,
+          "train_bpb": 4.1286
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 65040,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 4.6177,
+          "train_bpb": 4.194
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 69105,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 3.9603,
+          "train_bpb": 3.597
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 73170,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 4.4686,
+          "train_bpb": 4.0586
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 77235,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 4.4969,
+          "train_bpb": 4.0843
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 81300,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.6178,
+          "train_bpb": 3.2858
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 85365,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.597,
+          "train_bpb": 3.267
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 89430,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.5886,
+          "train_bpb": 3.2593
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 93495,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.1956,
+          "train_bpb": 2.9024
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 97560,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 3.0657,
+          "train_bpb": 2.7845
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 101625,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.0876,
+          "train_bpb": 2.8044
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 105690,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.7576,
+          "train_bpb": 3.4129
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 109755,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.1642,
+          "train_bpb": 2.8739
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 113820,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.5061,
+          "train_bpb": 2.2761
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 117885,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 3.0643,
+          "train_bpb": 2.7831
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 121950,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 2.854,
+          "train_bpb": 2.5921
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 126015,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.2536,
+          "train_bpb": 2.0469
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 130080,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.554,
+          "train_bpb": 2.3196
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 134145,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.8281,
+          "train_bpb": 2.5686
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 138210,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.9268,
+          "train_bpb": 2.6583
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 142275,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 1.9978,
+          "train_bpb": 1.8145
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 146340,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 2.0443,
+          "train_bpb": 1.8568
+        },
+        {
+          "step": 185,
+          "bytes_consumed": 150405,
+          "tokens_consumed": 94720,
+          "train_loss_nats": 2.5411,
+          "train_bpb": 2.308
+        }
+      ]
+    },
+    "wp_bpe_scp": {
+      "vocab_size": 400,
+      "steps": 228,
+      "bytes_consumed": 150252,
+      "tokens_consumed": 116736,
+      "train_bytes_per_token": 1.2875442899972744,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.622351653574272,
+          "bytes_per_token": 1.070868824531516,
+          "bpb": 3.532882496353999
+        },
+        "multilingual": {
+          "loss_nats": 2.2588966875556924,
+          "bytes_per_token": 1.4469777306468716,
+          "bpb": 2.2522109221129565
+        },
+        "code": {
+          "loss_nats": 2.8095176596828946,
+          "bytes_per_token": 1.0471409864687908,
+          "bpb": 3.870803690516495
+        }
+      },
+      "macro_val_bpb": 3.2186323696611505,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 659,
+          "tokens_consumed": 512,
+          "train_loss_nats": 116.8783,
+          "train_bpb": 130.9623
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 3295,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 26.7918,
+          "train_bpb": 30.0202
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 6590,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 20.0097,
+          "train_bpb": 22.4209
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 9885,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 8.2768,
+          "train_bpb": 9.2741
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 13180,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 6.6839,
+          "train_bpb": 7.4893
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 16475,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 6.6578,
+          "train_bpb": 7.4601
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 19770,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 4.8692,
+          "train_bpb": 5.4559
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 23065,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 8.5808,
+          "train_bpb": 9.6148
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 26360,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 4.979,
+          "train_bpb": 5.579
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 29655,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 6.4376,
+          "train_bpb": 7.2134
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 32950,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 5.3366,
+          "train_bpb": 5.9797
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 36245,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 3.8342,
+          "train_bpb": 4.2963
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 39540,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.4091,
+          "train_bpb": 6.0609
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 42835,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 3.8331,
+          "train_bpb": 4.295
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 46130,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 3.9614,
+          "train_bpb": 4.4388
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 49425,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 4.4091,
+          "train_bpb": 4.9404
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 52720,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 3.8001,
+          "train_bpb": 4.2581
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 56015,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 3.7982,
+          "train_bpb": 4.2559
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 59310,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 3.9325,
+          "train_bpb": 4.4064
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 62605,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.5073,
+          "train_bpb": 3.93
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 65900,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.5345,
+          "train_bpb": 3.9605
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 69195,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.2571,
+          "train_bpb": 3.6496
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 72490,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.2315,
+          "train_bpb": 3.6209
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 75785,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.326,
+          "train_bpb": 3.7268
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 79080,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 3.1736,
+          "train_bpb": 3.5561
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 82375,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.9052,
+          "train_bpb": 4.3758
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 85670,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.265,
+          "train_bpb": 3.6584
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 88965,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 2.6671,
+          "train_bpb": 2.9884
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 92260,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 3.2001,
+          "train_bpb": 3.5857
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 95555,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.6422,
+          "train_bpb": 2.9606
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 98850,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 3.2343,
+          "train_bpb": 3.624
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 102145,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.9028,
+          "train_bpb": 3.2525
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 105440,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.8675,
+          "train_bpb": 3.213
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 108735,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.937,
+          "train_bpb": 3.291
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 112030,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.524,
+          "train_bpb": 2.8282
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 115325,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 3.4815,
+          "train_bpb": 3.901
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 118620,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 2.7863,
+          "train_bpb": 3.122
+        },
+        {
+          "step": 185,
+          "bytes_consumed": 121915,
+          "tokens_consumed": 94720,
+          "train_loss_nats": 2.1588,
+          "train_bpb": 2.4189
+        },
+        {
+          "step": 190,
+          "bytes_consumed": 125210,
+          "tokens_consumed": 97280,
+          "train_loss_nats": 2.826,
+          "train_bpb": 3.1665
+        },
+        {
+          "step": 195,
+          "bytes_consumed": 128505,
+          "tokens_consumed": 99840,
+          "train_loss_nats": 1.9571,
+          "train_bpb": 2.1929
+        },
+        {
+          "step": 200,
+          "bytes_consumed": 131800,
+          "tokens_consumed": 102400,
+          "train_loss_nats": 2.9865,
+          "train_bpb": 3.3464
+        },
+        {
+          "step": 205,
+          "bytes_consumed": 135095,
+          "tokens_consumed": 104960,
+          "train_loss_nats": 2.8088,
+          "train_bpb": 3.1473
+        },
+        {
+          "step": 210,
+          "bytes_consumed": 138390,
+          "tokens_consumed": 107520,
+          "train_loss_nats": 2.8214,
+          "train_bpb": 3.1614
+        },
+        {
+          "step": 215,
+          "bytes_consumed": 141685,
+          "tokens_consumed": 110080,
+          "train_loss_nats": 2.7241,
+          "train_bpb": 3.0524
+        },
+        {
+          "step": 220,
+          "bytes_consumed": 144980,
+          "tokens_consumed": 112640,
+          "train_loss_nats": 2.0885,
+          "train_bpb": 2.3402
+        },
+        {
+          "step": 225,
+          "bytes_consumed": 148275,
+          "tokens_consumed": 115200,
+          "train_loss_nats": 2.9746,
+          "train_bpb": 3.333
+        },
+        {
+          "step": 228,
+          "bytes_consumed": 150252,
+          "tokens_consumed": 116736,
+          "train_loss_nats": 2.1958,
+          "train_bpb": 2.4604
+        }
+      ]
+    },
+    "wp_bpe_npmi": {
+      "vocab_size": 400,
+      "steps": 196,
+      "bytes_consumed": 150136,
+      "tokens_consumed": 100352,
+      "train_bytes_per_token": 1.496831432192649,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.6972882672944234,
+          "bytes_per_token": 1.4062639821029084,
+          "bpb": 2.7671649538051564
+        },
+        "multilingual": {
+          "loss_nats": 2.3703984790607753,
+          "bytes_per_token": 1.4775311315646995,
+          "bpb": 2.314511049963602
+        },
+        "code": {
+          "loss_nats": 3.339615451353383,
+          "bytes_per_token": 1.2553636839351126,
+          "bpb": 3.837968798843092
+        }
+      },
+      "macro_val_bpb": 2.97321493420395,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 766,
+          "tokens_consumed": 512,
+          "train_loss_nats": 116.2354,
+          "train_bpb": 112.0315
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 3830,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 26.2406,
+          "train_bpb": 25.2915
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 7660,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 12.8922,
+          "train_bpb": 12.426
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 11490,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 11.848,
+          "train_bpb": 11.4195
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 15320,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 9.3677,
+          "train_bpb": 9.0289
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 19150,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 6.3389,
+          "train_bpb": 6.1096
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 22980,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 9.6176,
+          "train_bpb": 9.2698
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 26810,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 5.592,
+          "train_bpb": 5.3897
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 30640,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 5.8431,
+          "train_bpb": 5.6317
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 34470,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 7.0445,
+          "train_bpb": 6.7898
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 38300,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 4.4335,
+          "train_bpb": 4.2732
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 42130,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 5.9905,
+          "train_bpb": 5.7739
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 45960,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 4.3572,
+          "train_bpb": 4.1996
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 49790,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 4.9235,
+          "train_bpb": 4.7455
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 53620,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 4.9267,
+          "train_bpb": 4.7485
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 57450,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 3.9822,
+          "train_bpb": 3.8382
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 61280,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 4.0547,
+          "train_bpb": 3.908
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 65110,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 4.1757,
+          "train_bpb": 4.0247
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 68940,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 4.0494,
+          "train_bpb": 3.903
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 72770,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 4.2879,
+          "train_bpb": 4.1328
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 76600,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.6618,
+          "train_bpb": 3.5293
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 80430,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.566,
+          "train_bpb": 3.437
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 84260,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.4277,
+          "train_bpb": 3.3037
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 88090,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.431,
+          "train_bpb": 3.3069
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 91920,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 4.0849,
+          "train_bpb": 3.9372
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 95750,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 2.8532,
+          "train_bpb": 2.75
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 99580,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.2667,
+          "train_bpb": 3.1486
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 103410,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.1018,
+          "train_bpb": 2.9896
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 107240,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.7018,
+          "train_bpb": 2.6041
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 111070,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 3.4762,
+          "train_bpb": 3.3505
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 114900,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 3.1302,
+          "train_bpb": 3.017
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 118730,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.4456,
+          "train_bpb": 2.3572
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 122560,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.923,
+          "train_bpb": 2.8173
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 126390,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.1427,
+          "train_bpb": 2.0652
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 130220,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.9909,
+          "train_bpb": 2.8827
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 134050,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 3.2073,
+          "train_bpb": 3.0913
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 137880,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 1.8104,
+          "train_bpb": 1.745
+        },
+        {
+          "step": 185,
+          "bytes_consumed": 141710,
+          "tokens_consumed": 94720,
+          "train_loss_nats": 2.7515,
+          "train_bpb": 2.652
+        },
+        {
+          "step": 190,
+          "bytes_consumed": 145540,
+          "tokens_consumed": 97280,
+          "train_loss_nats": 2.047,
+          "train_bpb": 1.9729
+        },
+        {
+          "step": 195,
+          "bytes_consumed": 149370,
+          "tokens_consumed": 99840,
+          "train_loss_nats": 2.3644,
+          "train_bpb": 2.2789
+        },
+        {
+          "step": 196,
+          "bytes_consumed": 150136,
+          "tokens_consumed": 100352,
+          "train_loss_nats": 1.9529,
+          "train_bpb": 1.8822
+        }
+      ]
+    },
+    "wp_bpe_ppig": {
+      "vocab_size": 400,
+      "steps": 184,
+      "bytes_consumed": 150144,
+      "tokens_consumed": 94208,
+      "train_bytes_per_token": 1.5943300708741142,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.4917191189394283,
+          "bytes_per_token": 1.526469159786304,
+          "bpb": 2.3549711392042654
+        },
+        "multilingual": {
+          "loss_nats": 2.6342371104876876,
+          "bytes_per_token": 1.4539158231220033,
+          "bpb": 2.6139070470157155
+        },
+        "code": {
+          "loss_nats": 3.8016407740255276,
+          "bytes_per_token": 1.5547634478289047,
+          "bpb": 3.5276159209857294
+        }
+      },
+      "macro_val_bpb": 2.832164702401903,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 816,
+          "tokens_consumed": 512,
+          "train_loss_nats": 115.601,
+          "train_bpb": 104.6064
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4080,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 31.2538,
+          "train_bpb": 28.2813
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 8160,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 14.5995,
+          "train_bpb": 13.2109
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 12240,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 10.7415,
+          "train_bpb": 9.7199
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 16320,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 10.1899,
+          "train_bpb": 9.2208
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 20400,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 10.4721,
+          "train_bpb": 9.4761
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 24480,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 6.3497,
+          "train_bpb": 5.7458
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 28560,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 6.4886,
+          "train_bpb": 5.8715
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 32640,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 8.0472,
+          "train_bpb": 7.2819
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 36720,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 5.9325,
+          "train_bpb": 5.3682
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 40800,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 5.4579,
+          "train_bpb": 4.9388
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 44880,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 5.875,
+          "train_bpb": 5.3162
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 48960,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.9626,
+          "train_bpb": 5.3955
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 53040,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 5.157,
+          "train_bpb": 4.6665
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 57120,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 4.4713,
+          "train_bpb": 4.046
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 61200,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 4.6744,
+          "train_bpb": 4.2298
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 65280,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 4.8304,
+          "train_bpb": 4.371
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 69360,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 3.9292,
+          "train_bpb": 3.5555
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 73440,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 4.6329,
+          "train_bpb": 4.1923
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 77520,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 4.6776,
+          "train_bpb": 4.2327
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 81600,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.9041,
+          "train_bpb": 3.5328
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 85680,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.8998,
+          "train_bpb": 3.5289
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 89760,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.7063,
+          "train_bpb": 3.3538
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 93840,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.2667,
+          "train_bpb": 2.956
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 97920,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 3.3858,
+          "train_bpb": 3.0638
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 102000,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.3328,
+          "train_bpb": 3.0158
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 106080,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 4.0779,
+          "train_bpb": 3.6901
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 110160,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.3979,
+          "train_bpb": 3.0747
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 114240,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.633,
+          "train_bpb": 2.3826
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 118320,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.9256,
+          "train_bpb": 2.6473
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 122400,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 2.7225,
+          "train_bpb": 2.4636
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 126480,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.2295,
+          "train_bpb": 2.0174
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 130560,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.6041,
+          "train_bpb": 2.3564
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 134640,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.8429,
+          "train_bpb": 2.5725
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 138720,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 3.2141,
+          "train_bpb": 2.9084
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 142800,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 2.0721,
+          "train_bpb": 1.875
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 146880,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 2.0919,
+          "train_bpb": 1.8929
+        },
+        {
+          "step": 184,
+          "bytes_consumed": 150144,
+          "tokens_consumed": 94208,
+          "train_loss_nats": 2.0445,
+          "train_bpb": 1.85
+        }
+      ]
+    },
+    "mdl_bits": {
+      "vocab_size": 400,
+      "steps": 195,
+      "bytes_consumed": 150345,
+      "tokens_consumed": 99840,
+      "train_bytes_per_token": 1.5063775510204083,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.8793516573698623,
+          "bytes_per_token": 1.3937915742793792,
+          "bpb": 2.980378439445396
+        },
+        "multilingual": {
+          "loss_nats": 2.5097479617452674,
+          "bytes_per_token": 1.4871934604904633,
+          "bpb": 2.434653617355857
+        },
+        "code": {
+          "loss_nats": 3.5902678095527407,
+          "bytes_per_token": 1.307356948228883,
+          "bpb": 3.9619337100874166
+        }
+      },
+      "macro_val_bpb": 3.1256552556295567,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 771,
+          "tokens_consumed": 512,
+          "train_loss_nats": 115.7589,
+          "train_bpb": 110.8651
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 3855,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 28.0794,
+          "train_bpb": 26.8924
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 7710,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 14.2214,
+          "train_bpb": 13.6201
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 11565,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 10.7173,
+          "train_bpb": 10.2642
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 15420,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 12.2334,
+          "train_bpb": 11.7162
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 19275,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 6.5886,
+          "train_bpb": 6.3101
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 23130,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 8.9094,
+          "train_bpb": 8.5328
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 26985,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 6.4952,
+          "train_bpb": 6.2207
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 30840,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 5.662,
+          "train_bpb": 5.4226
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 34695,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 5.9379,
+          "train_bpb": 5.6869
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 38550,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 6.8765,
+          "train_bpb": 6.5858
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 42405,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 4.4835,
+          "train_bpb": 4.294
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 46260,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 6.287,
+          "train_bpb": 6.0212
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 50115,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 4.9363,
+          "train_bpb": 4.7276
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 53970,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 4.6712,
+          "train_bpb": 4.4737
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 57825,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 5.2412,
+          "train_bpb": 5.0196
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 61680,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 5.178,
+          "train_bpb": 4.9591
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 65535,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 3.7975,
+          "train_bpb": 3.637
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 69390,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 5.1308,
+          "train_bpb": 4.9139
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 73245,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.9825,
+          "train_bpb": 3.8141
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 77100,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 4.2426,
+          "train_bpb": 4.0632
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 80955,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 4.4859,
+          "train_bpb": 4.2962
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 84810,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 4.0404,
+          "train_bpb": 3.8696
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 88665,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.6344,
+          "train_bpb": 3.4808
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 92520,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 3.9229,
+          "train_bpb": 3.7571
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 96375,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.5084,
+          "train_bpb": 3.3601
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 100230,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.7346,
+          "train_bpb": 3.5767
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 104085,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.7556,
+          "train_bpb": 3.5968
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 107940,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 3.044,
+          "train_bpb": 2.9153
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 111795,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 3.365,
+          "train_bpb": 3.2228
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 115650,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 3.0785,
+          "train_bpb": 2.9484
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 119505,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.7693,
+          "train_bpb": 2.6522
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 123360,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 3.3126,
+          "train_bpb": 3.1726
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 127215,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 3.2082,
+          "train_bpb": 3.0725
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 131070,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.2846,
+          "train_bpb": 2.188
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 134925,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 3.0027,
+          "train_bpb": 2.8757
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 138780,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 2.381,
+          "train_bpb": 2.2803
+        },
+        {
+          "step": 185,
+          "bytes_consumed": 142635,
+          "tokens_consumed": 94720,
+          "train_loss_nats": 2.5025,
+          "train_bpb": 2.3967
+        },
+        {
+          "step": 190,
+          "bytes_consumed": 146490,
+          "tokens_consumed": 97280,
+          "train_loss_nats": 2.9661,
+          "train_bpb": 2.8407
+        },
+        {
+          "step": 195,
+          "bytes_consumed": 150345,
+          "tokens_consumed": 99840,
+          "train_loss_nats": 2.7606,
+          "train_bpb": 2.6439
+        }
+      ]
+    },
+    "length_penalized": {
+      "vocab_size": 400,
+      "steps": 178,
+      "bytes_consumed": 150410,
+      "tokens_consumed": 91136,
+      "train_bytes_per_token": 1.649441340782123,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.6840865138403895,
+          "bytes_per_token": 1.7627593942793045,
+          "bpb": 2.1967367273158995
+        },
+        "multilingual": {
+          "loss_nats": 2.449886443605461,
+          "bytes_per_token": 1.358387257341961,
+          "bpb": 2.601937705044988
+        },
+        "code": {
+          "loss_nats": 4.247437985648191,
+          "bytes_per_token": 1.6954063604240284,
+          "bpb": 3.6143297922071467
+        }
+      },
+      "macro_val_bpb": 2.8043347415226783,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 845,
+          "tokens_consumed": 512,
+          "train_loss_nats": 116.5414,
+          "train_bpb": 101.9338
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4225,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 32.3802,
+          "train_bpb": 28.3215
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 8450,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 18.5157,
+          "train_bpb": 16.1949
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 12675,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 12.0761,
+          "train_bpb": 10.5625
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 16900,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 11.0958,
+          "train_bpb": 9.705
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 21125,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 10.2519,
+          "train_bpb": 8.9669
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 25350,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 8.2816,
+          "train_bpb": 7.2436
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 29575,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 7.4967,
+          "train_bpb": 6.5571
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 33800,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 6.1817,
+          "train_bpb": 5.4068
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 38025,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 5.5337,
+          "train_bpb": 4.8401
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 42250,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 5.7764,
+          "train_bpb": 5.0524
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 46475,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 5.543,
+          "train_bpb": 4.8483
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 50700,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.2329,
+          "train_bpb": 4.577
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 54925,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 4.735,
+          "train_bpb": 4.1415
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 59150,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 4.893,
+          "train_bpb": 4.2797
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 63375,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 5.3202,
+          "train_bpb": 4.6533
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 67600,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 5.3626,
+          "train_bpb": 4.6904
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 71825,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 4.4568,
+          "train_bpb": 3.8981
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 76050,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 3.7108,
+          "train_bpb": 3.2456
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 80275,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.6063,
+          "train_bpb": 3.1543
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 84500,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 4.0469,
+          "train_bpb": 3.5396
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 88725,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.8796,
+          "train_bpb": 3.3933
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 92950,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.1395,
+          "train_bpb": 2.746
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 97175,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 2.6765,
+          "train_bpb": 2.341
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 101400,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 2.9276,
+          "train_bpb": 2.5606
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 105625,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.3953,
+          "train_bpb": 2.9697
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 109850,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.7823,
+          "train_bpb": 3.3082
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 114075,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.7077,
+          "train_bpb": 3.243
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 118300,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.6087,
+          "train_bpb": 2.2817
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 122525,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 1.9573,
+          "train_bpb": 1.712
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 126750,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 2.1391,
+          "train_bpb": 1.871
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 130975,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.5336,
+          "train_bpb": 2.216
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 135200,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.3749,
+          "train_bpb": 2.0772
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 139425,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 1.8721,
+          "train_bpb": 1.6375
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 143650,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 1.6343,
+          "train_bpb": 1.4294
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 147875,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 2.053,
+          "train_bpb": 1.7956
+        },
+        {
+          "step": 178,
+          "bytes_consumed": 150410,
+          "tokens_consumed": 91136,
+          "train_loss_nats": 1.5822,
+          "train_bpb": 1.3838
+        }
+      ]
+    },
+    "super_bpe": {
+      "vocab_size": 400,
+      "steps": 160,
+      "bytes_consumed": 150720,
+      "tokens_consumed": 81920,
+      "train_bytes_per_token": 1.8395638629283488,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.6469002487967574,
+          "bytes_per_token": 1.9705329153605016,
+          "bpb": 1.9378868695366271
+        },
+        "multilingual": {
+          "loss_nats": 2.309010147536773,
+          "bytes_per_token": 1.4632707774798928,
+          "bpb": 2.2765420730609587
+        },
+        "code": {
+          "loss_nats": 3.958781772405923,
+          "bytes_per_token": 1.6308633582596872,
+          "bpb": 3.5020192231838814
+        }
+      },
+      "macro_val_bpb": 2.5721493885938225,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 942,
+          "tokens_consumed": 512,
+          "train_loss_nats": 117.0212,
+          "train_bpb": 91.775
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4710,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 32.0467,
+          "train_bpb": 25.1329
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 9420,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 18.8137,
+          "train_bpb": 14.7548
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 14130,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 14.3361,
+          "train_bpb": 11.2432
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 18840,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 11.6904,
+          "train_bpb": 9.1683
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 23550,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 10.0349,
+          "train_bpb": 7.8699
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 28260,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 8.8493,
+          "train_bpb": 6.9401
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 32970,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 7.7972,
+          "train_bpb": 6.115
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 37680,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 6.8826,
+          "train_bpb": 5.3977
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 42390,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 6.2597,
+          "train_bpb": 4.9092
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 47100,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 5.4425,
+          "train_bpb": 4.2683
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 51810,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 4.746,
+          "train_bpb": 3.7221
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 56520,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 4.4185,
+          "train_bpb": 3.4652
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 61230,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 3.7245,
+          "train_bpb": 2.921
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 65940,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 3.5249,
+          "train_bpb": 2.7644
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 70650,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 2.8754,
+          "train_bpb": 2.255
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 75360,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 2.5077,
+          "train_bpb": 1.9667
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 80070,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 2.3337,
+          "train_bpb": 1.8302
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 84780,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 2.0658,
+          "train_bpb": 1.6201
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 89490,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 1.9532,
+          "train_bpb": 1.5318
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 94200,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 1.7638,
+          "train_bpb": 1.3832
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 98910,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 1.7263,
+          "train_bpb": 1.3539
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 103620,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 1.5533,
+          "train_bpb": 1.2182
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 108330,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 1.5602,
+          "train_bpb": 1.2236
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 113040,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 1.3842,
+          "train_bpb": 1.0855
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 117750,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 1.3448,
+          "train_bpb": 1.0547
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 122460,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 1.2501,
+          "train_bpb": 0.9804
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 127170,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 1.3287,
+          "train_bpb": 1.042
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 131880,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 1.1806,
+          "train_bpb": 0.9259
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 136590,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 1.2409,
+          "train_bpb": 0.9732
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 141300,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 1.0714,
+          "train_bpb": 0.8403
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 146010,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 1.2246,
+          "train_bpb": 0.9604
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 150720,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 1.0558,
+          "train_bpb": 0.828
+        }
+      ]
+    },
+    "morpheme_bpe": {
+      "vocab_size": 400,
+      "steps": 181,
+      "bytes_consumed": 150230,
+      "tokens_consumed": 92672,
+      "train_bytes_per_token": 1.6216958462066597,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.8415864899604344,
+          "bytes_per_token": 1.7588136541689983,
+          "bpb": 2.3308567838358867
+        },
+        "multilingual": {
+          "loss_nats": 2.2154925788961015,
+          "bytes_per_token": 1.3895112016293278,
+          "bpb": 2.3002910325240835
+        },
+        "code": {
+          "loss_nats": 3.8406340931846534,
+          "bytes_per_token": 1.4781269254467035,
+          "bpb": 3.7485710223647275
+        }
+      },
+      "macro_val_bpb": 2.7932396129082324,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 830,
+          "tokens_consumed": 512,
+          "train_loss_nats": 115.3964,
+          "train_bpb": 102.6591
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4150,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 34.5334,
+          "train_bpb": 30.7216
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 8300,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 16.8352,
+          "train_bpb": 14.9769
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 12450,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 12.4533,
+          "train_bpb": 11.0787
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 16600,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 10.4967,
+          "train_bpb": 9.3381
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 20750,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 10.3938,
+          "train_bpb": 9.2465
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 24900,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 9.4139,
+          "train_bpb": 8.3748
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 29050,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 6.7363,
+          "train_bpb": 5.9928
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 33200,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 6.279,
+          "train_bpb": 5.5859
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 37350,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 6.8402,
+          "train_bpb": 6.0852
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 41500,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 6.3048,
+          "train_bpb": 5.6089
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 45650,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 5.2898,
+          "train_bpb": 4.7059
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 49800,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.4812,
+          "train_bpb": 4.8762
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 53950,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 5.9183,
+          "train_bpb": 5.265
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 58100,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 5.2106,
+          "train_bpb": 4.6354
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 62250,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 4.9676,
+          "train_bpb": 4.4193
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 66400,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 4.5885,
+          "train_bpb": 4.0821
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 70550,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 4.7232,
+          "train_bpb": 4.2018
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 74700,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 4.1981,
+          "train_bpb": 3.7347
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 78850,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.9782,
+          "train_bpb": 3.5391
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 83000,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 4.158,
+          "train_bpb": 3.6991
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 87150,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 4.335,
+          "train_bpb": 3.8565
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 91300,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 4.7699,
+          "train_bpb": 4.2434
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 95450,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.4343,
+          "train_bpb": 3.0552
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 99600,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 2.9103,
+          "train_bpb": 2.5891
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 103750,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.2807,
+          "train_bpb": 2.9186
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 107900,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.3974,
+          "train_bpb": 3.0224
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 112050,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 2.8393,
+          "train_bpb": 2.5259
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 116200,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.2516,
+          "train_bpb": 2.0031
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 120350,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.8562,
+          "train_bpb": 2.541
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 124500,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 3.0923,
+          "train_bpb": 2.751
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 128650,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 3.2187,
+          "train_bpb": 2.8634
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 132800,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.1142,
+          "train_bpb": 1.8808
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 136950,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 1.8645,
+          "train_bpb": 1.6587
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 141100,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 2.1452,
+          "train_bpb": 1.9084
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 145250,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 2.1473,
+          "train_bpb": 1.9103
+        },
+        {
+          "step": 180,
+          "bytes_consumed": 149400,
+          "tokens_consumed": 92160,
+          "train_loss_nats": 1.8256,
+          "train_bpb": 1.6241
+        },
+        {
+          "step": 181,
+          "bytes_consumed": 150230,
+          "tokens_consumed": 92672,
+          "train_loss_nats": 1.9944,
+          "train_bpb": 1.7742
+        }
+      ]
+    },
+    "unigram_lm": {
+      "vocab_size": 400,
+      "steps": 163,
+      "bytes_consumed": 150286,
+      "tokens_consumed": 83456,
+      "train_bytes_per_token": 1.800991231414411,
+      "val_domains": {
+        "english": {
+          "loss_nats": 3.1686800206159873,
+          "bytes_per_token": 1.9223241590214066,
+          "bpb": 2.378079123883974
+        },
+        "multilingual": {
+          "loss_nats": 2.7864978325281498,
+          "bytes_per_token": 1.5044101433296582,
+          "bpb": 2.6721879151510732
+        },
+        "code": {
+          "loss_nats": 4.427049426269531,
+          "bytes_per_token": 1.917665867306155,
+          "bpb": 3.330550103611829
+        }
+      },
+      "macro_val_bpb": 2.793605714215625,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 922,
+          "tokens_consumed": 512,
+          "train_loss_nats": 114.5464,
+          "train_bpb": 91.7581
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4610,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 32.6075,
+          "train_bpb": 26.1204
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 9220,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 18.9429,
+          "train_bpb": 15.1743
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 13830,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 14.7083,
+          "train_bpb": 11.7822
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 18440,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 11.6523,
+          "train_bpb": 9.3342
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 23050,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 9.8441,
+          "train_bpb": 7.8857
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 27660,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 8.984,
+          "train_bpb": 7.1967
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 32270,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 8.1109,
+          "train_bpb": 6.4973
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 36880,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 7.3208,
+          "train_bpb": 5.8644
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 41490,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 6.7219,
+          "train_bpb": 5.3846
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 46100,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 6.4377,
+          "train_bpb": 5.157
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 50710,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 5.8708,
+          "train_bpb": 4.7028
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 55320,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.5788,
+          "train_bpb": 4.4689
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 59930,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 5.2257,
+          "train_bpb": 4.1861
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 64540,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 4.8872,
+          "train_bpb": 3.9149
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 69150,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 4.6501,
+          "train_bpb": 3.725
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 73760,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 4.5519,
+          "train_bpb": 3.6464
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 78370,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 4.4146,
+          "train_bpb": 3.5363
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 82980,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 4.14,
+          "train_bpb": 3.3163
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 87590,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 3.7556,
+          "train_bpb": 3.0084
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 92200,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 3.5663,
+          "train_bpb": 2.8568
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 96810,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 3.4845,
+          "train_bpb": 2.7913
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 101420,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.2151,
+          "train_bpb": 2.5755
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 106030,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.0015,
+          "train_bpb": 2.4043
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 110640,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 2.8289,
+          "train_bpb": 2.2661
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 115250,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 2.7786,
+          "train_bpb": 2.2258
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 119860,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 2.6022,
+          "train_bpb": 2.0845
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 124470,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 2.3869,
+          "train_bpb": 1.9121
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 129080,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 2.4593,
+          "train_bpb": 1.9701
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 133690,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.39,
+          "train_bpb": 1.9145
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 138300,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 2.1944,
+          "train_bpb": 1.7578
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 142910,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.1831,
+          "train_bpb": 1.7488
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 147520,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 1.9056,
+          "train_bpb": 1.5265
+        },
+        {
+          "step": 163,
+          "bytes_consumed": 150286,
+          "tokens_consumed": 83456,
+          "train_loss_nats": 3.1802,
+          "train_bpb": 2.5475
+        }
+      ]
+    },
+    "bpe_dropout_p0.1": {
+      "vocab_size": 400,
+      "steps": 176,
+      "bytes_consumed": 150656,
+      "tokens_consumed": 90112,
+      "train_bytes_per_token": 1.6728045325779037,
+      "val_domains": {
+        "english": {
+          "loss_nats": 2.8040820193428524,
+          "bytes_per_token": 1.8157134604274985,
+          "bpb": 2.228014117711817
+        },
+        "multilingual": {
+          "loss_nats": 2.561425808921379,
+          "bytes_per_token": 1.4132573795960641,
+          "bpb": 2.614779420569577
+        },
+        "code": {
+          "loss_nats": 3.9316079279615934,
+          "bytes_per_token": 1.613315400134499,
+          "bpb": 3.515810522801091
+        }
+      },
+      "macro_val_bpb": 2.7862013536941617,
+      "curve": [
+        {
+          "step": 1,
+          "bytes_consumed": 856,
+          "tokens_consumed": 512,
+          "train_loss_nats": 115.9505,
+          "train_bpb": 100.0005
+        },
+        {
+          "step": 5,
+          "bytes_consumed": 4280,
+          "tokens_consumed": 2560,
+          "train_loss_nats": 32.5198,
+          "train_bpb": 28.0464
+        },
+        {
+          "step": 10,
+          "bytes_consumed": 8560,
+          "tokens_consumed": 5120,
+          "train_loss_nats": 17.8585,
+          "train_bpb": 15.4019
+        },
+        {
+          "step": 15,
+          "bytes_consumed": 12840,
+          "tokens_consumed": 7680,
+          "train_loss_nats": 11.6026,
+          "train_bpb": 10.0066
+        },
+        {
+          "step": 20,
+          "bytes_consumed": 17120,
+          "tokens_consumed": 10240,
+          "train_loss_nats": 10.0047,
+          "train_bpb": 8.6284
+        },
+        {
+          "step": 25,
+          "bytes_consumed": 21400,
+          "tokens_consumed": 12800,
+          "train_loss_nats": 9.4499,
+          "train_bpb": 8.15
+        },
+        {
+          "step": 30,
+          "bytes_consumed": 25680,
+          "tokens_consumed": 15360,
+          "train_loss_nats": 8.6344,
+          "train_bpb": 7.4467
+        },
+        {
+          "step": 35,
+          "bytes_consumed": 29960,
+          "tokens_consumed": 17920,
+          "train_loss_nats": 8.1414,
+          "train_bpb": 7.0215
+        },
+        {
+          "step": 40,
+          "bytes_consumed": 34240,
+          "tokens_consumed": 20480,
+          "train_loss_nats": 6.6264,
+          "train_bpb": 5.7149
+        },
+        {
+          "step": 45,
+          "bytes_consumed": 38520,
+          "tokens_consumed": 23040,
+          "train_loss_nats": 6.0882,
+          "train_bpb": 5.2507
+        },
+        {
+          "step": 50,
+          "bytes_consumed": 42800,
+          "tokens_consumed": 25600,
+          "train_loss_nats": 5.8716,
+          "train_bpb": 5.0639
+        },
+        {
+          "step": 55,
+          "bytes_consumed": 47080,
+          "tokens_consumed": 28160,
+          "train_loss_nats": 6.0316,
+          "train_bpb": 5.2019
+        },
+        {
+          "step": 60,
+          "bytes_consumed": 51360,
+          "tokens_consumed": 30720,
+          "train_loss_nats": 5.8237,
+          "train_bpb": 5.0226
+        },
+        {
+          "step": 65,
+          "bytes_consumed": 55640,
+          "tokens_consumed": 33280,
+          "train_loss_nats": 5.4489,
+          "train_bpb": 4.6994
+        },
+        {
+          "step": 70,
+          "bytes_consumed": 59920,
+          "tokens_consumed": 35840,
+          "train_loss_nats": 5.1667,
+          "train_bpb": 4.456
+        },
+        {
+          "step": 75,
+          "bytes_consumed": 64200,
+          "tokens_consumed": 38400,
+          "train_loss_nats": 5.5782,
+          "train_bpb": 4.8109
+        },
+        {
+          "step": 80,
+          "bytes_consumed": 68480,
+          "tokens_consumed": 40960,
+          "train_loss_nats": 5.616,
+          "train_bpb": 4.8435
+        },
+        {
+          "step": 85,
+          "bytes_consumed": 72760,
+          "tokens_consumed": 43520,
+          "train_loss_nats": 4.9879,
+          "train_bpb": 4.3018
+        },
+        {
+          "step": 90,
+          "bytes_consumed": 77040,
+          "tokens_consumed": 46080,
+          "train_loss_nats": 4.574,
+          "train_bpb": 3.9448
+        },
+        {
+          "step": 95,
+          "bytes_consumed": 81320,
+          "tokens_consumed": 48640,
+          "train_loss_nats": 4.5961,
+          "train_bpb": 3.9638
+        },
+        {
+          "step": 100,
+          "bytes_consumed": 85600,
+          "tokens_consumed": 51200,
+          "train_loss_nats": 4.4047,
+          "train_bpb": 3.7988
+        },
+        {
+          "step": 105,
+          "bytes_consumed": 89880,
+          "tokens_consumed": 53760,
+          "train_loss_nats": 4.2006,
+          "train_bpb": 3.6228
+        },
+        {
+          "step": 110,
+          "bytes_consumed": 94160,
+          "tokens_consumed": 56320,
+          "train_loss_nats": 3.8173,
+          "train_bpb": 3.2922
+        },
+        {
+          "step": 115,
+          "bytes_consumed": 98440,
+          "tokens_consumed": 58880,
+          "train_loss_nats": 3.3256,
+          "train_bpb": 2.8682
+        },
+        {
+          "step": 120,
+          "bytes_consumed": 102720,
+          "tokens_consumed": 61440,
+          "train_loss_nats": 3.6038,
+          "train_bpb": 3.1081
+        },
+        {
+          "step": 125,
+          "bytes_consumed": 107000,
+          "tokens_consumed": 64000,
+          "train_loss_nats": 3.8693,
+          "train_bpb": 3.337
+        },
+        {
+          "step": 130,
+          "bytes_consumed": 111280,
+          "tokens_consumed": 66560,
+          "train_loss_nats": 3.9912,
+          "train_bpb": 3.4421
+        },
+        {
+          "step": 135,
+          "bytes_consumed": 115560,
+          "tokens_consumed": 69120,
+          "train_loss_nats": 3.9262,
+          "train_bpb": 3.3862
+        },
+        {
+          "step": 140,
+          "bytes_consumed": 119840,
+          "tokens_consumed": 71680,
+          "train_loss_nats": 3.0223,
+          "train_bpb": 2.6065
+        },
+        {
+          "step": 145,
+          "bytes_consumed": 124120,
+          "tokens_consumed": 74240,
+          "train_loss_nats": 2.4057,
+          "train_bpb": 2.0748
+        },
+        {
+          "step": 150,
+          "bytes_consumed": 128400,
+          "tokens_consumed": 76800,
+          "train_loss_nats": 2.7424,
+          "train_bpb": 2.3652
+        },
+        {
+          "step": 155,
+          "bytes_consumed": 132680,
+          "tokens_consumed": 79360,
+          "train_loss_nats": 2.87,
+          "train_bpb": 2.4752
+        },
+        {
+          "step": 160,
+          "bytes_consumed": 136960,
+          "tokens_consumed": 81920,
+          "train_loss_nats": 2.6181,
+          "train_bpb": 2.2579
+        },
+        {
+          "step": 165,
+          "bytes_consumed": 141240,
+          "tokens_consumed": 84480,
+          "train_loss_nats": 2.2664,
+          "train_bpb": 1.9546
+        },
+        {
+          "step": 170,
+          "bytes_consumed": 145520,
+          "tokens_consumed": 87040,
+          "train_loss_nats": 1.8328,
+          "train_bpb": 1.5807
+        },
+        {
+          "step": 175,
+          "bytes_consumed": 149800,
+          "tokens_consumed": 89600,
+          "train_loss_nats": 1.9146,
+          "train_bpb": 1.6513
+        },
+        {
+          "step": 176,
+          "bytes_consumed": 150656,
+          "tokens_consumed": 90112,
+          "train_loss_nats": 2.0256,
+          "train_bpb": 1.7469
+        }
+      ]
+    }
+  }
+}

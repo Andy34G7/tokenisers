@@ -1,17 +1,35 @@
 use tempfile::tempdir;
 use tokenisers_core::engine::bottom_up::BottomUpTrainer;
-use tokenisers_core::engine::unigram::UnigramTrainer;
+use tokenisers_core::engine::unigram::{json_exact, UnigramModel, UnigramTrainer};
+use tokenisers_core::export::huggingface::HfModelConfig;
 use tokenisers_core::export::HfTokenizerJson;
 use tokenisers_core::scoring::BpeScorer;
 
+/// Native encoding has no GPT-2 regex: HF must split exactly `segment_text` segments (isolated
+/// whitespace runs) and then byte-map them (`use_regex: false`). Parity is checked against the
+/// real HF tokenizer in hf_parity_tests.rs.
+fn assert_segment_then_byte_level(pre: &serde_json::Value) {
+    assert_eq!(pre["type"], "Sequence");
+    let steps = pre["pretokenizers"].as_array().unwrap();
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0]["type"], "Split");
+    assert_eq!(steps[0]["behavior"], "Isolated");
+    assert!(steps[0]["pattern"]["Regex"].as_str().unwrap().contains("\\x{3000}"));
+    assert_eq!(steps[1]["type"], "ByteLevel");
+    assert_eq!(steps[1]["add_prefix_space"], false);
+    assert_eq!(steps[1]["use_regex"], false);
+}
+
 #[test]
 fn test_hf_bpe_export_json_schema() {
-    let corpus = vec![
-        (b"the quick brown fox jumps over the lazy dog".to_vec(), 50),
-        (b"the lazy dog slept while the quick fox ran".to_vec(), 40),
-    ];
+    // Word counts as the Python binding builds them: one `segment_text` segment per word.
+    let corpus: Vec<(Vec<u8>, u64)> = ["the", " ", "quick", "brown", "fox", "lazy", "dog"]
+        .iter()
+        .map(|w| (w.as_bytes().to_vec(), 50))
+        .collect();
     let scorer = BpeScorer::new();
     let model = BottomUpTrainer::new(&scorer, 270).train(&corpus).unwrap();
+    assert!(model.pretokenize);
 
     let hf_json = HfTokenizerJson::from_bpe_model(&model, Some(0.1));
     let json_str = hf_json.to_json_string().expect("Failed to serialize to JSON");
@@ -20,9 +38,7 @@ fn test_hf_bpe_export_json_schema() {
     let v: serde_json::Value = serde_json::from_str(&json_str).expect("Invalid JSON emitted");
 
     assert_eq!(v["version"], "1.0");
-    assert_eq!(v["pre_tokenizer"]["type"], "ByteLevel");
-    assert_eq!(v["pre_tokenizer"]["add_prefix_space"], false);
-    assert_eq!(v["pre_tokenizer"]["trim_offsets"], false);
+    assert_segment_then_byte_level(&v["pre_tokenizer"]);
 
     assert_eq!(v["decoder"]["type"], "ByteLevel");
     assert_eq!(v["decoder"]["add_prefix_space"], false);
@@ -57,8 +73,7 @@ fn test_hf_unigram_export_json_schema() {
     let v: serde_json::Value = serde_json::from_str(&json_str).expect("Invalid JSON emitted");
 
     assert_eq!(v["version"], "1.0");
-    assert_eq!(v["pre_tokenizer"]["type"], "ByteLevel");
-    assert_eq!(v["pre_tokenizer"]["add_prefix_space"], false);
+    assert_segment_then_byte_level(&v["pre_tokenizer"]);
     assert_eq!(v["decoder"]["type"], "ByteLevel");
 
     assert_eq!(v["model"]["type"], "Unigram");
@@ -72,6 +87,60 @@ fn test_hf_unigram_export_json_schema() {
         assert_eq!(entry.len(), 2);
         assert!(entry[0].is_string());
         assert!(entry[1].is_number());
+    }
+}
+
+/// How Hugging Face `tokenizers` reads a JSON number (serde_json built without
+/// `float_roundtrip`): every digit into a u64, that u64 as f64, then one multiply or divide by
+/// 10^k. Agrees bit for bit with the tokenizers 0.23.3 wheel on random log-probs. This crate's
+/// tests cannot use that parser directly: cargo unifies `float_roundtrip` (enabled by
+/// tokenisers_py) into every serde_json in the workspace build, the `tokenizers` dev-dependency's
+/// too.
+fn hf_parse(s: &str) -> f64 {
+    let (negative, s) = s.strip_prefix('-').map_or((false, s), |rest| (true, rest));
+    let (mantissa, exp) = s.split_once(['e', 'E']).map_or((s, 0), |(m, e)| (m, e.parse().unwrap()));
+    let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits: u64 = format!("{int}{frac}").parse().unwrap();
+    let exp: i32 = exp - frac.len() as i32;
+    let pow: f64 = format!("1e{}", exp.abs()).parse().unwrap();
+    let value = if exp >= 0 { digits as f64 * pow } else { digits as f64 / pow };
+    if negative { -value } else { value }
+}
+
+#[test]
+fn hugging_face_parses_every_exported_unigram_score_exactly() {
+    // The parser model reproduces the misread the review measured ('&' scored ...933 in our
+    // file, ...932 after Tokenizer.from_file).
+    assert_eq!(hf_parse("-9.532482371664933"), -9.532482371664932);
+
+    let corpus = vec![
+        (b"machine learning and natural language processing".to_vec(), 30),
+        (b"deep neural networks for language models".to_vec(), 25),
+    ];
+    let trained = UnigramTrainer::new(300, 0.2).train(&corpus).unwrap();
+    // Arbitrary scores, as `from_hf_json` hands them over from a foreign file.
+    let mut rng = fastrand::Rng::with_seed(11);
+    let scales = [40.0, 1.0, 1e-3, 1e-7, 1e-13, 745.0];
+    let arbitrary: Vec<f64> = (0..trained.vocab.len())
+        .map(|i| -rng.f64() * scales[i % scales.len()])
+        .collect();
+    let loaded = UnigramModel::new(trained.vocab.clone(), arbitrary);
+
+    for model in [&trained, &loaded] {
+        let hf_json = HfTokenizerJson::from_unigram_model(model, None);
+        let HfModelConfig::Unigram { vocab, .. } = &hf_json.model else { unreachable!() };
+        for ((piece, score), native) in vocab.iter().zip(&model.log_probs) {
+            assert_eq!(score.to_bits(), native.to_bits(), "{piece}");
+            let text = serde_json::to_string(score).unwrap();
+            assert_eq!(hf_parse(&text).to_bits(), score.to_bits(), "{piece}: {text}");
+        }
+    }
+
+    // The rounding that guarantees it, over the whole range of finite log-probabilities.
+    for i in 0..200_000 {
+        let x = json_exact(-rng.f64() * scales[i % scales.len()]);
+        let text = serde_json::to_string(&x).unwrap();
+        assert_eq!(hf_parse(&text).to_bits(), x.to_bits(), "{text}");
     }
 }
 
@@ -125,3 +194,48 @@ fn test_hf_export_populates_special_tokens() {
     }
 }
 
+
+#[test]
+fn super_bpe_export_encodes_whole_text() {
+    let lines = vec!["the quick brown fox jumps over the lazy dog"; 4];
+    let config = tokenisers_core::curricula::SuperBpeConfig::new(270, 285).unwrap();
+    let scorer = BpeScorer::new();
+    let model = tokenisers_core::curricula::SuperBpeTrainer::new(config, &scorer)
+        .train(&lines)
+        .unwrap();
+    let exported = HfTokenizerJson::from_bpe_model(&model, None).to_json_string().unwrap();
+    let v: serde_json::Value = serde_json::from_str(&exported).unwrap();
+    assert_eq!(v["pre_tokenizer"]["type"], "ByteLevel");
+    assert_eq!(v["pre_tokenizer"]["use_regex"], false);
+
+    // A loader recovers the encoding mode from the file.
+    let reparsed: HfTokenizerJson = serde_json::from_str(&exported).unwrap();
+    assert!(!reparsed.pretokenize().unwrap());
+    let plain = BottomUpTrainer::new(&scorer, 270).train(&[(b"ab".to_vec(), 3)]).unwrap();
+    let plain_json = HfTokenizerJson::from_bpe_model(&plain, None).to_json_string().unwrap();
+    assert!(serde_json::from_str::<HfTokenizerJson>(&plain_json).unwrap().pretokenize().unwrap());
+}
+
+#[test]
+fn bpe_trained_on_multi_segment_words_exports_whole_text() {
+    // Training words that span whitespace can teach merges like ("b", " "); pre-splitting would
+    // make them unreachable, so such a model encodes and exports whole text.
+    let scorer = BpeScorer::new();
+    let model = BottomUpTrainer::new(&scorer, 258).train(&[(b"ab ab".to_vec(), 3)]).unwrap();
+    assert!(!model.pretokenize);
+    let json = HfTokenizerJson::from_bpe_model(&model, None).to_json_string().unwrap();
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["pre_tokenizer"]["type"], "ByteLevel");
+    assert_eq!(v["pre_tokenizer"]["use_regex"], false);
+}
+
+#[test]
+fn bpe_export_is_byte_identical_across_calls() {
+    // The vocab is serialised in a fixed (sorted) order, not hash-map order.
+    let corpus = vec![(b"deterministic exports please".to_vec(), 7)];
+    let scorer = BpeScorer::new();
+    let model = BottomUpTrainer::new(&scorer, 270).train(&corpus).unwrap();
+    let a = HfTokenizerJson::from_bpe_model(&model, None).to_json_string().unwrap();
+    let b = HfTokenizerJson::from_bpe_model(&model, None).to_json_string().unwrap();
+    assert_eq!(a, b);
+}

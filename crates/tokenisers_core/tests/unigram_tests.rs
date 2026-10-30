@@ -1,6 +1,9 @@
+use std::process::Command;
+
 use tokenisers_core::engine::unigram::{
     logsumexp2, CompactTrie, UnigramTrainer, ViterbiDecoder,
 };
+use tokenisers_core::export::HfTokenizerJson;
 
 #[test]
 fn test_logsumexp2_numerical_stability() {
@@ -77,8 +80,8 @@ fn test_unigram_training_and_base_byte_protection() {
     let trainer = UnigramTrainer::new(target_size, 0.20);
     let model = trainer.train(&corpus).expect("Unigram training failed");
 
-    assert!(model.vocab.len() >= 256);
-    assert!(model.vocab.len() <= target_size + 10);
+    // The seed set (~1000 substrings) is far larger than the target, so pruning must land on it.
+    assert_eq!(model.vocab.len(), target_size);
 
     // Strict base 256 byte protection: all single bytes 0..=255 MUST be present
     for b in 0..=255u8 {
@@ -101,4 +104,66 @@ fn test_unigram_training_and_base_byte_protection() {
         let decoded = model.decode_lossless(&tokens).expect("Unigram decode failed");
         assert_eq!(text, decoded);
     }
+}
+
+/// Many equal counts, so every tie-break (seed order, id assignment, pruning) is exercised.
+fn tie_heavy_corpus() -> Vec<(Vec<u8>, u64)> {
+    let words = [
+        "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "theta", "iota", "kappa", "lambda",
+        "mu", "omicron", "sigma", "upsilon", "omega", "日本語", "テキスト", "한국어", "🚀🔥",
+        " ", "  ", "\n", "\t",
+    ];
+    words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| (w.as_bytes().to_vec(), 3 + (i % 3) as u64))
+        .collect()
+}
+
+/// Everything training decides: ids, bytes, exact scores (via the export) and encodings.
+fn unigram_fingerprint(reverse_corpus: bool) -> String {
+    let mut corpus = tie_heavy_corpus();
+    if reverse_corpus {
+        corpus.reverse();
+    }
+    let model = UnigramTrainer::new(300, 0.2).train(&corpus).unwrap();
+    let json = HfTokenizerJson::from_unigram_model(&model, None).to_json_string().unwrap();
+    let ids: Vec<Vec<u32>> = ["alphabet soup", "テキスト 日本語", "omega\tsigma  mu"]
+        .iter()
+        .map(|s| model.encode(s.as_bytes()))
+        .collect();
+    format!("{json}\n{ids:?}")
+}
+
+/// Helper run in a child process by `unigram_training_is_deterministic_across_processes`.
+#[test]
+fn unigram_determinism_child() {
+    if let Ok(order) = std::env::var("UNIGRAM_DETERMINISM_CHILD") {
+        println!("FINGERPRINT<<{}>>FINGERPRINT", unigram_fingerprint(order == "reverse"));
+    }
+}
+
+/// Hash seeds (ahash/std RandomState) differ per process, so in-process repetition cannot catch
+/// hash-order dependence. Train in fresh processes, with different corpus order and thread
+/// counts, and require byte-identical vocab, scores and ids.
+#[test]
+fn unigram_training_is_deterministic_across_processes() {
+    let exe = std::env::current_exe().unwrap();
+    let child = |order: &str, threads: &str| {
+        let out = Command::new(&exe)
+            .args(["unigram_determinism_child", "--exact", "--nocapture", "--test-threads=1"])
+            .env("UNIGRAM_DETERMINISM_CHILD", order)
+            .env("RAYON_NUM_THREADS", threads)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "child failed: {}", String::from_utf8_lossy(&out.stderr));
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let start = stdout.find("FINGERPRINT<<").expect("child printed no fingerprint") + 13;
+        let end = stdout.find(">>FINGERPRINT").unwrap();
+        stdout[start..end].to_string()
+    };
+    let here = unigram_fingerprint(false);
+    assert_eq!(child("forward", "1"), here, "differs across processes");
+    assert_eq!(child("forward", "4"), here, "differs with thread count");
+    assert_eq!(child("reverse", "3"), here, "depends on corpus order");
 }

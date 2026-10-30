@@ -1,301 +1,162 @@
-"""CLI entry point for tokenisers.benchmarks.colab."""
+"""CLI: extrinsic proxy-LM bits-per-byte benchmark (Colab GPU, or local with --local)."""
 
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 from pathlib import Path
+import random
+import shutil
+import sys
+import tempfile
 from typing import Any, Dict, List
 
-from tokenisers.benchmarks.colab import (
-    BpbEvaluator,
-    ByteBudgetTrainer,
-    ColabOrchestrator,
-    ProxyLanguageModel,
+import numpy as np
+
+from tokenisers.benchmarks.colab import ColabError, ColabOrchestrator, run_local
+from tokenisers.benchmarks.common import (
+    DEFAULT_MORPH_LANGS,
+    add_common_args,
+    assert_disjoint,
+    check_memory,
+    find_duplicates,
+    start_provenance,
+    load_dataset,
+    load_morphology,
+    run_metadata,
+    train_suite,
+    write_json,
 )
-from tokenisers.data.pipeline import DataPipeline, OfflineFallbackGenerator, SigmorphonLoader
-from tokenisers.models import (
-    BpeTokenizer,
-    MorphemeBpeTokenizer,
-    SuperBpeTokenizer,
-    UnigramTokenizer,
-)
+from tokenisers.benchmarks.report import render_colab
+
+DOMAINS = ("english", "multilingual", "code")
+DROPOUT_VARIANT = "bpe_dropout_p0.1"
 
 
-REMOTE_WORKER_TEMPLATE = '''
-import json
-import math
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-PAYLOAD = __PAYLOAD_JSON__
-
-class ProxyLM(nn.Module):
-    def __init__(self, vocab_size, d_model=128, n_layers=2, n_heads=4, d_ffn=256, max_seq_len=256):
-        super().__init__()
-        self.vocab_size = vocab_size
-        self.max_seq_len = max_seq_len
-        self.embedding = nn.Embedding(vocab_size, d_model)
-        self.layers = nn.ModuleList([
-            nn.TransformerEncoderLayer(
-                d_model=d_model, nhead=n_heads, dim_feedforward=d_ffn,
-                batch_first=True, norm_first=True
-            )
-            for _ in range(n_layers)
-        ])
-        self.norm = nn.LayerNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.lm_head.weight = self.embedding.weight
-
-    def forward(self, x):
-        seq_len = min(x.shape[1], self.max_seq_len)
-        x = x[:, :seq_len]
-        h = self.embedding(x)
-        mask = nn.Transformer.generate_square_subsequent_mask(seq_len, device=x.device)
-        for layer in self.layers:
-            h = layer(h, src_mask=mask, is_causal=True)
-        return self.lm_head(self.norm(h))
-
-@torch.no_grad()
-def eval_bpb(model, token_ids, utf8_bytes, seq_len, device):
-    model.eval()
-    if len(token_ids) < 2:
-        token_ids = token_ids * 2
-    total_nll = 0.0
-    total_toks = 0
-    for i in range(0, len(token_ids) - 1, seq_len):
-        chunk = token_ids[i : i + seq_len + 1]
-        if len(chunk) < 2:
-            continue
-        t = torch.tensor([chunk], dtype=torch.long, device=device)
-        logits = model(t[:, :-1])
-        targets = t[:, 1:]
-        nll = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1), reduction="sum")
-        total_nll += float(nll.item())
-        total_toks += targets.numel()
-    loss_nats = total_nll / max(1, total_toks)
-    bpt = utf8_bytes / max(1, len(token_ids))
-    bpb = loss_nats / (math.log(2.0) * bpt)
-    return {"loss_nats": loss_nats, "bytes_per_token": bpt, "bpb": bpb}
-
-def main():
-    torch.manual_seed(42)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    hw_name = torch.cuda.get_device_name(0) if device == "cuda" else "CPU"
-    byte_budget = PAYLOAD["byte_budget"]
-    seq_len = PAYLOAD["seq_len"]
-    batch_size = PAYLOAD["batch_size"]
-    results = {"device": device, "hardware": hw_name, "byte_budget": byte_budget, "models": {}}
-
-    for name, item in PAYLOAD["tokenizers"].items():
-        torch.manual_seed(42)
-        v_size = item["vocab_size"]
-        train_ids = item["train_ids"]
-        train_bytes = item["train_bytes"]
-        bpt = max(1e-3, train_bytes / max(1, len(train_ids)))
-
-        model = ProxyLM(vocab_size=v_size, d_model=128, n_layers=2, n_heads=4, d_ffn=256).to(device)
-        opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=0.01)
-
-        if len(train_ids) < seq_len + 1:
-            train_ids = (train_ids * ((seq_len + 2) // max(1, len(train_ids)) + 2))
-
-        bytes_consumed = 0
-        tokens_consumed = 0
-        cursor = 0
-        steps = 0
-        curve = []
-        model.train()
-
-        while bytes_consumed < byte_budget:
-            batch = []
-            for _ in range(batch_size):
-                if cursor + seq_len + 1 > len(train_ids):
-                    cursor = 0
-                batch.append(train_ids[cursor : cursor + seq_len + 1])
-                cursor += seq_len
-            t = torch.tensor(batch, dtype=torch.long, device=device)
-            opt.zero_grad()
-            logits = model(t[:, :-1])
-            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), t[:, 1:].reshape(-1))
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-
-            step_toks = batch_size * seq_len
-            step_bytes = max(1, int(round(step_toks * bpt)))
-            tokens_consumed += step_toks
-            bytes_consumed += step_bytes
-            steps += 1
-            if steps == 1 or bytes_consumed >= byte_budget or steps % 5 == 0:
-                curve.append({
-                    "step": steps,
-                    "bytes_consumed": bytes_consumed,
-                    "tokens_consumed": tokens_consumed,
-                    "train_loss_nats": round(float(loss.item()), 4),
-                    "train_bpb": round(float(loss.item()) / (math.log(2.0) * bpt), 4),
-                })
-
-        val_domains = {}
-        for dom_name, dom_data in item["val_domains"].items():
-            val_domains[dom_name] = eval_bpb(
-                model, dom_data["ids"], dom_data["bytes"], seq_len, device
-            )
-
-        macro_bpb = sum(d["bpb"] for d in val_domains.values()) / max(1, len(val_domains))
-        results["models"][name] = {
-            "vocab_size": v_size,
-            "steps": steps,
-            "bytes_consumed": bytes_consumed,
-            "tokens_consumed": tokens_consumed,
-            "train_bytes_per_token": bpt,
-            "val_domains": val_domains,
-            "macro_val_bpb": macro_bpb,
-            "curve": curve,
-        }
-
-    print(json.dumps(results))
-
-if __name__ == "__main__":
-    main()
-'''
+def _encode_docs(tok: Any, docs: List[str], dtype: Any, dropout: float | None = None) -> np.ndarray:
+    """Ids of every document, concatenated. With ``dropout``, document i uses BPE-dropout seed i."""
+    kw = (lambda i: {"dropout": dropout, "seed": i}) if dropout else (lambda i: {})
+    parts = [np.asarray(tok.encode(d, **kw(i)), dtype=dtype) for i, d in enumerate(docs)]
+    return np.concatenate(parts) if parts else np.zeros(0, dtype=dtype)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Extrinsic Proxy-LM Bits-Per-Byte Benchmark Suite")
-    parser.add_argument("--vocab-size", type=int, default=400, help="Target vocabulary size")
-    parser.add_argument("--byte-budget", type=int, default=150_000, help="Fixed UTF-8 training byte budget per tokenizer")
-    parser.add_argument("--gpu", type=str, default="T4", help="Colab GPU accelerator type (e.g. T4, L4, A100)")
-    parser.add_argument("--local", action="store_true", help="Force local execution without Colab")
-    parser.add_argument("--output-dir", type=str, default="benchmarks/results/colab", help="Output directory")
-    args = parser.parse_args()
+def _token_bytes(tok: Any) -> np.ndarray:
+    return np.array([len(tok.id_to_bytes(i) or b"") for i in range(tok.vocab_size)], dtype=np.int32)
 
-    pipeline = DataPipeline(force_offline=True)
-    corpus = pipeline.sample_preset("smoke", max_bytes=80_000)
-    morph_samples = SigmorphonLoader().load_builtin_samples()
-    lexicon = {item["word"]: item["segments"] for item in morph_samples}
 
-    v_size = args.vocab_size
-    v_switch = max(260, int(v_size * 0.75))
-
-    models: Dict[str, Any] = {
-        "bpe_frequency": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="frequency"),
-        "wordpiece_pmi": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wordpiece"),
-        "wp_bpe_base": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-base"),
-        "wp_bpe_ft": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-ft", min_frequency=2),
-        "wp_bpe_pig": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-pig"),
-        "wp_bpe_scp": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-scp", min_frequency=2),
-        "wp_bpe_npmi": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-npmi", min_frequency=2),
-        "wp_bpe_ppig": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="wp-bpe-ppig", min_frequency=2),
-        "mdl_bits": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="mdl"),
-        "length_penalized": BpeTokenizer.train(corpus=corpus, vocab_size=v_size, scorer="length_penalized", beta=0.5),
-        "super_bpe": SuperBpeTokenizer.train(corpus=corpus, v_switch=v_switch, v_final=v_size),
-        "morpheme_bpe": MorphemeBpeTokenizer.train(corpus=corpus, vocab_size=v_size, morpheme_lexicon=lexicon, lambda_weight=2.0),
-        "unigram_lm": UnigramTokenizer.train(corpus=corpus, vocab_size=v_size),
-    }
-
-    gen = OfflineFallbackGenerator()
-    train_text = "\n".join(corpus[:40])
-    train_bytes = len(train_text.encode("utf-8"))
-
-    val_texts = {
-        "english": "\n".join(gen.SAMPLE_PROSE * 4),
-        "multilingual": "\n".join(gen.SAMPLE_MULTILINGUAL * 3),
-        "code": "\n".join(gen.SAMPLE_CODE * 4),
-    }
-
-    payload: Dict[str, Any] = {
-        "byte_budget": args.byte_budget,
-        "seq_len": 64,
-        "batch_size": 8,
-        "tokenizers": {},
-    }
-
-    for name, tok in models.items():
-        t_ids = tok.encode(train_text)
-        val_doms = {}
-        for d_name, d_txt in val_texts.items():
-            val_doms[d_name] = {
-                "ids": tok.encode(d_txt),
-                "bytes": len(d_txt.encode("utf-8")),
-            }
-        payload["tokenizers"][name] = {
-            "vocab_size": tok.vocab_size,
-            "train_ids": t_ids,
-            "train_bytes": train_bytes,
-            "val_domains": val_doms,
-        }
-
-    # Add BPE-Dropout stochastic training variant
-    bpe_tok = models["bpe_frequency"]
-    payload["tokenizers"]["bpe_dropout_p0.1"] = {
-        "vocab_size": bpe_tok.vocab_size,
-        "train_ids": bpe_tok.encode(train_text, dropout=0.1, seed=42),
-        "train_bytes": train_bytes,
-        "val_domains": payload["tokenizers"]["bpe_frequency"]["val_domains"],
-    }
-
-    script_code = REMOTE_WORKER_TEMPLATE.replace("__PAYLOAD_JSON__", json.dumps(payload))
-    orchestrator = ColabOrchestrator(mock=args.local)
-    results = orchestrator.run_ephemeral_script(script_code, gpu=args.gpu, timeout=240)
-
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    with open(out_dir / "extrinsic_bpb_results.json", "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
-
-    with open(out_dir / "extrinsic_bpb_leaderboard.csv", "w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "tokenizer",
-            "vocab_size",
-            "bytes_consumed",
-            "tokens_consumed",
-            "train_bpt",
-            "val_english_bpb",
-            "val_multilingual_bpb",
-            "val_code_bpb",
-            "macro_val_bpb",
-        ])
-        for m_name, m_res in results["models"].items():
-            vd = m_res["val_domains"]
-            writer.writerow([
-                m_name,
-                m_res["vocab_size"],
-                m_res["bytes_consumed"],
-                m_res["tokens_consumed"],
-                f"{m_res['train_bytes_per_token']:.4f}",
-                f"{vd['english']['bpb']:.4f}",
-                f"{vd['multilingual']['bpb']:.4f}",
-                f"{vd['code']['bpb']:.4f}",
-                f"{m_res['macro_val_bpb']:.4f}",
-            ])
-
-    md_lines = [
-        "# Extrinsic Proxy-LM Validation Bits-Per-Byte (BPB) Leaderboard",
-        "",
-        f"- **Compute Backend**: `{results['hardware']}` (`{results['device']}`)",
-        f"- **Fixed UTF-8 Training Budget**: `{results['byte_budget']:,}` bytes per tokenizer",
-        "",
-        "| Tokenizer Variant | Train Bytes/Token | Tokens Trained (FLOPs proxy) | English BPB (↓) | Multilingual BPB (↓) | Code BPB (↓) | Macro Val BPB (↓) |",
-        "| :--- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    sorted_models = sorted(
-        results["models"].items(),
-        key=lambda kv: kv[1]["macro_val_bpb"],
-    )
-    for m_name, m_res in sorted_models:
-        vd = m_res["val_domains"]
-        md_lines.append(
-            f"| `{m_name}` | {m_res['train_bytes_per_token']:.3f} | {m_res['tokens_consumed']:,} | "
-            f"{vd['english']['bpb']:.3f} | {vd['multilingual']['bpb']:.3f} | {vd['code']['bpb']:.3f} | "
-            f"**{m_res['macro_val_bpb']:.3f}** |"
+def _lm_train_docs(train: List[str], byte_budget: int, seed: int) -> List[str]:
+    """Shuffled train-split documents covering ``byte_budget`` bytes plus 10%, each used once (no
+    repetition). They come from the split the tokenizers were trained on, i.e. they are not held out
+    from tokenizer training; only the val split is held out."""
+    docs = list(train)
+    random.Random(seed).shuffle(docs)
+    out: List[str] = []
+    n = 0
+    for d in docs:
+        if n >= byte_budget * 1.1:
+            break
+        out.append(d)
+        n += len(d.encode("utf-8"))
+    if n < byte_budget * 1.1:
+        raise SystemExit(
+            f"--byte-budget {byte_budget:,} needs {int(byte_budget * 1.1):,} train bytes but the train split has "
+            f"{n:,}; prepare a larger dataset (--train-bytes) or lower the budget"
         )
-    md_path = out_dir / "extrinsic_bpb_leaderboard.md"
-    md_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
-    print(md_path.read_text(encoding="utf-8"))
+    return out
+
+
+def main(argv: List[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Extrinsic proxy-LM bits-per-byte benchmark")
+    add_common_args(parser, "benchmarks/results/colab")
+    parser.add_argument("--byte-budget", type=int, default=10_000_000,
+                        help="UTF-8 bytes each proxy LM trains on: train-split documents (the tokenizers' "
+                             "training text), each used at most once")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2], help="LM seeds (mean ± sd reported)")
+    parser.add_argument("--seq-len", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--lr", type=float, default=3e-3)
+    parser.add_argument("--d-model", type=int, default=128)
+    parser.add_argument("--n-layers", type=int, default=2)
+    parser.add_argument("--n-heads", type=int, default=4)
+    parser.add_argument("--d-ffn", type=int, default=512)
+    parser.add_argument("--gpu", default="T4", help="Colab accelerator (T4, L4, A100, H100)")
+    parser.add_argument("--timeout", type=float, default=6 * 3600, help="Colab job wall-clock limit (s)")
+    parser.add_argument("--poll-interval", type=float, default=60.0,
+                        help="Seconds between status polls of the detached Colab job")
+    parser.add_argument("--colab-bin", default=None, help="colab CLI executable (default ~/.local/bin/colab)")
+    parser.add_argument("--local", action="store_true", help="Run the proxy LMs locally instead of on Colab")
+    parser.add_argument("--allow-local-fallback", action="store_true",
+                        help="If Colab fails, run locally and record the fallback in the results")
+    parser.add_argument("--no-dropout-variant", action="store_true",
+                        help=f"Skip {DROPOUT_VARIANT} (bpe_frequency trained on BPE-dropout encodings)")
+    args = parser.parse_args(argv)
+    start = start_provenance(__package__, argv)  # before the tree can change during a long run
+
+    if not args.skip_memory_check:  # before downloading/preparing anything
+        check_memory(args.variants, args.train_bytes)
+    ds = load_dataset(args)
+    train = ds.texts("train")
+    val = {d: ds.texts("val", domain=d) for d in DOMAINS}
+    assert_disjoint(train, [t for texts in val.values() for t in texts], "validation")
+    lm_docs = _lm_train_docs(train, args.byte_budget, args.data_seed)
+
+    lexicon, _, morph_prov = load_morphology(args, train, DEFAULT_MORPH_LANGS) if "morpheme_bpe" in args.variants \
+        else ({}, [], None)
+    print(f"Training {len(args.variants)} tokenizers at V={args.vocab_size} on {len(train)} train docs")
+    models, records = train_suite(args.variants, train, args.vocab_size, lexicon)
+    duplicates = find_duplicates(models)
+
+    job_dir = Path(tempfile.mkdtemp(prefix="tokenisers-bpb-"))
+    try:
+        tokenizers: Dict[str, Any] = {}
+        unique = {n: t for n, t in models.items() if n not in duplicates}
+        if not args.no_dropout_variant and "bpe_frequency" in unique:
+            unique[DROPOUT_VARIANT] = unique["bpe_frequency"]
+        for name, tok in unique.items():
+            dtype = np.uint16 if tok.vocab_size <= 65536 else np.uint32
+            dropout = 0.1 if name == DROPOUT_VARIANT else None
+            arrays = {"train": _encode_docs(tok, lm_docs, dtype, dropout), "token_bytes": _token_bytes(tok)}
+            for d, texts in val.items():
+                arrays[f"val_{d}"] = _encode_docs(tok, texts, dtype)
+            np.savez(job_dir / f"{name}.npz", **arrays)
+            tokenizers[name] = {"vocab_size": tok.vocab_size}
+        lm = {"d_model": args.d_model, "n_layers": args.n_layers, "n_heads": args.n_heads,
+              "d_ffn": args.d_ffn, "max_seq_len": args.seq_len}
+        train_cfg = {"byte_budget": args.byte_budget, "seq_len": args.seq_len, "batch_size": args.batch_size,
+                     "lr": args.lr, "eval_stride": max(1, args.seq_len // 2)}
+        write_json(job_dir / "config.json", {"lm": lm, "train": train_cfg, "seeds": args.seeds,
+                                             "domains": list(DOMAINS), "tokenizers": tokenizers})
+
+        fallback = None
+        if args.local:
+            result = run_local(job_dir)
+        else:
+            try:
+                result = ColabOrchestrator(colab_bin=args.colab_bin).run_job(
+                    job_dir, gpu=args.gpu, timeout=args.timeout, poll_interval=args.poll_interval)
+            except ColabError as e:
+                if not args.allow_local_fallback:
+                    sys.exit(f"Colab run failed (pass --local or --allow-local-fallback to run locally): {e}")
+                print(f"Colab run failed, running locally: {e}", file=sys.stderr)
+                fallback = {"from": "colab", "requested_gpu": args.gpu, "error": str(e)}
+                result = run_local(job_dir)
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    meta = run_metadata(
+        args, ds, "proxy_lm_bpb", "val", records, duplicates, start=start,
+        backend=result["backend"], fallback=fallback, lm=lm, lm_architecture=result["architecture"],
+        train=train_cfg, byte_budget=args.byte_budget,
+        seeds=args.seeds, val_domains=list(DOMAINS), lm_train_docs=len(lm_docs),
+        lm_seconds=result["seconds"], morphology=morph_prov,
+        variants_extra={DROPOUT_VARIANT: "bpe_frequency tokenizer; LM train ids encoded with BPE-dropout p=0.1, "
+                                         "validation ids deterministic"} if DROPOUT_VARIANT in tokenizers else {},
+    )
+    doc = {"meta": meta, "models": result["models"]}
+    out = Path(args.output_dir)
+    write_json(out / "extrinsic_bpb_results.json", doc)
+    md = render_colab(doc)
+    (out / "extrinsic_bpb_leaderboard.md").write_text(md + "\n", encoding="utf-8")
+    print(md)
 
 
 if __name__ == "__main__":

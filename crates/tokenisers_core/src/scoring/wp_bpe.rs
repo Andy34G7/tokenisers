@@ -1,5 +1,5 @@
 use crate::index::Pair;
-use super::{PairContext, PairScorer};
+use super::{PairContext, PairScorer, ScoreDeps};
 
 /// Uncalibrated Pointwise Mutual Information (PMI) scorer: freq(uv) / (freq(u) * freq(v)).
 /// min_frequency is 1 (uncalibrated, no cutoff on rare pairs).
@@ -39,14 +39,18 @@ impl PairScorer for WpBpeBaseScorer {
     fn name(&self) -> &'static str {
         "wp_bpe_base"
     }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::Marginals
+    }
 }
 
-/// Frequency-Thresholded PMI scorer:
-/// Evaluates PMI only if freq(uv) >= min_frequency (default threshold >= 2 or user-specified).
+/// Frequency-Thresholded PMI scorer: freq(uv) / (freq(u) * freq(v)), only for freq(uv) >= min_frequency
+/// (at least 2). Same function as `WpBpeBaseScorer` except for the cutoff (and as `WordPieceScorer`
+/// with alpha = 0).
 #[derive(Clone, Copy, Debug)]
 pub struct WpBpeFtScorer {
     pub min_frequency: u64,
-    pub alpha: f64,
     pub epsilon: f64,
 }
 
@@ -54,17 +58,15 @@ impl Default for WpBpeFtScorer {
     fn default() -> Self {
         Self {
             min_frequency: 2,
-            alpha: 1.0,
             epsilon: 1e-12,
         }
     }
 }
 
 impl WpBpeFtScorer {
-    pub fn new(min_frequency: u64, alpha: f64) -> Self {
+    pub fn new(min_frequency: u64) -> Self {
         Self {
             min_frequency: min_frequency.max(2),
-            alpha: alpha.max(0.0),
             epsilon: 1e-12,
         }
     }
@@ -78,9 +80,7 @@ impl PairScorer for WpBpeFtScorer {
         }
 
         let num = ctx.freq_uv as f64;
-        let denom_u = ctx.freq_u as f64 + self.alpha;
-        let denom_v = ctx.freq_v as f64 + self.alpha;
-        let denom = (denom_u * denom_v) + self.epsilon;
+        let denom = ((ctx.freq_u as f64) * (ctx.freq_v as f64)) + self.epsilon;
 
         num / denom
     }
@@ -88,6 +88,10 @@ impl PairScorer for WpBpeFtScorer {
     #[inline(always)]
     fn name(&self) -> &'static str {
         "wp_bpe_ft"
+    }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::Marginals
     }
 }
 
@@ -138,6 +142,10 @@ impl PairScorer for WpBpePigScorer {
     fn name(&self) -> &'static str {
         "wp_bpe_pig"
     }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::MonotoneTotals
+    }
 }
 
 /// Symmetric Conditional Probability (SCP) / Geometric-Mean Calibrated PMI scorer with Kneser-Ney style discounting:
@@ -185,10 +193,16 @@ impl PairScorer for WpBpeScpScorer {
     fn name(&self) -> &'static str {
         "wp_bpe_scp"
     }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::Marginals
+    }
 }
 
 /// Normalized Pointwise Mutual Information (NPMI, Bouma 2009) scorer:
-/// Evaluates NPMI = PMI(u, v) / (-ln(P(uv))) and weights by (freq_uv)^alpha.
+/// score = freq(uv)^alpha * PMI(u, v) / (-ln P(uv)), with P estimated as counts / N.
+/// NPMI is in [-1, 1]; negatively associated pairs keep a (negative) finite score, so they stay
+/// eligible and rank below every positively associated pair.
 #[derive(Clone, Copy, Debug)]
 pub struct WpBpeNpmiScorer {
     pub min_freq: u64,
@@ -223,7 +237,7 @@ impl PairScorer for WpBpeNpmiScorer {
             return f64::NEG_INFINITY;
         }
 
-        let n = (ctx.total_tokens as f64).max((ctx.freq_u as f64) + (ctx.freq_v as f64) + 1.0);
+        let n = (ctx.total_tokens as f64).max(1.0);
         let denom_uv = ((ctx.freq_u as f64) * (ctx.freq_v as f64)) + self.epsilon;
         let pmi_ratio = ((ctx.freq_uv as f64) * n / denom_uv).max(self.epsilon);
         let pmi = pmi_ratio.ln();
@@ -237,10 +251,6 @@ impl PairScorer for WpBpeNpmiScorer {
             0.0
         };
 
-        if npmi <= 0.0 {
-            return f64::NEG_INFINITY;
-        }
-
         (ctx.freq_uv as f64).powf(self.alpha) * npmi
     }
 
@@ -248,10 +258,14 @@ impl PairScorer for WpBpeNpmiScorer {
     fn name(&self) -> &'static str {
         "wp_bpe_npmi"
     }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::MonotoneTotals
+    }
 }
 
 /// Positive Length-Regularized Pointwise Information Gain (PPIG) scorer:
-/// score(u, v) = freq(uv) * PMI(u, v) / (len_u + len_v)^length_penalty
+/// score(u, v) = freq(uv) * max(0, PMI(u, v)) / (len_u + len_v)^length_penalty
 #[derive(Clone, Copy, Debug)]
 pub struct WpBpePpigScorer {
     pub min_freq: u64,
@@ -286,14 +300,10 @@ impl PairScorer for WpBpePpigScorer {
             return f64::NEG_INFINITY;
         }
 
-        let n = (ctx.total_tokens as f64).max((ctx.freq_u as f64) + (ctx.freq_v as f64) + 1.0);
+        let n = (ctx.total_tokens as f64).max(1.0);
         let denom = ((ctx.freq_u as f64) * (ctx.freq_v as f64)) + self.epsilon;
         let pmi_ratio = ((ctx.freq_uv as f64) * n / denom).max(self.epsilon);
-        let pmi = pmi_ratio.log2();
-
-        if pmi <= 0.0 {
-            return f64::NEG_INFINITY;
-        }
+        let pmi = pmi_ratio.log2().max(0.0);
 
         let merged_len = (ctx.len_uv().max(1) as f64).powf(self.length_penalty);
         ((ctx.freq_uv as f64) * pmi) / merged_len
@@ -302,6 +312,10 @@ impl PairScorer for WpBpePpigScorer {
     #[inline(always)]
     fn name(&self) -> &'static str {
         "wp_bpe_ppig"
+    }
+
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::MonotoneTotals
     }
 }
 
@@ -312,6 +326,7 @@ mod tests {
     fn mock_context(freq_uv: u64, freq_u: u64, freq_v: u64, total_tokens: u64, len_u: usize, len_v: usize) -> PairContext {
         PairContext {
             freq_uv,
+            merges_uv: freq_uv,
             freq_u,
             freq_v,
             total_tokens,
@@ -350,9 +365,10 @@ mod tests {
         let ctx_low = mock_context(1, 10, 10, 100, 1, 1);
         assert_eq!(scorer.score(pair, &ctx_low), f64::NEG_INFINITY);
 
-        // Discorrelated pair (pmi <= 0)
+        // Negatively associated pair (pmi < 0): eligible, negative NPMI
         let ctx_discorr = mock_context(2, 100, 100, 200, 1, 1);
-        assert_eq!(scorer.score(pair, &ctx_discorr), f64::NEG_INFINITY);
+        let score_discorr = scorer.score(pair, &ctx_discorr);
+        assert!(score_discorr.is_finite() && score_discorr < 0.0);
 
         // High collocation pair
         let ctx_colloc = mock_context(50, 60, 60, 1000, 1, 1);
@@ -370,9 +386,9 @@ mod tests {
         let ctx_low = mock_context(1, 10, 10, 100, 1, 1);
         assert_eq!(scorer.score(pair, &ctx_low), f64::NEG_INFINITY);
 
-        // Discorrelated pair (pmi <= 0)
+        // Negatively associated pair: max(0, PMI) = 0, still eligible
         let ctx_discorr = mock_context(2, 100, 100, 200, 1, 1);
-        assert_eq!(scorer.score(pair, &ctx_discorr), f64::NEG_INFINITY);
+        assert_eq!(scorer.score(pair, &ctx_discorr), 0.0);
 
         // High collocation pair
         let ctx_colloc = mock_context(50, 60, 60, 1000, 1, 1);

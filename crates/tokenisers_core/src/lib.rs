@@ -21,7 +21,6 @@ pub use error::{Result, TokeniserError};
 pub use export::huggingface::HfTokenizerJson;
 pub use index::{InvertedIndex, OccurrenceRef, Pair};
 pub use inference::{
-    bpe_dropout::BpeDropoutEncoder,
     byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher},
     unigram_sample::{LatticeEdge, UnigramSampler},
 };
@@ -30,6 +29,6 @@ pub use scoring::{
     length_penalized::LengthPenalizedScorer,
     mdl::MdlScorer,
     pmi::WordPieceScorer,
-    PairContext, PairScorer, ScoredPair,
+    PairContext, PairScorer, ScoreDeps, ScoredPair,
 };
 pub use vocab::{bytes_char, SpecialToken, TokenId, Vocab, Vocabulary, BASE_VOCAB_SIZE};

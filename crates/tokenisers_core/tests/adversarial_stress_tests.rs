@@ -3,13 +3,12 @@ use std::thread;
 use std::time::Duration;
 
 use tokenisers_core::arena::{SymbolArena, NULL_NODE};
-use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon};
+use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon, PairMorphologyStats};
 use tokenisers_core::curricula::super_bpe::{SuperBpeConfig, SuperBpeTrainer};
 use tokenisers_core::engine::bottom_up::{BottomUpTrainer, parallel_count_words};
 use tokenisers_core::engine::unigram::{UnigramTrainer, logsumexp2};
 use tokenisers_core::export::huggingface::HfTokenizerJson;
 use tokenisers_core::index::Pair;
-use tokenisers_core::inference::bpe_dropout::BpeDropoutEncoder;
 use tokenisers_core::inference::byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 use tokenisers_core::scoring::frequency::BpeScorer;
@@ -82,7 +81,14 @@ fn test_pathological_inputs_bottom_up_training_and_encoding() {
     let trainer = BottomUpTrainer::new(&scorer, 300);
     let model = trainer.train(&pathological_corpus).expect("Training on pathological corpus must succeed");
 
-    assert!(model.vocab.len() >= 256);
+    // Training stops early only when no pair is left: then every word is a single token.
+    if model.vocab.len() < 300 {
+        for (word, _) in &pathological_corpus {
+            if !word.is_empty() {
+                assert_eq!(model.encode(word).len(), 1, "stopped at {} with mergeable pairs left", model.vocab.len());
+            }
+        }
+    }
 
     // Verify lossless encoding on repeated, alternating, single, and empty inputs
     let rep_a = "aaaa".repeat(250).into_bytes();
@@ -99,7 +105,7 @@ fn test_pathological_inputs_bottom_up_training_and_encoding() {
 
     for input in test_inputs {
         let encoded = model.encode(input);
-        let decoded = model.decode(&encoded);
+        let decoded = model.decode(&encoded).unwrap();
         assert_eq!(&decoded[..], input, "Lossless roundtrip failed for input of length {}", input.len());
     }
 }
@@ -166,12 +172,12 @@ fn test_extreme_byte_losslessness_and_invalid_utf8() {
     for seq in &adversarial_sequences {
         // BPE Lossless Roundtrip
         let bpe_encoded = bpe_model.encode(seq);
-        let bpe_decoded = bpe_model.decode(&bpe_encoded);
+        let bpe_decoded = bpe_model.decode(&bpe_encoded).unwrap();
         assert_eq!(&bpe_decoded, seq, "BPE failed raw byte losslessness on sequence {:02X?}", seq);
 
         // Unigram Lossless Roundtrip
         let uni_encoded = unigram_model.encode(seq);
-        let uni_decoded = unigram_model.decode(&uni_encoded);
+        let uni_decoded = unigram_model.decode(&uni_encoded).unwrap();
         assert_eq!(&uni_decoded, seq, "Unigram failed raw byte losslessness on sequence {:02X?}", seq);
 
         // If valid UTF-8, test decode_lossless
@@ -289,7 +295,7 @@ fn test_unigram_pruning_base_byte_invariants_minimal_vocab() {
     // Verify lossless fallback encoding on any input
     let test_bytes = b"testing arbitrary text with \x00 and \xff bytes";
     let encoded = model.encode(test_bytes);
-    let decoded = model.decode(&encoded);
+    let decoded = model.decode(&encoded).unwrap();
     assert_eq!(&decoded, test_bytes, "Lossless fallback failed with minimal 256 vocabulary");
 }
 
@@ -308,12 +314,11 @@ fn test_bpe_dropout_boundary_conditions() {
     let trainer = BottomUpTrainer::new(&scorer, 300);
     let model = trainer.train(&corpus).expect("Training failed");
 
-    let encoder = BpeDropoutEncoder::new(&model.merges);
     let input = b"internationalization and interconnection";
 
     // 1. p = 0.0: strictly deterministic greedy BPE
     let encoded_greedy = model.encode(input);
-    let dropout_p0 = encoder.encode(input, 0.0, None);
+    let dropout_p0 = model.encode_with_dropout(input, 0.0, None);
     assert_eq!(
         dropout_p0, encoded_greedy,
         "BPE-Dropout with p=0.0 must be strictly identical to deterministic greedy BPE"
@@ -321,24 +326,24 @@ fn test_bpe_dropout_boundary_conditions() {
 
     // 2. p = 1.0: maximum dropout fallback to raw base byte tokens
     let raw_bytes: Vec<TokenId> = input.iter().map(|&b| b as TokenId).collect();
-    let dropout_p1 = encoder.encode(input, 1.0, None);
+    let dropout_p1 = model.encode_with_dropout(input, 1.0, None);
     assert_eq!(
         dropout_p1, raw_bytes,
         "BPE-Dropout with p=1.0 must fall back entirely to raw base byte tokens"
     );
 
     // 3. Out-of-bounds p < 0.0 and p > 1.0 handling
-    let dropout_neg = encoder.encode(input, -0.5, None);
+    let dropout_neg = model.encode_with_dropout(input, -0.5, None);
     assert_eq!(dropout_neg, encoded_greedy, "p < 0.0 must clamp to greedy p=0.0");
 
-    let dropout_over = encoder.encode(input, 1.5, None);
+    let dropout_over = model.encode_with_dropout(input, 1.5, None);
     assert_eq!(dropout_over, raw_bytes, "p > 1.0 must clamp to raw bytes p=1.0");
 
     // 4. Lossless decoding across all dropout probabilities and random seeds
     for &p in &[0.0, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0] {
         for seed in 0..10 {
-            let encoded = encoder.encode(input, p, Some(seed));
-            let decoded = model.decode(&encoded);
+            let encoded = model.encode_with_dropout(input, p, Some(seed));
+            let decoded = model.decode(&encoded).unwrap();
             assert_eq!(&decoded, input, "BPE-Dropout losslessness violated at p={}, seed={}", p, seed);
         }
     }
@@ -460,14 +465,14 @@ fn test_unigram_sampler_boundary_temperatures_and_k() {
         // FFBS at extreme temperatures
         for &temp in &[1e-5, 0.1, 1.0, 10.0, 100.0] {
             let tokens = sampler.sample_ffbs(input, temp, Some(42));
-            let decoded = model.decode(&tokens);
+            let decoded = model.decode(&tokens).unwrap();
             assert_eq!(&decoded, input, "FFBS losslessness failed at temp {}", temp);
         }
 
         // k-Best at k = 1, k = 5, k = 100
         for &k in &[0, 1, 5, 50] {
             let tokens = sampler.sample_kbest(input, k, 1.0, Some(42));
-            let decoded = model.decode(&tokens);
+            let decoded = model.decode(&tokens).unwrap();
             assert_eq!(&decoded, input, "k-Best losslessness failed at k = {}", k);
         }
     }
@@ -483,6 +488,7 @@ fn test_scorers_extreme_and_boundary_values() {
     let mdl = MdlScorer::new(24.0, 2);
     let ctx_zero = PairContext {
         freq_uv: 1,
+        merges_uv: 1,
         freq_u: 1,
         freq_v: 1,
         total_tokens: 0,
@@ -496,6 +502,7 @@ fn test_scorers_extreme_and_boundary_values() {
     let wp = WordPieceScorer::new(1.0, 5);
     let ctx_low_freq = PairContext {
         freq_uv: 3, // < min_frequency 5
+        merges_uv: 3,
         freq_u: 10,
         freq_v: 10,
         total_tokens: 100,
@@ -510,6 +517,7 @@ fn test_scorers_extreme_and_boundary_values() {
     let lp_low = LengthPenalizedScorer::new(-10.0, 1);
     let ctx_norm = PairContext {
         freq_uv: 10,
+        merges_uv: 10,
         freq_u: 20,
         freq_v: 20,
         total_tokens: 100,
@@ -517,21 +525,22 @@ fn test_scorers_extreme_and_boundary_values() {
         len_u: 4,
         len_v: 4,
     };
+    // count / len^beta: +10 penalizes the 8-byte merge, -10 rewards it; both stay finite.
     let score_high = lp_high.score(Pair::new(0, 1), &ctx_norm);
     let score_low = lp_low.score(Pair::new(0, 1), &ctx_norm);
-    assert!(score_high.is_finite() && score_high > 10.0);
-    assert!(score_low.is_finite() && score_low < 10.0);
+    assert!(score_high.is_finite() && score_high > 0.0 && score_high < 10.0);
+    assert!(score_low.is_finite() && score_low > 10.0);
 
     // 4. Morpheme-Guided with extreme lambda
     let bpe = BpeScorer;
-    let mut morpheme_scorer = MorphemeGuidedScorer::new(bpe, 100.0, 2.0);
-    let mut lexicon = MorphemeLexicon::new();
-    lexicon.insert_segmentation(b"unhappy", &[b"un", b"happy"]);
+    let morpheme_scorer = MorphemeGuidedScorer::new(bpe, MorphemeLexicon::new(), 100.0, 2.0);
 
-    // Test cross-boundary penalty (extreme attenuation)
-    morpheme_scorer.record_occurrence(Pair::new(10, 20), b"unhappy", 2, &lexicon);
-    let score_cross = morpheme_scorer.score(Pair::new(10, 20), &ctx_norm);
-    assert!(score_cross.is_finite() && score_cross >= 0.0);
+    // Extreme attenuation vetoes a frequent cross-boundary pair; extreme boost stays finite.
+    let cross = PairMorphologyStats { n_intra: 0, n_cross: 10 };
+    let intra = PairMorphologyStats { n_intra: 10, n_cross: 0 };
+    assert_eq!(morpheme_scorer.score_morph(Pair::new(10, 20), &ctx_norm, cross), f64::NEG_INFINITY);
+    let score_intra = morpheme_scorer.score_morph(Pair::new(10, 20), &ctx_norm, intra);
+    assert!(score_intra.is_finite() && score_intra > 10.0);
 }
 
 // =========================================================================
