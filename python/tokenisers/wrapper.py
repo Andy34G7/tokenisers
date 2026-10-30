@@ -2,7 +2,8 @@
 Hugging Face ``PreTrainedTokenizer`` adapter for tokenisers models.
 
 Token strings are the underlying tokenizer's (GPT-2 byte-level printable form, special tokens by
-content), so ids round-trip exactly. Padding, truncation, tensors, pairs and batch decoding are the
+content), so ids round-trip exactly. Padding, truncation, tensors, pairs, batch decoding and the
+added-token split (``AddedToken`` lstrip/rstrip/single_word, ``split_special_tokens``) are the
 ``PreTrainedTokenizer`` base behaviour. As in GPT-2 (and the exported tokenizer.json, which has
 no post-processor), no special-token template exists: ``add_special_tokens=True`` adds nothing,
 and bos/eos must be written into the text. Per-call encode options (``dropout``, ``seed``,
@@ -21,11 +22,14 @@ from __future__ import annotations
 
 import json
 import os
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Tuple
 
 from transformers import PreTrainedTokenizer
 
 _ENCODE_OPTIONS = ("dropout", "seed", "temperature", "nbest_size", "sample")
+# The base-class ``tokenize`` calls ``_tokenize(piece)`` with no options; this carries them.
+_CALL_OPTIONS: ContextVar[Dict[str, Any]] = ContextVar("_CALL_OPTIONS", default={})
 
 
 def _load_underlying(vocab_file: str):
@@ -85,19 +89,14 @@ class DynamicResearchTokenizer(PreTrainedTokenizer):
         return vocab
 
     def tokenize(self, text: str, **kwargs: Any) -> List[str]:
-        """Splits out added tokens, then encodes each remaining piece with the per-call options."""
+        """The base-class ``tokenize`` (added-token split with lstrip/rstrip/single_word,
+        ``split_special_tokens``) with the per-call encode options passed on to ``_tokenize``."""
         options = {k: kwargs.pop(k) for k in _ENCODE_OPTIONS if k in kwargs}
-        split_special_tokens = kwargs.pop("split_special_tokens", self.split_special_tokens)
-        text, _ = self.prepare_for_tokenization(text, **kwargs)  # HF passes e.g. return_offsets_mapping
-        if split_special_tokens:
-            return self._tokenize(text, **options)
-        tokens: List[str] = []
-        for piece in self.tokens_trie.split(text):
-            if piece in self._added_tokens_encoder:
-                tokens.append(piece)
-            elif piece:
-                tokens.extend(self._tokenize(piece, **options))
-        return tokens
+        reset = _CALL_OPTIONS.set(options)
+        try:
+            return super().tokenize(text, **kwargs)
+        finally:
+            _CALL_OPTIONS.reset(reset)
 
     def _reject_learned(self, specials) -> None:
         own = self._underlying.special_tokens()
@@ -121,7 +120,12 @@ class DynamicResearchTokenizer(PreTrainedTokenizer):
         self._reject_learned(t for v in values for t in (v if isinstance(v, (list, tuple)) else [v]))
         return super().add_special_tokens(special_tokens_dict, *args, **kwargs)
 
-    def _tokenize(self, text: str, **options: Any) -> List[str]:
+    def _tokenize(self, text: str, **kwargs: Any) -> List[str]:
+        options = dict(_CALL_OPTIONS.get())
+        if self._underlying.special_tokens():
+            # Like the HF model step, never match specials here: the added-token split in
+            # `tokenize` has cut them out, or with split_special_tokens they are text.
+            options["split_special_tokens"] = True
         return [self._underlying.id_to_token(i) for i in self._underlying.encode(text, **options)]
 
     def _convert_token_to_id(self, token: str) -> int:

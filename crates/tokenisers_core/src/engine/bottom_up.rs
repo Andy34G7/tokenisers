@@ -11,7 +11,7 @@ use crate::curricula::super_bpe::{BoundaryJunction, SuperBpeTrainer};
 use crate::error::{Result, TokeniserError};
 use crate::index::{InvertedIndex, OccurrenceRef, Pair};
 use crate::scoring::{PairContext, PairScorer, ScoreDeps, ScoredPair};
-use crate::vocab::{TokenId, Vocabulary, BASE_VOCAB_SIZE};
+use crate::vocab::{SpecialToken, TokenId, Vocabulary, BASE_VOCAB_SIZE};
 
 const NONE: u32 = u32::MAX;
 
@@ -166,7 +166,7 @@ impl BottomUpModel {
     /// Deterministic BPE encoding: special tokens are matched first (leftmost-longest), then merges
     /// are applied in training order. O(n log n) in the input length.
     pub fn encode(&self, bytes: &[u8]) -> Vec<TokenId> {
-        self.encode_impl(bytes, None)
+        self.encode_impl(bytes, self.vocab.special_tokens(), None)
     }
 
     /// BPE-dropout encoding (Provilkov et al. 2020, HF `tokenizers` semantics with the training
@@ -177,18 +177,39 @@ impl BottomUpModel {
     /// one document-wide re-queue that lets almost every merge through. `p <= 0` equals `encode`,
     /// `p >= 1` yields raw bytes (special tokens are still matched). A seed makes it reproducible.
     pub fn encode_with_dropout(&self, bytes: &[u8], p: f32, seed: Option<u64>) -> Vec<TokenId> {
-        if p.is_nan() || p <= 0.0 {
-            return self.encode(bytes);
-        }
-        let mut rng = seed.map_or_else(Rng::new, Rng::with_seed);
-        self.encode_impl(bytes, Some((p.min(1.0), &mut rng)))
+        self.encode_dropout(bytes, self.vocab.special_tokens(), p, seed)
     }
 
-    fn encode_impl(&self, bytes: &[u8], mut dropout: Option<(f32, &mut Rng)>) -> Vec<TokenId> {
+    /// `encode_with_dropout` without special-token matching: a special token's text is encoded
+    /// as ordinary bytes. This is the HF model step, which only sees the text between the added
+    /// tokens it has already split out (all of it with `split_special_tokens=True`).
+    pub fn encode_ordinary(&self, bytes: &[u8], p: f32, seed: Option<u64>) -> Vec<TokenId> {
+        self.encode_dropout(bytes, &[], p, seed)
+    }
+
+    fn encode_dropout(
+        &self,
+        bytes: &[u8],
+        specials: &[SpecialToken],
+        p: f32,
+        seed: Option<u64>,
+    ) -> Vec<TokenId> {
+        if p.is_nan() || p <= 0.0 {
+            return self.encode_impl(bytes, specials, None);
+        }
+        let mut rng = seed.map_or_else(Rng::new, Rng::with_seed);
+        self.encode_impl(bytes, specials, Some((p.min(1.0), &mut rng)))
+    }
+
+    fn encode_impl(
+        &self,
+        bytes: &[u8],
+        specials: &[SpecialToken],
+        mut dropout: Option<(f32, &mut Rng)>,
+    ) -> Vec<TokenId> {
         let mut out = Vec::with_capacity(bytes.len() / 2 + 1);
         let mut scratch = Scratch::default();
         let mut cache: AHashMap<&[u8], (usize, usize)> = AHashMap::new();
-        let specials = self.vocab.special_tokens();
 
         let mut start = 0;
         let mut i = 0;

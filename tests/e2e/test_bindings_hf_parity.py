@@ -42,6 +42,7 @@ TEXTS = [
 MAKERS = {
     "bpe+specials": lambda: tokenisers.BpeTokenizer.train(CORPUS, 420, special_tokens=SPECIALS),
     "wordpiece+specials": lambda: tokenisers.WordPieceTokenizer.train(CORPUS, 420, special_tokens=SPECIALS),
+    "bpe+byte-special": lambda: tokenisers.BpeTokenizer.train(CORPUS, 420, special_tokens=["\n", "<|endoftext|>"]),
     "wp-bpe-npmi": lambda: tokenisers.WpBpeNpmiTokenizer.train(CORPUS, 420),
     "mdl": lambda: tokenisers.MdlTokenizer.train(CORPUS, 420),
     "super_bpe": lambda: tokenisers.SuperBpeTokenizer.train(CORPUS, vocab_size=460),
@@ -70,11 +71,18 @@ def test_hf_ids_equal_native(saved):
 
 
 def test_get_vocab_equals_hf_vocab(saved):
-    """P2: token strings are the tokenizer.json keys (byte-level printable, specials by content)."""
+    """P2: token strings are the tokenizer.json keys (byte-level printable, specials by content).
+    A one-byte special ("\\n") has two keys there, "\\n" and its byte-level key "Ċ" (merges and
+    split_special_tokens use it); get_vocab dropped "Ċ"."""
     name, tok, out = saved
     hf = tokenizers.Tokenizer.from_file(str(out / "tokenizer.json"))
-    assert hf.get_vocab(with_added_tokens=True) == tok.get_vocab(), name
-    assert hf.get_vocab_size(with_added_tokens=True) == tok.vocab_size
+    vocab = tok.get_vocab()
+    assert hf.get_vocab(with_added_tokens=True) == vocab, name
+    assert hf.get_vocab_size(with_added_tokens=True) == len(vocab)  # HF counts keys
+    assert sorted(set(vocab.values())) == list(range(tok.vocab_size))
+    assert all(tok.token_to_id(key) == i for key, i in vocab.items())
+    if name == "bpe+byte-special":
+        assert vocab["\n"] == vocab["Ċ"] == 10 and len(vocab) == tok.vocab_size + 1
 
 
 @pytest.mark.parametrize("saved", ["bpe+specials", "wordpiece+specials"], indirect=True)
@@ -86,6 +94,24 @@ def test_special_tokens_use_reserved_slots(saved):
     hf = tokenizers.Tokenizer.from_file(str(out / "tokenizer.json"))
     assert [hf.token_to_id(s) for s in SPECIALS] == [418, 419]
     assert tok.encode("<pad>") == [419]
+
+
+@pytest.mark.parametrize("saved", ["bpe+specials", "bpe+byte-special"], indirect=True)
+def test_split_special_tokens_encodes_specials_as_text(saved):
+    """split_special_tokens=True: AutoTokenizer encodes a special's text as ordinary text; the
+    wrapper (and native encode, which had no such option) still gave the special's id."""
+    name, tok, out = saved
+    auto = transformers.AutoTokenizer.from_pretrained(str(out))
+    wrapper = tokenisers.DynamicResearchTokenizer(tok)
+    for text in TEXTS:
+        ids = auto.encode(text, add_special_tokens=False, split_special_tokens=True)
+        assert wrapper(text, split_special_tokens=True)["input_ids"] == ids, (name, text)
+        assert tok.encode(text, split_special_tokens=True) == ids, (name, text)
+        assert tok.encode_bytes(text.encode("utf-8"), split_special_tokens=True) == ids, (name, text)
+        multi_byte = {i for s, i in tok.special_tokens().items() if len(s.encode("utf-8")) > 1}
+        assert not set(ids) & multi_byte, (name, text)
+    eot = tok.token_to_id("<|endoftext|>")
+    assert wrapper("a<|endoftext|>b")["input_ids"] == tok.encode("a<|endoftext|>b") == tok.encode("a") + [eot] + tok.encode("b")
 
 
 def test_from_pretrained_round_trips(saved, tmp_path):
@@ -106,6 +132,22 @@ def test_wrapper_ids_equal_hf_fast_tokenizer(saved):
         if "<" in text and "specials" not in name:
             continue  # the wrapper adds its own <pad>/</s>; the bare model has none
         assert wrapper(text)["input_ids"] == fast.encode(text, add_special_tokens=False), (name, text)
+
+
+def test_wrapper_added_tokens_keep_their_ids_in_auto_tokenizer(saved, tmp_path):
+    """HF numbers new added tokens from len(get_vocab()), which counts keys. The export keys a
+    one-byte special ("\\n") twice; get_vocab dropped "Ċ", so the wrapper gave <s> id 1 lower than
+    AutoTokenizer on the wrapper's own save_pretrained, and every added-token id disagreed."""
+    name, tok, _ = saved
+    wrapper = tokenisers.DynamicResearchTokenizer(tok)
+    wrapper.add_tokens(["<new>"])
+    wrapper.save_pretrained(str(tmp_path))
+    auto = transformers.AutoTokenizer.from_pretrained(str(tmp_path))
+    names = ["<s>", "</s>", "<unk>", "<pad>", "<new>"]
+    assert auto.convert_tokens_to_ids(names) == wrapper.convert_tokens_to_ids(names), name
+    assert len(auto) == len(wrapper), name
+    text = "<s>a\nb<new> c</s>"
+    assert auto.encode(text, add_special_tokens=False) == wrapper(text)["input_ids"], name
 
 
 @pytest.mark.parametrize("special", ["é", "§", "«", "ĠĠ"])
