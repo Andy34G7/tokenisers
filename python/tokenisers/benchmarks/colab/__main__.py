@@ -19,6 +19,7 @@ from tokenisers.benchmarks.common import (
     assert_disjoint,
     check_memory,
     find_duplicates,
+    start_provenance,
     load_dataset,
     load_morphology,
     run_metadata,
@@ -86,6 +87,7 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--no-dropout-variant", action="store_true",
                         help=f"Skip {DROPOUT_VARIANT} (bpe_frequency trained on BPE-dropout encodings)")
     args = parser.parse_args(argv)
+    start = start_provenance(__package__, argv)  # before the tree can change during a long run
 
     if not args.skip_memory_check:  # before downloading/preparing anything
         check_memory(args.variants, args.train_bytes)
@@ -138,7 +140,7 @@ def main(argv: List[str] | None = None) -> None:
         shutil.rmtree(job_dir, ignore_errors=True)
 
     meta = run_metadata(
-        args, ds, "proxy_lm_bpb", "val", records, duplicates,
+        args, ds, "proxy_lm_bpb", "val", records, duplicates, start=start,
         backend=result["backend"], fallback=fallback, lm=lm, lm_architecture=result["architecture"],
         train=train_cfg, byte_budget=args.byte_budget,
         seeds=args.seeds, val_domains=list(DOMAINS), lm_train_docs=len(lm_docs),

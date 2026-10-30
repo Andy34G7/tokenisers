@@ -140,6 +140,12 @@ test fails if they differ from the committed JSON. The numbers previously shown 
 synthetic data, evaluated on training text, with a proxy LM that silently ran on a local CPU; they
 are kept, marked invalid, in [`benchmarks/results/legacy_smoke/`](benchmarks/results/legacy_smoke/).
 
+The committed results use the default V = 16,384 but a 10 MB train split (`--train-bytes 10000000`):
+the default 50 MB split needs ~9 GiB for `unigram_lm`, more than the shared 15 GB machine they were
+produced on could spare. The proxy LM ran on that machine's CPU with a 1 MB byte budget. Each
+section's header lists the exact arguments, data sizes, backend and commit. 32k / 64k vocabularies
+are supported (`--vocab-size 32768` / `65536`); no results are committed for them yet.
+
 ### 1. Tokka-Bench (natural languages + code, held-out test split)
 <!-- BEGIN GENERATED: tokka -->
 _No results committed (`benchmarks/results/tokka/tokka_matrix.json` is missing). Run `uv run python -m tokenisers.benchmarks.tokka`, then `uv run python scripts/gen_readme_tables.py`._

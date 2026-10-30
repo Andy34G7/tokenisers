@@ -25,7 +25,8 @@ def _summary(meta: Dict[str, Any]) -> str:
         f"commit `{commit}`",
         f"generated {meta.get('created_utc', '?')}",
     ]
-    return "- " + "; ".join(parts)
+    args = " ".join(meta.get("command", [])[3:])
+    return "- " + "; ".join(parts) + f"\n- arguments: {f'`{args}`' if args else '(defaults)'}"
 
 
 def _label(name: str, duplicates: Dict[str, str]) -> str:

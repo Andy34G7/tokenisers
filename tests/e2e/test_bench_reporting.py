@@ -130,6 +130,41 @@ def test_memory_preflight_runs_before_the_dataset_is_prepared(monkeypatch, tmp_p
             cli.main(["--offline", "--cache-dir", str(tmp_path), "--train-bytes", str(50 * 2**20)])
 
 
+def test_memory_preflight_counts_what_the_process_already_holds(monkeypatch):
+    """The estimate is the run's total peak; memory the process already uses (interpreter, torch) is
+    both part of it and missing from what is available, so only the difference must fit."""
+    gib = 2**30
+    need = common.estimate_train_memory(["unigram_lm"], 10**7)  # ~2.2 GiB
+    monkeypatch.setattr(common, "available_memory", lambda: need - gib // 2)
+    monkeypatch.setattr(common, "own_rss", lambda: gib // 2)
+    common.check_memory(["unigram_lm"], 10**7)
+    monkeypatch.setattr(common, "own_rss", lambda: gib // 4)
+    with pytest.raises(SystemExit, match="unigram_lm"):
+        common.check_memory(["unigram_lm"], 10**7)
+    assert 0 < common.own_rss() < 10 * gib  # this process, from /proc/self/statm
+
+
+def test_provenance_is_taken_when_the_run_starts(require_tokenisers, tmp_path, monkeypatch):
+    """A commit made while a long run is going must not be recorded as the code that produced it."""
+    from tokenisers.benchmarks.tokka import __main__ as cli
+
+    monkeypatch.setattr(common, "_git", lambda *a: "a" * 40 if a[0] == "rev-parse" else "")
+
+    def train_then_commit(*a, **kw):
+        monkeypatch.setattr(common, "_git", lambda *a: "b" * 40 if a[0] == "rev-parse" else " M x.py")
+        return common.train_suite(*a, **kw)
+
+    monkeypatch.setattr(cli, "train_suite", train_then_commit)
+    argv = ["--offline", "--cache-dir", str(tmp_path / "cache"), "--train-bytes", "30000", "--vocab-size", "270",
+            "--variants", "bpe_frequency", "--output-dir", str(tmp_path / "out"),
+            "--min-docs-per-lang", "1", "--min-bytes-per-lang", "0"]
+    cli.main(argv)
+    meta = json.loads((tmp_path / "out" / "tokka_matrix.json").read_text())["meta"]
+    assert meta["git_commit"] == "a" * 40 and meta["git_dirty"] is False
+    assert meta["command"] == ["python", "-m", "tokenisers.benchmarks.tokka", *argv]
+    assert "- arguments: `--offline --cache-dir" in (tmp_path / "out" / "tokka_leaderboard.md").read_text()
+
+
 def test_assert_disjoint():
     common.assert_disjoint(["a", "b"], ["c"])
     with pytest.raises(RuntimeError, match="1 test documents"):

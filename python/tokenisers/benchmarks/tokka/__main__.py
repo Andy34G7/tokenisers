@@ -14,6 +14,7 @@ from tokenisers.benchmarks.common import (
     assert_disjoint,
     check_memory,
     find_duplicates,
+    start_provenance,
     load_dataset,
     load_morphology,
     run_metadata,
@@ -65,6 +66,7 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--min-bytes-per-lang", type=int, default=MIN_BYTES_PER_LANG,
                         help="Held-out UTF-8 bytes a language needs to enter the macro average")
     args = parser.parse_args(argv)
+    start = start_provenance(__package__, argv)  # before the tree can change during a long run
 
     if not args.tokenizer_path and not args.skip_memory_check:  # before downloading/preparing anything
         check_memory(args.variants, args.train_bytes)
@@ -101,7 +103,7 @@ def main(argv: List[str] | None = None) -> None:
         models = {n: t for n, t in models.items() if n not in duplicates}
 
     meta = run_metadata(
-        args, ds, "tokka", "test", records, duplicates,
+        args, ds, "tokka", "test", records, duplicates, start=start,
         tokka_bench="vendor/tokka-bench (tokka_bench.metrics.calculate_word_metrics)",
         language_bytes=bytes_per_lang,
         language_docs={lang: docs_per_lang[lang] for lang in texts},

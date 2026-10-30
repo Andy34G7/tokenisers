@@ -144,12 +144,22 @@ def estimate_train_memory(variants: Sequence[str], train_bytes: int) -> int:
     return BASE_MEMORY + per_byte * train_bytes
 
 
+def own_rss() -> int:
+    """Resident memory of this process now (already counted as used by ``available_memory``)."""
+    try:
+        return int(Path("/proc/self/statm").read_text().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
 def check_memory(variants: Sequence[str], train_bytes: int) -> None:
     """Exit before training if the estimated peak exceeds the memory this process may use, instead
-    of letting the kernel OOM-kill it (or the desktop session) halfway through."""
+    of letting the kernel OOM-kill it (or the desktop session) halfway through. The estimate is the
+    process's total peak; what the process already holds (interpreter, torch) is part of it and is
+    not available memory any more, so only the difference must fit."""
     need = estimate_train_memory(variants, train_bytes)
     avail = available_memory()
-    if avail is not None and need > avail:
+    if avail is not None and need - own_rss() > avail:
         worst = max(variants, key=lambda v: TRAIN_MEMORY_PER_BYTE.get(v, DEFAULT_TRAIN_MEMORY_PER_BYTE))
         raise SystemExit(
             f"Training {worst} on {train_bytes / 1e6:.0f} MB needs ~{need / 2**30:.1f} GiB but only "
@@ -320,6 +330,17 @@ def _cpu_model() -> str:
     return platform.processor() or platform.machine()
 
 
+def start_provenance(module: str, argv: Optional[Sequence[str]]) -> Dict[str, Any]:
+    """Command line, commit and dirty flag of the checkout. CLIs call this when they start: a run can
+    take hours, and the tree may change before its results are written."""
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    return {
+        "command": ["python", "-m", module, *(sys.argv[1:] if argv is None else argv)],
+        "git_commit": _git("rev-parse", "HEAD"),
+        "git_dirty": None if status is None else bool(status),
+    }
+
+
 def run_metadata(
     args: argparse.Namespace,
     dataset: PreparedDataset,
@@ -327,16 +348,16 @@ def run_metadata(
     eval_split: str,
     train_records: Dict[str, Dict[str, Any]],
     duplicates: Dict[str, str],
+    *,
+    start: Dict[str, Any],
     **extra: Any,
 ) -> Dict[str, Any]:
-    status = _git("status", "--porcelain", "--untracked-files=no")
+    """``start`` is ``start_provenance()`` taken when the run started."""
     manifest = dataset.manifest
     return {
         "benchmark": benchmark,
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "command": [Path(sys.argv[0]).name, *sys.argv[1:]],
-        "git_commit": _git("rev-parse", "HEAD"),
-        "git_dirty": None if status is None else bool(status),
+        **start,
         "host": {
             "platform": platform.platform(),
             "cpu": _cpu_model(),
@@ -374,6 +395,7 @@ __all__ = [
     "check_memory",
     "estimate_train_memory",
     "find_duplicates",
+    "start_provenance",
     "load_dataset",
     "load_morphology",
     "run_metadata",
