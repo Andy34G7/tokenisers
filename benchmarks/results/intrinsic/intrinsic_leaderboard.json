@@ -1,17 +1,22 @@
 {
   "meta": {
     "benchmark": "intrinsic",
-    "created_utc": "2026-10-30T07:18:20Z",
+    "created_utc": "2026-10-30T13:09:07Z",
     "command": [
       "python",
       "-m",
       "tokenisers.benchmarks.intrinsic",
-      "--train-bytes",
-      "10000000"
+      "--skip-memory-check"
     ],
     "tokenisers_version": "0.1.0",
-    "git_commit": "b8f3504b3e1e6d6602e2c2a0d691aa1ab932037b",
+    "git_commit": "603a983557012699f8d16b63259d8f7b479b768c",
     "git_dirty": false,
+    "native_extension": {
+      "file": "_core.cpython-313-x86_64-linux-gnu.so",
+      "sha256": "4da4c190961ff5aa3b1c70b3eb824d37e01c9442c4af3cb390e60ecb486ad1db",
+      "built_utc": "2026-10-30T12:26:01Z",
+      "stale_sources": []
+    },
     "host": {
       "platform": "Linux-7.3.0-4-cachyos-x86_64-with-glibc2.44",
       "cpu": "Intel(R) Core(TM) Ultra 7 155H",
@@ -22,19 +27,19 @@
     "synthetic_data": false,
     "train_split": "train",
     "eval_split": "test",
-    "train_bytes": 10105464,
-    "train_docs": 2097,
-    "eval_bytes": 710815,
-    "eval_docs": 114,
+    "train_bytes": 52512567,
+    "train_docs": 11102,
+    "eval_bytes": 3142895,
+    "eval_docs": 666,
     "dataset": {
-      "root": "hf-a9e9d22cc093daf4",
+      "root": "hf-fb5b8df7af00b10f",
       "format_version": 2,
-      "created_utc": "2026-10-30T07:14:27.380385+00:00",
+      "created_utc": "2026-10-30T12:52:26.795572+00:00",
       "synthetic": false,
       "complete": true,
       "config": {
         "format_version": 2,
-        "train_bytes": 10000000,
+        "train_bytes": 52428800,
         "val_fraction": 0.05,
         "test_fraction": 0.05,
         "seed": 0,
@@ -83,23 +88,23 @@
           "path": "sample/10BT",
           "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
           "budget_bytes": {
-            "train": 5000000,
-            "val": 277777,
-            "test": 277777
+            "train": 26214400,
+            "val": 1456355,
+            "test": 1456355
           },
           "docs": {
-            "train": 1063,
-            "val": 76,
-            "test": 41
+            "train": 5389,
+            "val": 333,
+            "test": 316
           },
           "bytes": {
-            "train": 5009309,
-            "val": 279401,
-            "test": 291599
+            "train": 26227095,
+            "val": 1469787,
+            "test": 1458704
           },
-          "rows_read": 1457,
+          "rows_read": 6634,
           "duplicates_skipped": 0,
-          "too_long_skipped": 2,
+          "too_long_skipped": 3,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -111,21 +116,21 @@
           "path": "data/deu_Latn/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 89,
-            "val": 8,
-            "test": 7
+            "train": 608,
+            "val": 26,
+            "test": 38
           },
           "bytes": {
-            "train": 300053,
-            "val": 19910,
-            "test": 19531
+            "train": 1573829,
+            "val": 87453,
+            "test": 92936
           },
-          "rows_read": 141,
+          "rows_read": 680,
           "duplicates_skipped": 0,
           "too_long_skipped": 0,
           "exhausted": false,
@@ -139,21 +144,21 @@
           "path": "data/fra_Latn/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 64,
-            "val": 6,
-            "test": 6
+            "train": 451,
+            "val": 33,
+            "test": 20
           },
           "bytes": {
-            "train": 300037,
-            "val": 31967,
-            "test": 37571
+            "train": 1574695,
+            "val": 90334,
+            "test": 88521
           },
-          "rows_read": 140,
+          "rows_read": 731,
           "duplicates_skipped": 0,
           "too_long_skipped": 0,
           "exhausted": false,
@@ -167,23 +172,23 @@
           "path": "data/spa_Latn/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 80,
-            "val": 3,
-            "test": 3
+            "train": 396,
+            "val": 22,
+            "test": 34
           },
           "bytes": {
-            "train": 307846,
-            "val": 17804,
-            "test": 21018
+            "train": 1578117,
+            "val": 87822,
+            "test": 87395
           },
-          "rows_read": 167,
+          "rows_read": 901,
           "duplicates_skipped": 0,
-          "too_long_skipped": 1,
+          "too_long_skipped": 2,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -195,21 +200,21 @@
           "path": "data/rus_Cyrl/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 43,
+            "train": 290,
             "val": 2,
-            "test": 6
+            "test": 18
           },
           "bytes": {
-            "train": 300070,
+            "train": 1576111,
             "val": 89534,
-            "test": 22126
+            "test": 97887
           },
-          "rows_read": 229,
+          "rows_read": 434,
           "duplicates_skipped": 0,
           "too_long_skipped": 2,
           "exhausted": false,
@@ -223,23 +228,23 @@
           "path": "data/cmn_Hani/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 94,
-            "val": 6,
-            "test": 8
+            "train": 552,
+            "val": 26,
+            "test": 23
           },
           "bytes": {
-            "train": 301815,
-            "val": 16789,
-            "test": 17350
+            "train": 1573752,
+            "val": 127036,
+            "test": 132440
           },
-          "rows_read": 178,
+          "rows_read": 614,
           "duplicates_skipped": 0,
-          "too_long_skipped": 0,
+          "too_long_skipped": 1,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -251,23 +256,23 @@
           "path": "data/jpn_Jpan/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 90,
-            "val": 2,
-            "test": 2
+            "train": 435,
+            "val": 25,
+            "test": 26
           },
           "bytes": {
-            "train": 305207,
-            "val": 17426,
-            "test": 16978
+            "train": 1572920,
+            "val": 88848,
+            "test": 90349
           },
-          "rows_read": 102,
+          "rows_read": 567,
           "duplicates_skipped": 0,
-          "too_long_skipped": 0,
+          "too_long_skipped": 2,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -279,23 +284,23 @@
           "path": "data/arb_Arab/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 46,
-            "val": 5,
-            "test": 3
+            "train": 263,
+            "val": 17,
+            "test": 19
           },
           "bytes": {
-            "train": 301458,
-            "val": 27159,
-            "test": 17851
+            "train": 1579672,
+            "val": 140120,
+            "test": 93285
           },
-          "rows_read": 123,
+          "rows_read": 395,
           "duplicates_skipped": 0,
-          "too_long_skipped": 1,
+          "too_long_skipped": 5,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -307,23 +312,23 @@
           "path": "data/hin_Deva/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 42,
-            "val": 4,
-            "test": 5
+            "train": 283,
+            "val": 27,
+            "test": 21
           },
           "bytes": {
-            "train": 303823,
-            "val": 19324,
-            "test": 21819
+            "train": 1572939,
+            "val": 88445,
+            "test": 116146
           },
-          "rows_read": 124,
+          "rows_read": 567,
           "duplicates_skipped": 0,
-          "too_long_skipped": 0,
+          "too_long_skipped": 1,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -335,23 +340,23 @@
           "path": "data/hun_Latn/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 65,
-            "val": 5,
-            "test": 3
+            "train": 322,
+            "val": 36,
+            "test": 23
           },
           "bytes": {
-            "train": 309431,
-            "val": 19127,
-            "test": 21793
+            "train": 1575860,
+            "val": 88607,
+            "test": 93388
           },
-          "rows_read": 75,
+          "rows_read": 901,
           "duplicates_skipped": 0,
-          "too_long_skipped": 0,
+          "too_long_skipped": 3,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -363,21 +368,21 @@
           "path": "data/fin_Latn/train",
           "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
           "budget_bytes": {
-            "train": 300000,
-            "val": 16666,
-            "test": 16666
+            "train": 1572864,
+            "val": 87381,
+            "test": 87381
           },
           "docs": {
-            "train": 113,
-            "val": 10,
-            "test": 3
+            "train": 542,
+            "val": 38,
+            "test": 39
           },
           "bytes": {
-            "train": 300287,
-            "val": 17513,
-            "test": 19137
+            "train": 1583579,
+            "val": 87827,
+            "test": 88084
           },
-          "rows_read": 226,
+          "rows_read": 731,
           "duplicates_skipped": 0,
           "too_long_skipped": 0,
           "exhausted": false,
@@ -391,23 +396,23 @@
           "path": "python",
           "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
           "budget_bytes": {
-            "train": 333333,
-            "val": 18518,
-            "test": 18518
+            "train": 1747626,
+            "val": 97090,
+            "test": 97090
           },
           "docs": {
-            "train": 62,
-            "val": 3,
-            "test": 3
+            "train": 261,
+            "val": 10,
+            "test": 18
           },
           "bytes": {
-            "train": 335305,
-            "val": 22757,
-            "test": 19256
+            "train": 1748071,
+            "val": 101086,
+            "test": 113033
           },
-          "rows_read": 71,
+          "rows_read": 396,
           "duplicates_skipped": 0,
-          "too_long_skipped": 1,
+          "too_long_skipped": 4,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -419,23 +424,23 @@
           "path": "javascript",
           "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
           "budget_bytes": {
-            "train": 333333,
-            "val": 18518,
-            "test": 18518
+            "train": 1747626,
+            "val": 97090,
+            "test": 97090
           },
           "docs": {
-            "train": 79,
-            "val": 3,
-            "test": 9
+            "train": 338,
+            "val": 26,
+            "test": 15
           },
           "bytes": {
-            "train": 340466,
-            "val": 20476,
-            "test": 21712
+            "train": 1748164,
+            "val": 98055,
+            "test": 118902
           },
-          "rows_read": 194,
+          "rows_read": 452,
           "duplicates_skipped": 0,
-          "too_long_skipped": 0,
+          "too_long_skipped": 1,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -447,21 +452,21 @@
           "path": "java",
           "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
           "budget_bytes": {
-            "train": 333333,
-            "val": 18518,
-            "test": 18518
+            "train": 1747626,
+            "val": 97090,
+            "test": 97090
           },
           "docs": {
-            "train": 42,
-            "val": 5,
-            "test": 7
+            "train": 292,
+            "val": 10,
+            "test": 24
           },
           "bytes": {
-            "train": 333346,
-            "val": 18684,
-            "test": 18704
+            "train": 1752337,
+            "val": 119269,
+            "test": 115650
           },
-          "rows_read": 194,
+          "rows_read": 500,
           "duplicates_skipped": 0,
           "too_long_skipped": 1,
           "exhausted": false,
@@ -475,23 +480,23 @@
           "path": "cpp",
           "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
           "budget_bytes": {
-            "train": 333333,
-            "val": 18518,
-            "test": 18518
+            "train": 1747626,
+            "val": 97090,
+            "test": 97090
           },
           "docs": {
-            "train": 38,
-            "val": 1,
-            "test": 3
+            "train": 188,
+            "val": 7,
+            "test": 8
           },
           "bytes": {
-            "train": 375270,
-            "val": 24369,
-            "test": 79394
+            "train": 1764736,
+            "val": 113427,
+            "test": 128225
           },
-          "rows_read": 57,
+          "rows_read": 225,
           "duplicates_skipped": 0,
-          "too_long_skipped": 3,
+          "too_long_skipped": 7,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -503,23 +508,23 @@
           "path": "go",
           "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
           "budget_bytes": {
-            "train": 333333,
-            "val": 18518,
-            "test": 18518
+            "train": 1747626,
+            "val": 97090,
+            "test": 97090
           },
           "docs": {
-            "train": 61,
-            "val": 9,
-            "test": 3
+            "train": 293,
+            "val": 35,
+            "test": 11
           },
           "bytes": {
-            "train": 338216,
-            "val": 24243,
-            "test": 45799
+            "train": 1760784,
+            "val": 99932,
+            "test": 104222
           },
-          "rows_read": 130,
+          "rows_read": 664,
           "duplicates_skipped": 0,
-          "too_long_skipped": 1,
+          "too_long_skipped": 6,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -531,23 +536,23 @@
           "path": "rust",
           "revision": "9fc30b578cedaec69e47302df72cf00feed7c8c4",
           "budget_bytes": {
-            "train": 333333,
-            "val": 18518,
-            "test": 18518
+            "train": 1747626,
+            "val": 97090,
+            "test": 97090
           },
           "docs": {
-            "train": 26,
-            "val": 7,
-            "test": 2
+            "train": 199,
+            "val": 14,
+            "test": 13
           },
           "bytes": {
-            "train": 343525,
-            "val": 39364,
-            "test": 19177
+            "train": 1749906,
+            "val": 106753,
+            "test": 123728
           },
-          "rows_read": 259,
+          "rows_read": 510,
           "duplicates_skipped": 0,
-          "too_long_skipped": 3,
+          "too_long_skipped": 7,
           "exhausted": false,
           "error": null,
           "error_kind": null
@@ -558,24 +563,24 @@
       "splits": {
         "train": {
           "file": "train.jsonl",
-          "docs": 2097,
-          "text_bytes": 10105464,
-          "sha256": "3b9426f8a7c012ca61fdc8a58de888da094d82e1010ccea95e6bc247e4d6e863"
+          "docs": 11102,
+          "text_bytes": 52512567,
+          "sha256": "b108458f7d6975d0677cb6dfa67fc99c20fc86e53af8454764694fbb60501dcc"
         },
         "val": {
           "file": "val.jsonl",
-          "docs": 155,
-          "text_bytes": 705847,
-          "sha256": "00bc2cce6dc5f2778451bce6685fce1d2460c70f927be69c31bfd91b9d44876a"
+          "docs": 687,
+          "text_bytes": 3084335,
+          "sha256": "23aa0073970d6ed06f254e813d3f854d0fd46626ec4dbc74bf8b618c5fc86c98"
         },
         "test": {
           "file": "test.jsonl",
-          "docs": 114,
-          "text_bytes": 710815,
-          "sha256": "73be9ca0a1fdb9aef2888da75b729b6b31835d835ec8e49a96faea13744620a5"
+          "docs": 666,
+          "text_bytes": 3142895,
+          "sha256": "820c893607a399caf2f87c5c973ee2dd91075c7f59a95e227139ca6c41268b55"
         }
       },
-      "key": "a9e9d22cc093daf4"
+      "key": "fb5b8df7af00b10f"
     },
     "variants": {
       "bpe_frequency": {
@@ -583,7 +588,7 @@
         "scorer": "frequency",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.57,
+        "train_seconds": 4.33,
         "warnings": []
       },
       "wordpiece_pmi": {
@@ -591,7 +596,7 @@
         "scorer": "wordpiece",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.04,
+        "train_seconds": 2.91,
         "warnings": []
       },
       "wp_bpe_base": {
@@ -599,7 +604,7 @@
         "scorer": "wp-bpe-base",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 0.83,
+        "train_seconds": 2.43,
         "warnings": []
       },
       "wp_bpe_ft": {
@@ -607,7 +612,7 @@
         "scorer": "wp-bpe-ft",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.02,
+        "train_seconds": 2.86,
         "warnings": []
       },
       "wp_bpe_pig": {
@@ -615,7 +620,7 @@
         "scorer": "wp-bpe-pig",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.55,
+        "train_seconds": 8.56,
         "warnings": []
       },
       "wp_bpe_scp": {
@@ -623,7 +628,7 @@
         "scorer": "wp-bpe-scp",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.42,
+        "train_seconds": 3.93,
         "warnings": []
       },
       "wp_bpe_npmi": {
@@ -631,7 +636,7 @@
         "scorer": "wp-bpe-npmi",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.09,
+        "train_seconds": 7.1,
         "warnings": []
       },
       "wp_bpe_ppig": {
@@ -639,7 +644,7 @@
         "scorer": "wp-bpe-ppig",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.48,
+        "train_seconds": 8.11,
         "warnings": []
       },
       "mdl_bits": {
@@ -647,7 +652,7 @@
         "scorer": "mdl",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.2,
+        "train_seconds": 7.05,
         "warnings": []
       },
       "length_penalized": {
@@ -656,7 +661,7 @@
         "beta": 0.5,
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.68,
+        "train_seconds": 4.6,
         "warnings": []
       },
       "super_bpe": {
@@ -664,7 +669,7 @@
         "v_switch": 14771,
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 5.11,
+        "train_seconds": 14.25,
         "warnings": []
       },
       "morpheme_bpe": {
@@ -673,14 +678,14 @@
         "lambda_weight": 2.0,
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.92,
+        "train_seconds": 4.52,
         "warnings": []
       },
       "unigram_lm": {
         "class": "UnigramTokenizer",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 14.6,
+        "train_seconds": 47.79,
         "warnings": []
       }
     },
@@ -772,33 +777,33 @@
         }
       ],
       "gold_entries": 126622,
-      "lexicon_entries": 22171,
-      "lexicon_words_dropped_as_gold": 597
+      "lexicon_entries": 50230,
+      "lexicon_words_dropped_as_gold": 985
     },
-    "identifier_source": "1499 most frequent multi-part identifiers of the test split's code"
+    "identifier_source": "2000 most frequent multi-part identifiers of the test split's code"
   },
   "models": {
     "bpe_frequency": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.6199655740544845,
-      "fertility": 2.106238397543144,
-      "renyi_e_1_0": 0.6397929405410234,
-      "renyi_e_2_0": 0.2511807198302314,
-      "renyi_e_2_5": 0.21003783788629168,
-      "active_fraction": 0.75347900390625,
-      "dead_tokens": 4039,
-      "gini_coefficient": 0.8616483366841317,
-      "morph_precision": 0.22253693226684867,
-      "morph_recall": 0.42486236458284854,
-      "morph_f1": 0.2733100329024106,
+      "bytes_per_token": 2.6433183963612996,
+      "fertility": 2.066147950296133,
+      "renyi_e_1_0": 0.6555630354467591,
+      "renyi_e_2_0": 0.24696731974663327,
+      "renyi_e_2_5": 0.20643930227796356,
+      "active_fraction": 0.96038818359375,
+      "dead_tokens": 649,
+      "gini_coefficient": 0.8115586459202961,
+      "morph_precision": 0.2275835738476532,
+      "morph_recall": 0.43040569760185565,
+      "morph_f1": 0.27883376439674695,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.37105944280183306,
+      "morph_f1_word_weighted": 0.37703462110922853,
       "morph_f1_by_lang": {
-        "eng": 0.3017971485935891,
-        "fra": 0.15351315527533974,
-        "hun": 0.48616049389683974,
-        "rus": 0.16024046391745198,
-        "spa": 0.2648389028288327
+        "eng": 0.3058131959911715,
+        "fra": 0.15281526168174844,
+        "hun": 0.49343998256018473,
+        "rus": 0.17239850422468297,
+        "spa": 0.26970187752594704
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -807,34 +812,34 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.6248611148356489,
-      "identifier_recall": 0.9898265510340227,
-      "identifier_f1": 0.7295434634194821,
-      "identifiers": 1499,
-      "number_fertility": 6.0,
-      "encode_mb_per_sec": 12.350714039182161,
-      "decode_mb_per_sec": 40.72616381924183,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "identifier_precision": 0.7065416926275478,
+      "identifier_recall": 0.9883365384615385,
+      "identifier_f1": 0.7889020402112508,
+      "identifiers": 2000,
+      "number_fertility": 5.0,
+      "encode_mb_per_sec": 17.636591966410176,
+      "decode_mb_per_sec": 68.84805084299924,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "wordpiece_pmi": {
       "vocab_size": 16384,
-      "bytes_per_token": 1.0166554629060172,
-      "fertility": 6.66165516925263,
-      "renyi_e_1_0": 0.3910795544851939,
-      "renyi_e_2_0": 0.3107728760187795,
-      "renyi_e_2_5": 0.2894694839049244,
-      "active_fraction": 0.0517578125,
-      "dead_tokens": 15536,
-      "gini_coefficient": 0.9975355132301962,
-      "morph_precision": 0.12040537606353867,
+      "bytes_per_token": 1.0173831694017375,
+      "fertility": 6.670470586717248,
+      "renyi_e_1_0": 0.3982333069334004,
+      "renyi_e_2_0": 0.31630296526492846,
+      "renyi_e_2_5": 0.2942755901729665,
+      "active_fraction": 0.0640869140625,
+      "dead_tokens": 15334,
+      "gini_coefficient": 0.9973620765683331,
+      "morph_precision": 0.12040549377222146,
       "morph_recall": 0.8733989725751181,
-      "morph_f1": 0.20587186184244333,
+      "morph_f1": 0.20587203840546747,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.25161999454306905,
+      "morph_f1_word_weighted": 0.25162027659741754,
       "morph_f1_by_lang": {
-        "eng": 0.21163717476435576,
+        "eng": 0.2116380575794766,
         "fra": 0.18692733409089843,
         "hun": 0.31191091116826636,
         "rus": 0.1257565517364181,
@@ -847,35 +852,35 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.14572206464032017,
+      "identifier_precision": 0.14358379171562208,
       "identifier_recall": 1.0,
-      "identifier_f1": 0.24673648645443214,
-      "identifiers": 1499,
+      "identifier_f1": 0.24510186624342126,
+      "identifiers": 2000,
       "number_fertility": 10.0,
-      "encode_mb_per_sec": 30.143945740817315,
-      "decode_mb_per_sec": 45.35837435691118,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 43.8859144317487,
+      "decode_mb_per_sec": 67.21503718724857,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "wp_bpe_base": {
       "vocab_size": 16384,
-      "bytes_per_token": 1.0071696268535115,
-      "fertility": 6.720486787523205,
-      "renyi_e_1_0": 0.3923900296321548,
-      "renyi_e_2_0": 0.31262733016921335,
-      "renyi_e_2_5": 0.29107011552821677,
-      "active_fraction": 0.01861572265625,
-      "dead_tokens": 16079,
-      "gini_coefficient": 0.9975449429870039,
-      "morph_precision": 0.12040286672843756,
+      "bytes_per_token": 1.0065619269243014,
+      "fertility": 6.7371166079562315,
+      "renyi_e_1_0": 0.3993541707188573,
+      "renyi_e_2_0": 0.31839917539968415,
+      "renyi_e_2_5": 0.2960985359817755,
+      "active_fraction": 0.0172119140625,
+      "dead_tokens": 16102,
+      "gini_coefficient": 0.9973662624981119,
+      "morph_precision": 0.12040045521407816,
       "morph_recall": 0.8733989725751181,
-      "morph_f1": 0.20587015053928598,
+      "morph_f1": 0.2058672098403999,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.2516172607855376,
+      "morph_f1_word_weighted": 0.2516154180304608,
       "morph_f1_by_lang": {
-        "eng": 0.21162861824856896,
-        "fra": 0.18692733409089843,
+        "eng": 0.21162449844467165,
+        "fra": 0.18691675040036557,
         "hun": 0.31191091116826636,
         "rus": 0.1257565517364181,
         "spa": 0.19312733745227792
@@ -887,34 +892,34 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.14572206464032017,
+      "identifier_precision": 0.1434437835212021,
       "identifier_recall": 1.0,
-      "identifier_f1": 0.24673648645443214,
-      "identifiers": 1499,
+      "identifier_f1": 0.24489933082734094,
+      "identifiers": 2000,
       "number_fertility": 10.0,
-      "encode_mb_per_sec": 31.214056210437782,
-      "decode_mb_per_sec": 44.79802261548261,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 39.20675248730639,
+      "decode_mb_per_sec": 57.48742647805935,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "wp_bpe_ft": {
       "vocab_size": 16384,
-      "bytes_per_token": 1.0163400234777027,
-      "fertility": 6.664141819265235,
-      "renyi_e_1_0": 0.3911355319194412,
-      "renyi_e_2_0": 0.31083541336374404,
-      "renyi_e_2_5": 0.2895226433390848,
-      "active_fraction": 0.04901123046875,
-      "dead_tokens": 15581,
-      "gini_coefficient": 0.9975387466577037,
-      "morph_precision": 0.12040537606353867,
+      "bytes_per_token": 1.0172804269419036,
+      "fertility": 6.671275758396883,
+      "renyi_e_1_0": 0.3982464467836387,
+      "renyi_e_2_0": 0.3163231072189684,
+      "renyi_e_2_5": 0.29429284538125,
+      "active_fraction": 0.0604248046875,
+      "dead_tokens": 15394,
+      "gini_coefficient": 0.9973638224238667,
+      "morph_precision": 0.12040549377222146,
       "morph_recall": 0.8733989725751181,
-      "morph_f1": 0.20587186184244333,
+      "morph_f1": 0.20587203840546747,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.25161999454306905,
+      "morph_f1_word_weighted": 0.25162027659741754,
       "morph_f1_by_lang": {
-        "eng": 0.21163717476435576,
+        "eng": 0.2116380575794766,
         "fra": 0.18692733409089843,
         "hun": 0.31191091116826636,
         "rus": 0.1257565517364181,
@@ -927,38 +932,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.14572206464032017,
+      "identifier_precision": 0.14358379171562208,
       "identifier_recall": 1.0,
-      "identifier_f1": 0.24673648645443214,
-      "identifiers": 1499,
+      "identifier_f1": 0.24510186624342126,
+      "identifiers": 2000,
       "number_fertility": 10.0,
-      "encode_mb_per_sec": 30.257637585099378,
-      "decode_mb_per_sec": 43.86674302635283,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 38.00324232621636,
+      "decode_mb_per_sec": 57.47801847773171,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "wp_bpe_pig": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.544768798957483,
-      "fertility": 2.178385625558637,
-      "renyi_e_1_0": 0.6166977490408049,
-      "renyi_e_2_0": 0.2514528384291113,
-      "renyi_e_2_5": 0.2105905423633603,
-      "active_fraction": 0.676513671875,
-      "dead_tokens": 5300,
-      "gini_coefficient": 0.8905659349321375,
-      "morph_precision": 0.23556596661345028,
-      "morph_recall": 0.47328977521734217,
-      "morph_f1": 0.29465688269072043,
+      "bytes_per_token": 2.5996812120229555,
+      "fertility": 2.111954992967651,
+      "renyi_e_1_0": 0.6352140115120989,
+      "renyi_e_2_0": 0.2483044394194544,
+      "renyi_e_2_5": 0.20786473628337873,
+      "active_fraction": 0.92474365234375,
+      "dead_tokens": 1233,
+      "gini_coefficient": 0.8437238084089957,
+      "morph_precision": 0.2377439262976846,
+      "morph_recall": 0.46472514937816767,
+      "morph_f1": 0.2945121147045861,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.39537571251340253,
+      "morph_f1_word_weighted": 0.40010643751489416,
       "morph_f1_by_lang": {
-        "eng": 0.33389603406659396,
-        "fra": 0.17880527773367907,
-        "hun": 0.5080707369601655,
-        "rus": 0.1589686813824745,
-        "spa": 0.293543683310689
+        "eng": 0.3403188607489683,
+        "fra": 0.18119102942884496,
+        "hun": 0.5165814905875611,
+        "rus": 0.16773905910077622,
+        "spa": 0.26673013365677994
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -967,38 +972,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.6108313032679277,
-      "identifier_recall": 0.9916055147876363,
-      "identifier_f1": 0.7170041580871401,
-      "identifiers": 1499,
-      "number_fertility": 6.0,
-      "encode_mb_per_sec": 12.706930492108174,
-      "decode_mb_per_sec": 41.22482204838338,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "identifier_precision": 0.708803669551375,
+      "identifier_recall": 0.9864583333333333,
+      "identifier_f1": 0.7891673592875992,
+      "identifiers": 2000,
+      "number_fertility": 5.0,
+      "encode_mb_per_sec": 18.83580066813048,
+      "decode_mb_per_sec": 69.27077705781875,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "wp_bpe_scp": {
       "vocab_size": 16384,
-      "bytes_per_token": 1.6508352706471983,
-      "fertility": 3.9210689157289207,
-      "renyi_e_1_0": 0.49442950492042026,
-      "renyi_e_2_0": 0.3269705516636337,
-      "renyi_e_2_5": 0.28472388892244893,
-      "active_fraction": 0.220703125,
-      "dead_tokens": 12768,
-      "gini_coefficient": 0.9893457512127293,
-      "morph_precision": 0.16220248191476141,
-      "morph_recall": 0.6245800022419454,
-      "morph_f1": 0.24875588891996175,
+      "bytes_per_token": 1.6413209968159501,
+      "fertility": 3.926935831430083,
+      "renyi_e_1_0": 0.4970380914510596,
+      "renyi_e_2_0": 0.32566156449318745,
+      "renyi_e_2_5": 0.28360707304354976,
+      "active_fraction": 0.4219970703125,
+      "dead_tokens": 9470,
+      "gini_coefficient": 0.987263245996419,
+      "morph_precision": 0.16045540592967641,
+      "morph_recall": 0.6341069325452494,
+      "morph_f1": 0.2478406428471181,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.30864218988216585,
+      "morph_f1_word_weighted": 0.3061382871688321,
       "morph_f1_by_lang": {
-        "eng": 0.2615743701363602,
-        "fra": 0.1797944474629358,
-        "hun": 0.3822128471613347,
-        "rus": 0.17854231219818836,
-        "spa": 0.24165546764098972
+        "eng": 0.2599454606857182,
+        "fra": 0.17924412828524347,
+        "hun": 0.3780368603035156,
+        "rus": 0.1848304181333945,
+        "spa": 0.23714634682771876
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1007,38 +1012,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.22531445016478616,
+      "identifier_precision": 0.2198147681228562,
       "identifier_recall": 1.0,
-      "identifier_f1": 0.3571244890851295,
-      "identifiers": 1499,
+      "identifier_f1": 0.34920920442417097,
+      "identifiers": 2000,
       "number_fertility": 9.0,
-      "encode_mb_per_sec": 16.66234272774837,
-      "decode_mb_per_sec": 33.24036562868185,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 23.311905267745136,
+      "decode_mb_per_sec": 51.2305420150475,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "wp_bpe_npmi": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.4416815232363622,
-      "fertility": 2.253191391836454,
-      "renyi_e_1_0": 0.5957730216081235,
-      "renyi_e_2_0": 0.2467794894676114,
-      "renyi_e_2_5": 0.20687211631841965,
-      "active_fraction": 0.6214599609375,
-      "dead_tokens": 6202,
-      "gini_coefficient": 0.9097665147487818,
-      "morph_precision": 0.24121247416545172,
-      "morph_recall": 0.5099544786169126,
-      "morph_f1": 0.3071324011459643,
+      "bytes_per_token": 2.5308169263598663,
+      "fertility": 2.175269358314301,
+      "renyi_e_1_0": 0.6190379274207525,
+      "renyi_e_2_0": 0.24850459562515237,
+      "renyi_e_2_5": 0.20826816574558074,
+      "active_fraction": 0.89324951171875,
+      "dead_tokens": 1749,
+      "gini_coefficient": 0.8678152673595908,
+      "morph_precision": 0.24252994442283726,
+      "morph_recall": 0.49979840625318583,
+      "morph_f1": 0.30608192116009764,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.40254574564732215,
+      "morph_f1_word_weighted": 0.4045387772132492,
       "morph_f1_by_lang": {
-        "eng": 0.3643900768891499,
-        "fra": 0.20535911936927972,
-        "hun": 0.4977161698145446,
-        "rus": 0.170227020614072,
-        "spa": 0.2979696190427753
+        "eng": 0.36125702968120466,
+        "fra": 0.20144140137789923,
+        "hun": 0.5054834156673145,
+        "rus": 0.17722069222772951,
+        "spa": 0.2850070668463402
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1047,38 +1052,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.5979224592847443,
-      "identifier_recall": 0.9922726261952414,
-      "identifier_f1": 0.7061151228832057,
-      "identifiers": 1499,
+      "identifier_precision": 0.689274156260658,
+      "identifier_recall": 0.9854583333333333,
+      "identifier_f1": 0.7738933919365808,
+      "identifiers": 2000,
       "number_fertility": 6.0,
-      "encode_mb_per_sec": 13.352666184174216,
-      "decode_mb_per_sec": 39.97684184437997,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 18.042640316079975,
+      "decode_mb_per_sec": 65.41864817922453,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "wp_bpe_ppig": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.5436213991769545,
-      "fertility": 2.156212041344854,
-      "renyi_e_1_0": 0.6158691794653502,
-      "renyi_e_2_0": 0.24658425182562319,
-      "renyi_e_2_5": 0.20642812495208734,
-      "active_fraction": 0.69830322265625,
-      "dead_tokens": 4943,
-      "gini_coefficient": 0.8857855164546151,
-      "morph_precision": 0.23589634074966348,
-      "morph_recall": 0.4621239902267192,
-      "morph_f1": 0.2924848680498992,
+      "bytes_per_token": 2.6086987196779483,
+      "fertility": 2.0983522368030556,
+      "renyi_e_1_0": 0.6376635857518448,
+      "renyi_e_2_0": 0.24704429142923076,
+      "renyi_e_2_5": 0.20675930253380423,
+      "active_fraction": 0.93499755859375,
+      "dead_tokens": 1065,
+      "gini_coefficient": 0.8376624434643042,
+      "morph_precision": 0.2379071723109861,
+      "morph_recall": 0.46068230695780016,
+      "morph_f1": 0.29383040734874305,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.39772063055563234,
+      "morph_f1_word_weighted": 0.39865352494069145,
       "morph_f1_by_lang": {
-        "eng": 0.33367490005977213,
-        "fra": 0.17304283622746872,
-        "hun": 0.5157709466080824,
-        "rus": 0.1600926095824055,
-        "spa": 0.27984304777176733
+        "eng": 0.33968439133066497,
+        "fra": 0.17777802977040952,
+        "hun": 0.5138800573689175,
+        "rus": 0.17103068823688106,
+        "spa": 0.2667788700368422
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1087,38 +1092,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.6256119312319318,
-      "identifier_recall": 0.9909384033800311,
-      "identifier_f1": 0.7289404278580016,
-      "identifiers": 1499,
-      "number_fertility": 6.0,
-      "encode_mb_per_sec": 12.933259827221281,
-      "decode_mb_per_sec": 40.45891107012613,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "identifier_precision": 0.7119254093129094,
+      "identifier_recall": 0.9874198717948718,
+      "identifier_f1": 0.7926410263876131,
+      "identifiers": 2000,
+      "number_fertility": 5.0,
+      "encode_mb_per_sec": 18.545790853289724,
+      "decode_mb_per_sec": 70.88912799381517,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "mdl_bits": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.3156524770247686,
-      "fertility": 2.1987486535420437,
-      "renyi_e_1_0": 0.5653022780388531,
-      "renyi_e_2_0": 0.2145065801744023,
-      "renyi_e_2_5": 0.17962823270183198,
-      "active_fraction": 0.66314697265625,
-      "dead_tokens": 5519,
-      "gini_coefficient": 0.905760216537649,
-      "morph_precision": 0.24945560407131323,
-      "morph_recall": 0.5149593103622473,
-      "morph_f1": 0.3147852189504403,
+      "bytes_per_token": 2.3708403299221663,
+      "fertility": 2.146850927108737,
+      "renyi_e_1_0": 0.5833287858099895,
+      "renyi_e_2_0": 0.21526938224534828,
+      "renyi_e_2_5": 0.18025240987524602,
+      "active_fraction": 0.90447998046875,
+      "dead_tokens": 1565,
+      "gini_coefficient": 0.8681196209082331,
+      "morph_precision": 0.2489396041921789,
+      "morph_recall": 0.5003139878557173,
+      "morph_f1": 0.3112961343790961,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.40684246386897577,
+      "morph_f1_word_weighted": 0.4068015820087813,
       "morph_f1_by_lang": {
-        "eng": 0.3856768372044605,
-        "fra": 0.22723803246902152,
-        "hun": 0.4897776713242544,
-        "rus": 0.17006089604611774,
-        "spa": 0.30117265770834734
+        "eng": 0.3908932641672723,
+        "fra": 0.2240883536565391,
+        "hun": 0.48975568550309195,
+        "rus": 0.16856705014692347,
+        "spa": 0.2831763184216536
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1127,38 +1132,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.6145155491018419,
-      "identifier_recall": 0.9916055147876363,
-      "identifier_f1": 0.7195380238312264,
-      "identifiers": 1499,
+      "identifier_precision": 0.6993920180084734,
+      "identifier_recall": 0.9862083333333334,
+      "identifier_f1": 0.7819472227935463,
+      "identifiers": 2000,
       "number_fertility": 6.0,
-      "encode_mb_per_sec": 13.176187343041567,
-      "decode_mb_per_sec": 40.16074016799815,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 16.424510565288045,
+      "decode_mb_per_sec": 57.872853844866874,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "length_penalized": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.61975314102068,
-      "fertility": 2.105963376343593,
-      "renyi_e_1_0": 0.6432952055341877,
-      "renyi_e_2_0": 0.25125384061221684,
-      "renyi_e_2_5": 0.2100646942040835,
-      "active_fraction": 0.765869140625,
-      "dead_tokens": 3836,
-      "gini_coefficient": 0.8568500888994398,
-      "morph_precision": 0.2191878413666788,
-      "morph_recall": 0.4176628076776058,
-      "morph_f1": 0.26910417958326993,
+      "bytes_per_token": 2.6406067128935313,
+      "fertility": 2.0689015342133446,
+      "renyi_e_1_0": 0.6590925136480301,
+      "renyi_e_2_0": 0.24720692898483362,
+      "renyi_e_2_5": 0.20661246429341862,
+      "active_fraction": 0.96484375,
+      "dead_tokens": 576,
+      "gini_coefficient": 0.8062881867754506,
+      "morph_precision": 0.22318740174013052,
+      "morph_recall": 0.42020886822802944,
+      "morph_f1": 0.273049208029102,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.3646863025084419,
+      "morph_f1_word_weighted": 0.3690787891405868,
       "morph_f1_by_lang": {
-        "eng": 0.29638817190170547,
-        "fra": 0.1465977329368344,
-        "hun": 0.4772667669023825,
-        "rus": 0.16155089404561607,
-        "spa": 0.26371733212981113
+        "eng": 0.30007587092867033,
+        "fra": 0.14664498155528477,
+        "hun": 0.4823628572883623,
+        "rus": 0.1712772839796063,
+        "spa": 0.26488504639358623
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1167,38 +1172,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.6145873702701061,
-      "identifier_recall": 0.9872470535912832,
-      "identifier_f1": 0.721730451395326,
-      "identifiers": 1499,
+      "identifier_precision": 0.6924594669365722,
+      "identifier_recall": 0.9907782051282051,
+      "identifier_f1": 0.7803015125698175,
+      "identifiers": 2000,
       "number_fertility": 5.0,
-      "encode_mb_per_sec": 12.456103237795357,
-      "decode_mb_per_sec": 40.3869464152843,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 15.05878481528747,
+      "decode_mb_per_sec": 59.5068376848233,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "super_bpe": {
       "vocab_size": 16384,
-      "bytes_per_token": 3.559253714154094,
-      "fertility": 2.136696995393395,
-      "renyi_e_1_0": 0.8360005148786682,
-      "renyi_e_2_0": 0.5458312725284539,
-      "renyi_e_2_5": 0.4643899156744072,
-      "active_fraction": 0.799072265625,
-      "dead_tokens": 3292,
-      "gini_coefficient": 0.7543844161296679,
-      "morph_precision": 0.22076034295285663,
-      "morph_recall": 0.431005886583345,
-      "morph_f1": 0.2734102629552163,
+      "bytes_per_token": 3.59960990515633,
+      "fertility": 2.101273564820191,
+      "renyi_e_1_0": 0.8603339160652316,
+      "renyi_e_2_0": 0.5349038196235221,
+      "renyi_e_2_5": 0.4526088909151039,
+      "active_fraction": 0.96844482421875,
+      "dead_tokens": 517,
+      "gini_coefficient": 0.6765588617602427,
+      "morph_precision": 0.22490087702792882,
+      "morph_recall": 0.4324731859621969,
+      "morph_f1": 0.2771541239677573,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.3692770475410542,
+      "morph_f1_word_weighted": 0.3753649146812652,
       "morph_f1_by_lang": {
-        "eng": 0.30280650233190093,
-        "fra": 0.15396636402351596,
-        "hun": 0.48115266424195974,
-        "rus": 0.16262381114597865,
-        "spa": 0.2665019730327263
+        "eng": 0.3044855323201634,
+        "fra": 0.1518159849006015,
+        "hun": 0.49162191278841233,
+        "rus": 0.1705559609676429,
+        "spa": 0.2672912288619664
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1207,38 +1212,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.6134995222365647,
-      "identifier_recall": 0.9904936624416277,
-      "identifier_f1": 0.720721665675658,
-      "identifiers": 1499,
-      "number_fertility": 6.0,
-      "encode_mb_per_sec": 6.163760515438083,
-      "decode_mb_per_sec": 52.410307916955155,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "identifier_precision": 0.6944375106983659,
+      "identifier_recall": 0.9893365384615385,
+      "identifier_f1": 0.7800574187757756,
+      "identifiers": 2000,
+      "number_fertility": 5.0,
+      "encode_mb_per_sec": 8.143139575578783,
+      "decode_mb_per_sec": 81.10127441024466,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "morpheme_bpe": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.5336210983307965,
-      "fertility": 2.212064263286962,
-      "renyi_e_1_0": 0.6316668174317494,
-      "renyi_e_2_0": 0.2576623708039201,
-      "renyi_e_2_5": 0.21573681674801892,
-      "active_fraction": 0.681396484375,
-      "dead_tokens": 5220,
-      "gini_coefficient": 0.8826873946051276,
-      "morph_precision": 0.32459854530919324,
-      "morph_recall": 0.634777296545396,
-      "morph_f1": 0.404237241570433,
+      "bytes_per_token": 2.52948888613459,
+      "fertility": 2.2027871327371966,
+      "renyi_e_1_0": 0.6454046251043865,
+      "renyi_e_2_0": 0.2555882153569697,
+      "renyi_e_2_5": 0.21393216714836108,
+      "active_fraction": 0.92095947265625,
+      "dead_tokens": 1295,
+      "gini_coefficient": 0.8525076671468638,
+      "morph_precision": 0.33728609725258607,
+      "morph_recall": 0.6542640509486731,
+      "morph_f1": 0.4196182752935046,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.4643998193562808,
+      "morph_f1_word_weighted": 0.47572092163410507,
       "morph_f1_by_lang": {
-        "eng": 0.4745598571219632,
-        "fra": 0.3264315185969417,
-        "hun": 0.5042949755935079,
-        "rus": 0.3568529113391886,
-        "spa": 0.3590469452005635
+        "eng": 0.4827385863425908,
+        "fra": 0.3338472837599683,
+        "hun": 0.5142974029316655,
+        "rus": 0.40430244358815787,
+        "spa": 0.36290565984514056
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1247,38 +1252,38 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.5649801267963376,
-      "identifier_recall": 0.9933177674004893,
-      "identifier_f1": 0.6826344434757613,
-      "identifiers": 1499,
+      "identifier_precision": 0.6331638430605342,
+      "identifier_recall": 0.9920785714285715,
+      "identifier_f1": 0.7372790803322924,
+      "identifiers": 2000,
       "number_fertility": 6.0,
-      "encode_mb_per_sec": 12.402508555821784,
-      "decode_mb_per_sec": 40.383217436892146,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 17.515330748903285,
+      "decode_mb_per_sec": 63.98294710271879,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     },
     "unigram_lm": {
       "vocab_size": 16384,
-      "bytes_per_token": 2.5741762121876053,
-      "fertility": 2.1313570004354503,
-      "renyi_e_1_0": 0.6279671182465085,
-      "renyi_e_2_0": 0.24778762670975624,
-      "renyi_e_2_5": 0.20748603013139277,
-      "active_fraction": 0.7611083984375,
-      "dead_tokens": 3914,
-      "gini_coefficient": 0.862179471191263,
-      "morph_precision": 0.25921699928008335,
-      "morph_recall": 0.472890015209691,
-      "morph_f1": 0.3151943945566774,
+      "bytes_per_token": 2.5883362034106567,
+      "fertility": 2.108024619672512,
+      "renyi_e_1_0": 0.6428874692328532,
+      "renyi_e_2_0": 0.24554463165115845,
+      "renyi_e_2_5": 0.20553513267801765,
+      "active_fraction": 0.9664306640625,
+      "dead_tokens": 550,
+      "gini_coefficient": 0.8187759447807269,
+      "morph_precision": 0.266154288345059,
+      "morph_recall": 0.478045755048058,
+      "morph_f1": 0.32197763765552156,
       "morph_words": 126622,
-      "morph_f1_word_weighted": 0.4076470375206813,
+      "morph_f1_word_weighted": 0.41988161621331027,
       "morph_f1_by_lang": {
-        "eng": 0.3887731313166983,
-        "fra": 0.22157560912918906,
-        "hun": 0.4903302082996025,
-        "rus": 0.20914827542202633,
-        "spa": 0.2661447486158711
+        "eng": 0.40015797753654636,
+        "fra": 0.23489367170903921,
+        "hun": 0.5078956034237063,
+        "rus": 0.20037087980437734,
+        "spa": 0.2665700558039387
       },
       "morph_words_by_lang": {
         "eng": 40455,
@@ -1287,15 +1292,15 @@
         "rus": 8526,
         "spa": 10129
       },
-      "identifier_precision": 0.5977884386539176,
-      "identifier_recall": 0.9953635757171447,
-      "identifier_f1": 0.7151948613695971,
-      "identifiers": 1499,
+      "identifier_precision": 0.6767176046176046,
+      "identifier_recall": 0.9936499999999999,
+      "identifier_f1": 0.7728279802017728,
+      "identifiers": 2000,
       "number_fertility": 5.0,
-      "encode_mb_per_sec": 7.946599114950738,
-      "decode_mb_per_sec": 40.57117102335866,
-      "throughput_bytes": 1058035,
-      "throughput_docs": 206,
+      "encode_mb_per_sec": 12.229958929932932,
+      "decode_mb_per_sec": 69.61767394897458,
+      "throughput_bytes": 3142895,
+      "throughput_docs": 666,
       "throughput_repeats": 5
     }
   }
