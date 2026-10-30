@@ -3,7 +3,7 @@
 mod common;
 
 use common::{random_corpus, reference_encode, reference_train};
-use tokenisers_core::curricula::morpheme::MorphemeGuidedScorer;
+use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon};
 use tokenisers_core::engine::bottom_up::{BottomUpModel, BottomUpTrainer};
 use tokenisers_core::index::Pair;
 use tokenisers_core::scoring::{
@@ -44,9 +44,12 @@ impl PairScorer for NoisyMonotoneScorer {
 }
 
 fn scorers() -> Vec<(&'static str, Box<dyn PairScorer>, u64)> {
-    let mut morpheme = MorphemeGuidedScorer::new(WpBpePigScorer::new(1), 2.0, 1.0);
-    morpheme.set_stats(Pair::new(b'a' as u32, b'b' as u32), 0, 5);
-    morpheme.set_stats(Pair::new(b'b' as u32, b'a' as u32), 7, 0);
+    let mut lexicon = MorphemeLexicon::new();
+    for (word, morphemes) in [("aab", ["a", "ab"]), ("abab", ["ab", "ab"]), ("aaa", ["a", "aa"]), ("abc", ["ab", "c"])] {
+        let parts: Vec<&[u8]> = morphemes.iter().map(|m| m.as_bytes()).collect();
+        assert!(lexicon.insert_segmentation(word.as_bytes(), &parts));
+    }
+    let morpheme = MorphemeGuidedScorer::new(WpBpePigScorer::new(1), lexicon, 2.0, 1.0);
     vec![
         ("bpe", Box::new(BpeScorer::new()), 1),
         ("bpe_min2", Box::new(BpeScorer::new()), 2),

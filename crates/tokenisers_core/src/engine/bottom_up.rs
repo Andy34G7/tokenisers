@@ -6,6 +6,7 @@ use fastrand::Rng;
 use rayon::prelude::*;
 
 use crate::arena::{SymbolArena, NULL_NODE};
+use crate::curricula::morpheme::PairMorphologyStats;
 use crate::curricula::super_bpe::SuperBpeTrainer;
 use crate::error::{Result, TokeniserError};
 use crate::index::{InvertedIndex, OccurrenceRef, Pair};
@@ -377,12 +378,26 @@ struct TrainState<'s> {
     step: u32,
     /// Pairs to re-score after the current merge.
     changed: Vec<Pair>,
+    /// Per arena word: its morpheme boundaries (`PairScorer::word_boundaries`). Empty when no
+    /// training word is annotated, which turns morphology tracking off.
+    word_bounds: Vec<Option<&'s [usize]>>,
+    /// Per pair: its current occurrences inside annotated words, split intra / cross-boundary.
+    morph: AHashMap<Pair, PairMorphologyStats>,
 }
 
 impl<'s> TrainState<'s> {
     fn new(scorer: &'s dyn PairScorer, min_frequency: u64, word_counts: &[(Vec<u8>, u64)]) -> Self {
         let deps = scorer.deps();
         let track_pairs_of = matches!(deps, ScoreDeps::Marginals | ScoreDeps::MonotoneTotals);
+        // Same filter as the arena loop below, so index = word id.
+        let mut word_bounds: Vec<Option<&'s [usize]>> = word_counts
+            .iter()
+            .filter(|(word, freq)| !word.is_empty() && *freq > 0)
+            .map(|(word, _)| scorer.word_boundaries(word))
+            .collect();
+        if word_bounds.iter().all(Option::is_none) {
+            word_bounds.clear();
+        }
         let mut state = Self {
             scorer,
             deps,
@@ -399,6 +414,8 @@ impl<'s> TrainState<'s> {
             heap: BinaryHeap::new(),
             step: 0,
             changed: Vec::new(),
+            word_bounds,
+            morph: AHashMap::default(),
         };
 
         for (word_bytes, freq) in word_counts {
@@ -414,7 +431,7 @@ impl<'s> TrainState<'s> {
             let head = state.arena.get_word(word_id).unwrap().head;
             for (i, window) in tokens.windows(2).enumerate() {
                 let pair = Pair::new(window[0], window[1]);
-                state.add_count(pair, *freq as i64);
+                state.count_occurrence(pair, word_id, head + i as u32, *freq as i64);
                 state.index.add_occurrence(pair, OccurrenceRef::new(word_id, head + i as u32, 0));
             }
         }
@@ -459,6 +476,24 @@ impl<'s> TrainState<'s> {
         }
     }
 
+    /// `add_count` for the occurrence of `pair` whose left symbol is node `left` of arena word
+    /// `word`, also updating the pair's morphology statistics if the word is annotated.
+    fn count_occurrence(&mut self, pair: Pair, word: u32, left: u32, delta: i64) {
+        self.add_count(pair, delta);
+        let Some(&Some(bounds)) = self.word_bounds.get(word as usize) else {
+            return;
+        };
+        // Words start with one node per byte and a merge keeps its left node, so a symbol's node
+        // index minus the word head is its byte offset. The merged token spans [start, end).
+        let start = (left - self.arena.get_word(word).unwrap().head) as usize;
+        let token_len = |t: TokenId| self.vocab.get_bytes(t).map_or(1, <[u8]>::len);
+        let end = start + token_len(pair.0) + token_len(pair.1);
+        let cross = bounds.iter().any(|&b| start < b && b < end);
+        let stat = self.morph.entry(pair).or_default();
+        let n = if cross { &mut stat.n_cross } else { &mut stat.n_intra };
+        *n = n.saturating_add_signed(delta);
+    }
+
     fn score(&self, pair: Pair, count: u64) -> f64 {
         let ctx = PairContext {
             freq_uv: count,
@@ -469,7 +504,11 @@ impl<'s> TrainState<'s> {
             len_u: self.vocab.get_bytes(pair.0).map_or(1, |b| b.len()),
             len_v: self.vocab.get_bytes(pair.1).map_or(1, |b| b.len()),
         };
-        self.scorer.score(pair, &ctx)
+        if self.word_bounds.is_empty() {
+            return self.scorer.score(pair, &ctx);
+        }
+        let morph = self.morph.get(&pair).copied().unwrap_or_default();
+        self.scorer.score_morph(pair, &ctx, morph)
     }
 
     /// Pushes an entry scored now for `pair` at its current version, if eligible.
@@ -548,6 +587,7 @@ impl<'s> TrainState<'s> {
         self.changed.clear();
         let remaining = self.stats[&pair].count;
         self.add_count(pair, -(remaining as i64));
+        self.morph.remove(&pair);
 
         let mut occurrences = self.index.take(&pair).unwrap_or_default();
         // Arena indices grow left to right inside a word, so overlapping occurrences (e.g. "aaa")
@@ -569,11 +609,11 @@ impl<'s> TrainState<'s> {
 
             if prev_idx != NULL_NODE {
                 let prev_tok = self.arena.get_token(prev_idx);
-                self.add_count(Pair::new(prev_tok, u), -(freq as i64));
+                self.count_occurrence(Pair::new(prev_tok, u), word_id, prev_idx, -(freq as i64));
             }
             if next_idx != NULL_NODE {
                 let next_tok = self.arena.get_token(next_idx);
-                self.add_count(Pair::new(v, next_tok), -(freq as i64));
+                self.count_occurrence(Pair::new(v, next_tok), word_id, right_idx, -(freq as i64));
             }
 
             self.arena.splice_pair(left_idx, right_idx, w, word_id)?;
@@ -581,13 +621,13 @@ impl<'s> TrainState<'s> {
             if prev_idx != NULL_NODE {
                 let prev_node = *self.arena.get_node(prev_idx).unwrap();
                 let new_pair = Pair::new(prev_node.token, w);
-                self.add_count(new_pair, freq as i64);
+                self.count_occurrence(new_pair, word_id, prev_idx, freq as i64);
                 self.index
                     .add_occurrence(new_pair, OccurrenceRef::new(word_id, prev_idx, prev_node.version));
             }
             if next_idx != NULL_NODE {
                 let new_pair = Pair::new(w, self.arena.get_token(next_idx));
-                self.add_count(new_pair, freq as i64);
+                self.count_occurrence(new_pair, word_id, left_idx, freq as i64);
                 let version = self.arena.get_version(left_idx);
                 self.index
                     .add_occurrence(new_pair, OccurrenceRef::new(word_id, left_idx, version));

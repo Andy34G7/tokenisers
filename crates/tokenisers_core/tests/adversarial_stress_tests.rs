@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use tokenisers_core::arena::{SymbolArena, NULL_NODE};
-use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon};
+use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon, PairMorphologyStats};
 use tokenisers_core::curricula::super_bpe::{SuperBpeConfig, SuperBpeTrainer};
 use tokenisers_core::engine::bottom_up::{BottomUpTrainer, parallel_count_words};
 use tokenisers_core::engine::unigram::{UnigramTrainer, logsumexp2};
@@ -530,14 +530,14 @@ fn test_scorers_extreme_and_boundary_values() {
 
     // 4. Morpheme-Guided with extreme lambda
     let bpe = BpeScorer;
-    let mut morpheme_scorer = MorphemeGuidedScorer::new(bpe, 100.0, 2.0);
-    let mut lexicon = MorphemeLexicon::new();
-    lexicon.insert_segmentation(b"unhappy", &[b"un", b"happy"]);
+    let morpheme_scorer = MorphemeGuidedScorer::new(bpe, MorphemeLexicon::new(), 100.0, 2.0);
 
-    // Test cross-boundary penalty (extreme attenuation)
-    morpheme_scorer.record_occurrence(Pair::new(10, 20), b"unhappy", 2, &lexicon);
-    let score_cross = morpheme_scorer.score(Pair::new(10, 20), &ctx_norm);
-    assert!(score_cross.is_finite() && score_cross >= 0.0);
+    // Extreme attenuation vetoes a frequent cross-boundary pair; extreme boost stays finite.
+    let cross = PairMorphologyStats { n_intra: 0, n_cross: 10 };
+    let intra = PairMorphologyStats { n_intra: 10, n_cross: 0 };
+    assert_eq!(morpheme_scorer.score_morph(Pair::new(10, 20), &ctx_norm, cross), f64::NEG_INFINITY);
+    let score_intra = morpheme_scorer.score_morph(Pair::new(10, 20), &ctx_norm, intra);
+    assert!(score_intra.is_finite() && score_intra > 10.0);
 }
 
 // =========================================================================
