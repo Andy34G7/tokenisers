@@ -325,7 +325,17 @@ class SuperBpeTokenizer(BpeTokenizer):
 
 
 class MorphemeGuidedTokenizer(BpeTokenizer):
-    """BPE Tokenizer regularized by morphological boundary priors."""
+    """BPE Tokenizer regularized by morphological boundary priors.
+
+    Every candidate merge's score is scaled by exp(lambda_weight * M), where M in [-1, 1] measures
+    whether the token it would create stays inside one morpheme across the pair's current
+    occurrences in lexicon words (+1) or spans a boundary (-1). Pairs whose reweighted count
+    falls below one occurrence are never merged, so training may stop below vocab_size (with a
+    warning). ``morpheme_lexicon`` maps whitespace-free training words to surface morphemes that
+    concatenate to the word; supply it from training annotations or an unsupervised segmenter,
+    never from evaluation gold. ``alpha`` (wordpiece), ``beta`` (length_penalized) and
+    ``penalty`` (mdl entry cost in bits) default to the scorer's own defaults.
+    """
 
     @classmethod
     def train(
@@ -335,16 +345,25 @@ class MorphemeGuidedTokenizer(BpeTokenizer):
         morpheme_lexicon: Optional[Dict[str, List[str]]] = None,
         lambda_weight: float = 1.0,
         scorer: str = "frequency",
-        **kwargs: Any,
+        min_frequency: int = 1,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        penalty: Optional[float] = None,
+        special_tokens: Optional[List[str]] = None,
     ) -> MorphemeGuidedTokenizer:
         if not corpus:
             raise ValueError("Training corpus cannot be empty")
-        if vocab_size < 256:
-            raise ValueError(f"vocab_size must be >= 256, got {vocab_size}")
-        if morpheme_lexicon is None:
-            morpheme_lexicon = {}
         model = _core.train_morpheme_guided(
-            corpus, vocab_size, morpheme_lexicon, float(lambda_weight), scorer
+            corpus,
+            vocab_size,
+            morpheme_lexicon or {},
+            lambda_weight=float(lambda_weight),
+            scorer=scorer,
+            min_frequency=min_frequency,
+            alpha=alpha,
+            beta=beta,
+            penalty=penalty,
+            special_tokens=special_tokens,
         )
         return cls(model=model)
 
