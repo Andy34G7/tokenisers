@@ -121,7 +121,7 @@ def test_tier3_byte_entropy_with_data_pipeline(require_tokenisers):
     tokenisers = require_tokenisers
     pipeline = tokenisers.data.DataPipeline()
     docs = pipeline.sample_preset("smoke", max_bytes=20_000)
-    tok = tokenisers.ByteEntropyTokenizer(entropy_threshold=3.5, min_patch_len=1, max_patch_len=16)
+    tok = tokenisers.ByteEntropyTokenizer.train(docs[3:], entropy_threshold=3.5, min_patch_len=1, max_patch_len=16)
     for doc in docs[:3]:
         patches = tok.encode(doc)
         assert tok.decode(patches) == doc

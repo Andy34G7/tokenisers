@@ -29,8 +29,9 @@ impl Default for ByteEntropyConfig {
 #[derive(Debug, Clone)]
 pub struct ByteEntropyPatcher {
     pub config: ByteEntropyConfig,
-    /// Next-byte counts for every context of length 0..=context_order seen in training.
-    transition_table: AHashMap<Vec<u8>, [u32; 256]>,
+    /// Next-byte counts `(byte, count)` for every context of length 0..=context_order seen in
+    /// training, sparse: a dense `[u32; 256]` per context cost ~1 KB each (GBs on large corpora).
+    pub transition_table: AHashMap<Vec<u8>, Vec<(u8, u32)>>,
     /// Additive Laplace smoothing constant.
     pub smoothing_alpha: f64,
 }
@@ -57,13 +58,13 @@ impl ByteEntropyPatcher {
         for (i, &next_byte) in corpus_bytes.iter().enumerate() {
             for k in 0..=order.min(i) {
                 let ctx = &corpus_bytes[i - k..i];
-                match self.transition_table.get_mut(ctx) {
-                    Some(counts) => counts[next_byte as usize] += 1,
-                    None => {
-                        let mut counts = [0; 256];
-                        counts[next_byte as usize] = 1;
-                        self.transition_table.insert(ctx.to_vec(), counts);
-                    }
+                if !self.transition_table.contains_key(ctx) {
+                    self.transition_table.insert(ctx.to_vec(), Vec::new());
+                }
+                let counts = self.transition_table.get_mut(ctx).expect("inserted above");
+                match counts.iter_mut().find(|(b, _)| *b == next_byte) {
+                    Some((_, c)) => *c += 1,
+                    None => counts.push((next_byte, 1)),
                 }
             }
         }
@@ -89,23 +90,19 @@ impl ByteEntropyPatcher {
     /// Predictive entropy H(B | c) = -sum P log2 P in bits for the exact context `c` (Laplace
     /// smoothed); 8.0 for a context never seen in training.
     pub fn compute_entropy(&self, context: &[u8]) -> f64 {
+        let Some(counts) = self.transition_table.get(context) else {
+            return 8.0;
+        };
         let alpha = self.smoothing_alpha;
-        let v = 256.0;
-
-        if let Some(counts) = self.transition_table.get(context) {
-            let total: u64 = counts.iter().map(|&c| c as u64).sum();
-            let denom = total as f64 + v * alpha;
-            let mut h = 0.0;
-            for &c in counts.iter() {
-                let p = (c as f64 + alpha) / denom;
-                if p > 0.0 {
-                    h -= p * p.log2();
-                }
-            }
-            h
-        } else {
-            8.0
-        }
+        let total: u64 = counts.iter().map(|&(_, c)| c as u64).sum();
+        let denom = total as f64 + 256.0 * alpha;
+        let term = |c: f64| {
+            let p = (c + alpha) / denom;
+            if p > 0.0 { -p * p.log2() } else { 0.0 }
+        };
+        // Bytes absent from the sparse list have count 0.
+        counts.iter().map(|&(_, c)| term(c as f64)).sum::<f64>()
+            + (256 - counts.len()) as f64 * term(0.0)
     }
 
     /// Segments a byte stream into patches (lossless: their concatenation is `bytes`).
