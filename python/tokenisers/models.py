@@ -124,7 +124,9 @@ class BpeTokenizer(_CoreTokenizer):
         special_tokens: Optional[List[str]] = None,
     ):
         """
-        Trains on ``corpus``. ``vocab_size`` includes ``special_tokens``. Scorer parameters left
+        Trains on ``corpus``. ``vocab_size`` includes ``special_tokens``, which are cut out of the
+        corpus before training (as ``encode`` cuts them out of the text) and take the top ids; a
+        one-byte special keeps that byte's id. Scorer parameters left
         at ``None`` take the scorer's default: ``alpha`` (wordpiece smoothing 1.0, wp-bpe-scp
         discount 0.75, wp-bpe-npmi support exponent 0.5), ``beta`` (length_penalized 0.5),
         ``penalty`` (mdl entry cost 24 bits, wp-bpe-ppig length penalty 0.35); ``min_frequency``

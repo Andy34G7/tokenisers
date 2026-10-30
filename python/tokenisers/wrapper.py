@@ -7,11 +7,14 @@ content), so ids round-trip exactly. Padding, truncation, tensors, pairs and bat
 no post-processor), no special-token template exists: ``add_special_tokens=True`` adds nothing,
 and bos/eos must be written into the text. Per-call encode options (``dropout``, ``seed``,
 ``temperature``, ``nbest_size``, ``sample``) are forwarded to the underlying ``encode``. Special
-tokens are the underlying model's own special tokens (their ids) or new ids from ``vocab_size``
-upwards. A special token whose string is a learned text token of the underlying model (e.g. a
-corpus that contains "<pad>") raises ``ValueError``: Hugging Face would reuse that text token's id,
-so padding would insert real text and ``skip_special_tokens`` would delete it. Pass another string
-(``pad_token="<|pad|>"``) or train the model with it in ``special_tokens``.
+tokens are the underlying model's own special tokens (their ids; all of them are registered as
+``extra_special_tokens``, as ``AutoTokenizer`` registers the exported ``added_tokens``) or new ids
+from ``vocab_size`` upwards. A special token whose string is a learned text token of the underlying
+model (e.g. a corpus that contains "<pad>"), whether passed to ``__init__``, ``add_special_tokens``
+or set as an attribute (``pad_token``, ``pad_token_id``, ...), raises ``ValueError``: Hugging Face
+would reuse that text token's id, so padding would insert real text and ``skip_special_tokens``
+would delete it. Pass another string (``pad_token="<|pad|>"``) or train the model with it in
+``special_tokens``. Saving needs a model with a tokenizer.json export (``export_hf_json``).
 """
 
 from __future__ import annotations
@@ -60,6 +63,17 @@ class DynamicResearchTokenizer(PreTrainedTokenizer):
         # Byte-level decoding is exact; HF's space clean-up would corrupt it.
         kwargs["clean_up_tokenization_spaces"] = False
         super().__init__(unk_token=unk_token, pad_token=pad_token, bos_token=bos_token, eos_token=eos_token, **kwargs)
+        own = list(tokenizer.special_tokens())
+        if own:
+            self.add_special_tokens({"extra_special_tokens": own}, replace_extra_special_tokens=False)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        # The base class stores `w.pad_token = ...` (or `pad_token_id`) without adding the token.
+        name = key.removesuffix("_ids").removesuffix("_id")
+        if value is not None and (name in self.SPECIAL_TOKENS_ATTRIBUTES or name == "extra_special_tokens"):
+            values = list(value) if isinstance(value, (list, tuple)) else [value]
+            self._reject_learned(self.convert_ids_to_tokens(values) if name != key else values)
+        super().__setattr__(key, value)
 
     @property
     def vocab_size(self) -> int:
@@ -143,5 +157,9 @@ class DynamicResearchTokenizer(PreTrainedTokenizer):
         os.makedirs(save_directory, exist_ok=True)
         name = f"{filename_prefix}-tokenizer.json" if filename_prefix else "tokenizer.json"
         path = os.path.join(save_directory, name)
+        if not hasattr(self._underlying, "export_hf_json"):
+            raise NotImplementedError(
+                f"{type(self._underlying).__name__} has no tokenizer.json export; save it with its own save()"
+            )
         self._underlying.export_hf_json(path)
         return (path,)

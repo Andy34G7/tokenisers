@@ -8,6 +8,7 @@ import sys
 import textwrap
 import threading
 import time
+import warnings
 
 import pytest
 
@@ -214,6 +215,33 @@ def test_vocab_size_is_exact_and_includes_special_tokens(corpus):
     assert tokenisers.UnigramTokenizer.train(corpus, vocab_size=400).vocab_size == 400
     with pytest.raises(ValueError):
         tokenisers.BpeTokenizer.train(corpus, vocab_size=258, special_tokens=specials)
+
+
+@pytest.mark.parametrize("train", [
+    tokenisers.BpeTokenizer.train,
+    lambda corpus, size, **kw: tokenisers.MorphemeBpeTokenizer.train(corpus, size, morpheme_lexicon={}, **kw),
+], ids=["bpe", "morpheme"])
+def test_special_tokens_are_cut_out_of_the_training_corpus(corpus, train):
+    """Specials were trained on as text: docs joined with "<|endoftext|>" learned fragments of it
+    ("<|", "text|>") that encode never produces, the special reused a learned id mid-vocabulary and
+    the vocabulary ended one short of vocab_size with a warning that blamed the corpus."""
+    sep = "<|endoftext|>"
+    joined = [sep.join(corpus[i:i + 4]) for i in range(0, len(corpus), 4)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        tok = train(joined, 400, special_tokens=[sep])
+    assert tok.vocab_size == 400 and tok.token_to_id(sep) == 399
+    # Training sees exactly the text between the specials.
+    plain = train([piece for doc in joined for piece in doc.split(sep)], 399)
+    assert {k: i for k, i in tok.get_vocab().items() if k != sep} == plain.get_vocab()
+
+    # A one-byte special keeps that byte's id, so it takes no slot of vocab_size.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        tok = train(corpus, 400, special_tokens=["\n", "<pad>"])
+    assert tok.vocab_size == 400 and tok.special_tokens() == {"\n": 10, "<pad>": 399}
+    with pytest.raises(ValueError, match="non-empty"):
+        train(corpus, 400, special_tokens=[""])
 
 
 @pytest.mark.parametrize("make", [

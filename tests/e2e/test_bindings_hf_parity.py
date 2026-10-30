@@ -181,3 +181,49 @@ def test_unimplemented_pre_tokenizer_or_normalizer_is_rejected(saved, change, tm
     (tmp_path / "tokenizer.json").write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="unsupported"):
         type(tok).from_pretrained(str(tmp_path))
+
+
+ADDS_A_TOKEN = {
+    "type": "TemplateProcessing",
+    "single": [{"SpecialToken": {"id": "<pad>", "type_id": 0}}, {"Sequence": {"id": "A", "type_id": 0}}],
+    "pair": [{"Sequence": {"id": "A", "type_id": 0}}, {"Sequence": {"id": "B", "type_id": 1}}],
+    "special_tokens": {"<pad>": {"id": "<pad>", "ids": [419], "tokens": ["<pad>"]}},
+}
+IGNORED_SETTINGS = {
+    "post_processor": lambda d: d.update(post_processor=ADDS_A_TOKEN),
+    "lstrip": lambda d: d["added_tokens"][0].update(lstrip=True),
+    "dropout": lambda d: d["model"].update(dropout=0.9),
+    "continuing_subword_prefix": lambda d: d["model"].update(continuing_subword_prefix="##"),
+    "end_of_word_suffix": lambda d: d["model"].update(end_of_word_suffix="</w>"),
+    "ignore_merges": lambda d: d["model"].update(ignore_merges=True),
+}
+
+
+@pytest.mark.parametrize(
+    "saved,change",
+    [("bpe+specials", change) for change in IGNORED_SETTINGS] + [("unigram", "post_processor")],
+    indirect=["saved"],
+)
+def test_settings_native_encoding_ignores_are_rejected(saved, change, tmp_path):
+    """from_hf_json checked only the normalizer and pre-tokenizer: a post-processor that prepends a
+    token, end_of_word_suffix or dropout loaded silently and HF ids differed on every text."""
+    name, tok, out = saved
+    data = json.loads((out / "tokenizer.json").read_text(encoding="utf-8"))
+    IGNORED_SETTINGS[change](data)
+    (tmp_path / "tokenizer.json").write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match=f"unsupported.*{change}"):
+        type(tok).from_pretrained(str(tmp_path))
+
+
+def test_reloads_a_tokenizer_json_re_saved_by_transformers(saved, tmp_path):
+    """transformers' save_pretrained adds a TemplateProcessing that only concatenates the
+    sequences (and keeps the last call's truncation); none of it changes encode."""
+    name, tok, out = saved
+    auto = transformers.AutoTokenizer.from_pretrained(str(out))
+    auto(["a b", "the quick brown fox"], truncation=True, max_length=4)
+    auto.save_pretrained(str(tmp_path))
+    data = json.loads((tmp_path / "tokenizer.json").read_text(encoding="utf-8"))
+    assert data["post_processor"]["type"] == "TemplateProcessing"  # the format under test
+    reloaded = type(tok).from_pretrained(str(tmp_path))
+    for text in TEXTS:
+        assert reloaded.encode(text) == tok.encode(text), (name, text)
