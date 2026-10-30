@@ -167,6 +167,7 @@ impl PyBpeModel {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to open {path}: {e}")))?;
         let json: HfTokenizerJson = serde_json::from_reader(file)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to parse {path}: {e}")))?;
+        let pretokenize = json.pretokenize();
 
         match json.model {
             HfModelConfig::BPE { vocab, merges, .. } => {
@@ -207,9 +208,9 @@ impl PyBpeModel {
                     }
                 }
 
-                Ok(Self {
-                    model: BottomUpModel::new(model_vocab, merges_vec),
-                })
+                let mut model = BottomUpModel::new(model_vocab, merges_vec);
+                model.pretokenize = pretokenize;
+                Ok(Self { model })
             }
             _ => Err(PyValueError::new_err(
                 "Exported tokenizer.json is not a BPE model",

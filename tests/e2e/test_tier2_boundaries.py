@@ -475,7 +475,11 @@ def test_tier2_f11_hf_export_bytelevel_config(require_tokenisers, sample_english
     tok.export_hf_json(str(out))
     with open(out, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert data["pre_tokenizer"]["add_prefix_space"] is False
+    # Pre-tokenizer is Sequence[Split(whitespace runs), ByteLevel] to mirror native segmentation.
+    byte_level = [p for p in data["pre_tokenizer"]["pretokenizers"] if p["type"] == "ByteLevel"]
+    assert len(byte_level) == 1
+    assert byte_level[0]["add_prefix_space"] is False
+    assert byte_level[0]["use_regex"] is False
     assert data["decoder"]["add_prefix_space"] is False
 
 
