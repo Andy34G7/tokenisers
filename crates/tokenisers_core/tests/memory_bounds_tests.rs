@@ -1,0 +1,137 @@
+//! Peak heap allocation bounds for Unigram k-best sampling and Unigram training.
+//!
+//! A counting global allocator records the peak number of live heap bytes, so these tests catch
+//! O(text length * k) or per-distinct-substring memory without needing a big input.
+
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::Mutex;
+
+use tokenisers_core::engine::unigram::{CompactTrie, UnigramTrainer};
+use tokenisers_core::inference::unigram_sample::UnigramSampler;
+
+struct CountingAlloc;
+
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+unsafe impl GlobalAlloc for CountingAlloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let p = unsafe { System.alloc(layout) };
+        if !p.is_null() {
+            PEAK.fetch_max(LIVE.fetch_add(layout.size(), Relaxed) + layout.size(), Relaxed);
+        }
+        p
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(ptr, layout) };
+        LIVE.fetch_sub(layout.size(), Relaxed);
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let p = unsafe { System.realloc(ptr, layout, new_size) };
+        if !p.is_null() {
+            let live = LIVE.fetch_add(new_size, Relaxed) + new_size;
+            PEAK.fetch_max(live, Relaxed);
+            LIVE.fetch_sub(layout.size(), Relaxed);
+        }
+        p
+    }
+}
+
+#[global_allocator]
+static GLOBAL: CountingAlloc = CountingAlloc;
+
+/// Peak extra heap bytes while `f` runs. Tests are serialised so their peaks do not mix.
+fn peak_bytes<T>(f: impl FnOnce() -> T) -> (T, usize) {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let base = LIVE.load(Relaxed);
+    PEAK.store(base, Relaxed);
+    let out = f();
+    (out, PEAK.load(Relaxed).saturating_sub(base))
+}
+
+const MB: usize = 1 << 20;
+
+/// All 256 bytes plus every 2..=4-gram over "abcd": many segmentations at every position.
+fn ngram_vocab() -> Vec<(Vec<u8>, u32, f64)> {
+    let mut vocab: Vec<(Vec<u8>, u32, f64)> = (0..=255u8).map(|b| (vec![b], b as u32, -6.0)).collect();
+    let mut grams: Vec<Vec<u8>> = vec![Vec::new()];
+    for _ in 0..4 {
+        grams = grams
+            .iter()
+            .flat_map(|g| b"abcd".iter().map(move |&c| [g.as_slice(), &[c]].concat()))
+            .collect();
+        for g in grams.iter().filter(|g| g.len() >= 2) {
+            let id = vocab.len() as u32;
+            vocab.push((g.clone(), id, -3.0 - g.len() as f64 * 0.7 - (id % 7) as f64 * 0.1));
+        }
+    }
+    vocab
+}
+
+/// Space-separated words of 3..=12 letters over "abcd", about `n` bytes.
+fn words(n: usize, seed: u64) -> Vec<u8> {
+    let mut rng = fastrand::Rng::with_seed(seed);
+    let mut text = Vec::with_capacity(n + 16);
+    while text.len() < n {
+        text.extend((0..rng.usize(3..=12)).map(|_| b"abcd"[rng.usize(..4)]));
+        text.push(b' ');
+    }
+    text
+}
+
+#[test]
+fn kbest_memory_does_not_grow_with_document_length() {
+    let trie = CompactTrie::build(&ngram_vocab());
+    let sampler = UnigramSampler::new(&trie);
+    let text = words(40_000, 1);
+    let (tokens, peak) = peak_bytes(|| sampler.sample_kbest(&text, 64, 1.0, Some(3)));
+    assert!(!tokens.is_empty());
+    // A whole-text table would be 40 000 positions x 64 paths x 32 bytes = 80 MB.
+    assert!(peak < 2 * MB, "k-best on 40 KB of words peaked at {} KB", peak / 1024);
+}
+
+#[test]
+fn kbest_memory_is_bounded_for_huge_k_and_long_segments() {
+    let vocab = ngram_vocab();
+    let trie = CompactTrie::build(&vocab);
+    let sampler = UnigramSampler::new(&trie);
+
+    // A huge nbest_size on ordinary text: each word's table holds at most its own paths.
+    let text = words(2_000, 2);
+    let (_, peak) = peak_bytes(|| sampler.sample_kbest(&text, usize::MAX, 1.0, Some(4)));
+    assert!(peak < 16 * MB, "k = usize::MAX on 2 KB of words peaked at {} MB", peak / MB);
+
+    // One 20 KB segment (no whitespace): k is capped so the table stays within the budget.
+    let long: Vec<u8> = words(20_000, 5).into_iter().filter(|&b| b != b' ').collect();
+    for k in [1024, usize::MAX] {
+        let (tokens, peak) = peak_bytes(|| sampler.sample_kbest(&long, k, 1.0, Some(6)));
+        let decoded: Vec<u8> = tokens.iter().flat_map(|&t| vocab[t as usize].0.clone()).collect();
+        assert_eq!(decoded, long, "k-best must stay lossless when k is capped");
+        assert!(peak < 64 * MB, "k = {k} on a 20 KB segment peaked at {} MB", peak / MB);
+    }
+}
+
+#[test]
+fn unigram_training_memory_is_not_per_distinct_substring() {
+    // Distinct random words: nearly every 2..=16-byte substring is distinct, the worst case for
+    // counting substrings in a hash map (about 100 MB here, 370 B per corpus byte). The
+    // fixed allowance covers the seed-vocabulary trie and EM buffers, which do not grow with
+    // the corpus.
+    let mut rng = fastrand::Rng::with_seed(9);
+    let corpus: Vec<(Vec<u8>, u64)> = (0..30_000)
+        .map(|_| ((0..rng.usize(5..=15)).map(|_| rng.u8(b'a'..=b'z')).collect(), rng.u64(1..20)))
+        .collect();
+    let corpus_bytes: usize = corpus.iter().map(|(w, _)| w.len()).sum();
+    let (model, peak) = peak_bytes(|| UnigramTrainer::new(300, 0.15).train(&corpus).unwrap());
+    assert_eq!(model.vocab.len(), 300);
+    assert!(
+        peak < 16 * MB + 50 * corpus_bytes,
+        "training on {corpus_bytes} bytes peaked at {} MB ({} B/byte)",
+        peak / MB,
+        peak / corpus_bytes
+    );
+}

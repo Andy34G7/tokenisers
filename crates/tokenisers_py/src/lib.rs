@@ -305,8 +305,9 @@ impl PyUnigramModel {
     /// true when `temperature` is given or `nbest_size` is > 1 or < 0. A sample is drawn with
     /// probability proportional to P(s)^(1/temperature) (temperature 1 = exact posterior,
     /// SentencePiece alpha = 1/temperature, temperature 0 = Viterbi) over all segmentations
-    /// (`nbest_size` None or < 0, FFBS) or over the `nbest_size` best ones; `nbest_size` 0 or 1
-    /// is Viterbi (SentencePiece convention). Releases the GIL.
+    /// (`nbest_size` None or < 0, FFBS) or over the `nbest_size` best ones of each whitespace /
+    /// non-whitespace segment (the lattice never spans segments); `nbest_size` 0 or 1 is Viterbi
+    /// (SentencePiece convention). Releases the GIL.
     #[pyo3(signature = (bytes, temperature=None, nbest_size=None, sample=None, seed=None))]
     pub fn encode_bytes(
         &self,

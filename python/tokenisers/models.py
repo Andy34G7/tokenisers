@@ -366,7 +366,7 @@ class UnigramTokenizer(_CoreTokenizer):
         probability proportional to P(s)^(1/temperature): temperature 1 (default) is the exact
         posterior, SentencePiece ``alpha`` = 1/temperature, 0 gives Viterbi. ``nbest_size``
         (SentencePiece convention): None or < 0 samples from all segmentations (FFBS), k > 1 from
-        the k best, 0 or 1 is Viterbi.
+        the k best of each whitespace / non-whitespace segment, 0 or 1 is Viterbi.
         """
         return self._require().encode(
             text, temperature=temperature, nbest_size=nbest_size, sample=sample, seed=seed
