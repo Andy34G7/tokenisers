@@ -2,8 +2,37 @@ use std::collections::HashSet;
 use ahash::AHashMap;
 use rayon::prelude::*;
 
+use crate::curricula::super_bpe::SuperBpeTrainer;
 use crate::error::{Result, TokeniserError};
 use crate::vocab::{TokenId, Vocabulary, BASE_VOCAB_SIZE};
+
+/// Deterministic parallel accumulation over corpus words. Chunk boundaries depend only on the
+/// corpus length (never the thread count) and chunk results are combined sequentially in order,
+/// so float sums are bit-identical across runs, processes and machines.
+fn accumulate_over_corpus<F>(corpus: &[(Vec<u8>, u64)], width: usize, per_word: F) -> (f64, Vec<f64>)
+where
+    F: Fn(&[u8], f64, &mut f64, &mut [f64]) + Sync,
+{
+    let chunk_len = corpus.len().div_ceil(64).max(1);
+    let partials: Vec<(f64, Vec<f64>)> = corpus
+        .par_chunks(chunk_len)
+        .map(|chunk| {
+            let (mut ll, mut acc) = (0.0, vec![0.0; width]);
+            for (bytes, count) in chunk {
+                per_word(bytes, *count as f64, &mut ll, &mut acc);
+            }
+            (ll, acc)
+        })
+        .collect();
+    let (mut ll, mut acc) = (0.0, vec![0.0; width]);
+    for (part_ll, part_acc) in partials {
+        ll += part_ll;
+        for (a, p) in acc.iter_mut().zip(part_acc) {
+            *a += p;
+        }
+    }
+    (ll, acc)
+}
 
 /// Numerically stable logsumexp for two log-probabilities: ln(exp(a) + exp(b)).
 #[inline(always)]
@@ -329,45 +358,22 @@ impl UnigramEmEngine {
         trie: &CompactTrie,
         vocab_size: usize,
     ) -> (f64, Vec<f64>) {
-        let (total_corpus_ll, expected_counts) = corpus
-            .par_iter()
-            .fold(
-                || (0.0f64, vec![0.0f64; vocab_size]),
-                |(mut ll, mut counts), (bytes, count)| {
-                    let mut edges = Vec::with_capacity(bytes.len() * 4);
-                    let mut alpha = Vec::with_capacity(bytes.len() + 1);
-                    let mut beta = Vec::with_capacity(bytes.len() + 1);
-
-                    let (word_ll, word_expected) = Self::forward_backward_word(
-                        bytes,
-                        trie,
-                        &mut edges,
-                        &mut alpha,
-                        &mut beta,
-                    );
-
-                    if word_ll.is_finite() {
-                        let w_cnt = *count as f64;
-                        ll += word_ll * w_cnt;
-                        for (id, p) in word_expected {
-                            if (id as usize) < counts.len() {
-                                counts[id as usize] += p * w_cnt;
-                            }
+        let (total_corpus_ll, expected_counts) =
+            accumulate_over_corpus(corpus, vocab_size, |bytes, w_cnt, ll, counts| {
+                let mut edges = Vec::with_capacity(bytes.len() * 4);
+                let mut alpha = Vec::with_capacity(bytes.len() + 1);
+                let mut beta = Vec::with_capacity(bytes.len() + 1);
+                let (word_ll, word_expected) =
+                    Self::forward_backward_word(bytes, trie, &mut edges, &mut alpha, &mut beta);
+                if word_ll.is_finite() {
+                    *ll += word_ll * w_cnt;
+                    for (id, p) in word_expected {
+                        if let Some(c) = counts.get_mut(id as usize) {
+                            *c += p * w_cnt;
                         }
                     }
-                    (ll, counts)
-                },
-            )
-            .reduce(
-                || (0.0f64, vec![0.0f64; vocab_size]),
-                |(mut ll_a, mut counts_a), (ll_b, counts_b)| {
-                    ll_a += ll_b;
-                    for (ca, cb) in counts_a.iter_mut().zip(counts_b.iter()) {
-                        *ca += *cb;
-                    }
-                    (ll_a, counts_a)
-                },
-            );
+                }
+            });
 
         // M-step: Laplace smoothed normalization
         let epsilon = 1e-7;
@@ -410,17 +416,17 @@ impl UnigramModel {
         }
     }
 
-    /// Viterbi 1-best segmentation of a byte slice into token IDs.
+    /// Viterbi 1-best segmentation of a byte slice into token IDs, run separately on every
+    /// `SuperBpeTrainer::segment_bytes` segment (the units the model was trained on).
     pub fn encode(&self, bytes: &[u8]) -> Vec<TokenId> {
-        if bytes.is_empty() {
-            return Vec::new();
-        }
-        if let Some((_, tokens)) = ViterbiDecoder::decode(bytes, &self.trie, None) {
-            tokens
-        } else {
-            // Absolute fallback: raw base bytes
-            bytes.iter().map(|&b| b as TokenId).collect()
-        }
+        SuperBpeTrainer::segment_bytes(bytes)
+            .into_iter()
+            .flat_map(|seg| match ViterbiDecoder::decode(seg, &self.trie, None) {
+                Some((_, tokens)) => tokens,
+                // Absolute fallback: raw base bytes
+                None => seg.iter().map(|&b| b as TokenId).collect(),
+            })
+            .collect()
     }
 
     /// Parallel batch encoding across multiple texts.
@@ -468,57 +474,39 @@ impl UnigramTrainer {
         }
     }
 
-    /// Computes marginal likelihood drop for every token across the corpus.
+    /// Viterbi (best-path) approximation of each token's pruning loss, NOT the exact drop in
+    /// marginal likelihood: for every word whose 1-best path uses token `t`,
+    /// `loss[t] += count * (log P(best path) - log P(best path that avoids t))`.
+    /// Tokens absent from every 1-best path get loss 0. Single bytes are never scored.
     pub fn compute_pruning_losses(
         corpus: &[(Vec<u8>, u64)],
         trie: &CompactTrie,
         vocab: &[(Vec<u8>, TokenId, f64)],
     ) -> Vec<f64> {
-        let vocab_size = vocab.len();
-
-        corpus
-            .par_iter()
-            .fold(
-                || vec![0.0f64; vocab_size],
-                |mut thread_losses, (bytes, count)| {
-                    if let Some((best_score, best_path)) = ViterbiDecoder::decode(bytes, trie, None) {
-                        let unique_tokens: HashSet<TokenId> = best_path.into_iter().collect();
-
-                        for token_id in unique_tokens {
-                            let idx = token_id as usize;
-                            if idx >= vocab.len() {
-                                continue;
-                            }
-
-                            // Strict base 256 byte protection: length 1 tokens are never evaluated
-                            if vocab[idx].0.len() == 1 {
-                                continue;
-                            }
-
-                            let w_cnt = *count as f64;
-                            if let Some((alt_score, _)) = ViterbiDecoder::decode(bytes, trie, Some(token_id)) {
-                                let loss = (best_score - alt_score).max(0.0);
-                                thread_losses[idx] += loss * w_cnt;
-                            } else {
-                                thread_losses[idx] += 1e6 * w_cnt;
-                            }
-                        }
-                    }
-                    thread_losses
-                },
-            )
-            .reduce(
-                || vec![0.0f64; vocab_size],
-                |mut a, b| {
-                    for (va, vb) in a.iter_mut().zip(b.iter()) {
-                        *va += *vb;
-                    }
-                    a
-                },
-            )
+        accumulate_over_corpus(corpus, vocab.len(), |bytes, w_cnt, _, losses| {
+            let Some((best_score, best_path)) = ViterbiDecoder::decode(bytes, trie, None) else {
+                return;
+            };
+            let unique_tokens: HashSet<TokenId> = best_path.into_iter().collect();
+            for token_id in unique_tokens {
+                let idx = token_id as usize;
+                // Strict base 256 byte protection: length 1 tokens are never evaluated
+                if idx >= vocab.len() || vocab[idx].0.len() == 1 {
+                    continue;
+                }
+                losses[idx] += match ViterbiDecoder::decode(bytes, trie, Some(token_id)) {
+                    Some((alt_score, _)) => (best_score - alt_score).max(0.0) * w_cnt,
+                    None => 1e6 * w_cnt,
+                };
+            }
+        })
+        .1
     }
 
     /// Full training loop from seed vocabulary to target vocabulary size.
+    ///
+    /// Deterministic: the result (vocabulary, ids and scores) depends only on the multiset of
+    /// `(word, count)` entries, not on their order, hash seeds or the number of threads.
     pub fn train(&self, corpus: &[(Vec<u8>, u64)]) -> Result<UnigramModel> {
         if self.target_vocab_size < BASE_VOCAB_SIZE {
             return Err(TokeniserError::VocabSizeTooSmall(self.target_vocab_size));
@@ -526,15 +514,13 @@ impl UnigramTrainer {
         if corpus.is_empty() {
             return Err(TokeniserError::EmptyCorpus);
         }
+        // Callers often build the corpus from a hash map; fix the order so float sums are stable.
+        let mut sorted_corpus = corpus.to_vec();
+        sorted_corpus.sort_unstable();
+        let corpus = &sorted_corpus[..];
 
-        // 1. Build initial seed vocabulary:
-        // Always include all 256 base bytes + top frequent character n-grams from corpus
-        let mut initial_vocab_map: AHashMap<Vec<u8>, f64> = AHashMap::default();
-        for b in 0..=255u8 {
-            initial_vocab_map.insert(vec![b], -12.0);
-        }
-
-        // Gather substrings of length 2..=16 from corpus
+        // 1. Seed vocabulary: all 256 base bytes (ids 0..256), then the most frequent substrings
+        // of length 2..=16, ordered by (count desc, bytes asc) so ids are reproducible.
         let seed_target = (self.target_vocab_size * 3).max(BASE_VOCAB_SIZE + 500);
         let mut substring_counts: AHashMap<Vec<u8>, u64> = AHashMap::default();
 
@@ -549,27 +535,15 @@ impl UnigramTrainer {
         }
 
         let mut sorted_subs: Vec<(Vec<u8>, u64)> = substring_counts.into_iter().collect();
-        sorted_subs.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_subs.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
-        for (sub, _) in sorted_subs.into_iter().take(seed_target - BASE_VOCAB_SIZE) {
-            initial_vocab_map.insert(sub, -12.0);
-        }
-
-        // Convert to indexed list
-        let vocab_list: Vec<(Vec<u8>, f64)> = initial_vocab_map.into_iter().collect();
-
-        // Ensure base bytes are strictly at indices 0..256
-        let mut final_seed: Vec<(Vec<u8>, f64)> = Vec::with_capacity(vocab_list.len());
-        for b in 0..=255u8 {
-            final_seed.push((vec![b], -12.0));
-        }
-        for (bytes, lp) in vocab_list {
-            if bytes.len() > 1 {
-                final_seed.push((bytes, lp));
-            }
-        }
-
-        let mut current_vocab = final_seed;
+        let mut current_vocab: Vec<(Vec<u8>, f64)> = (0..=255u8).map(|b| (vec![b], -12.0)).collect();
+        current_vocab.extend(
+            sorted_subs
+                .into_iter()
+                .take(seed_target - BASE_VOCAB_SIZE)
+                .map(|(sub, _)| (sub, -12.0)),
+        );
 
         // 2. Iterative EM & Pruning loop
         loop {
