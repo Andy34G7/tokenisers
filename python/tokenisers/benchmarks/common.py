@@ -98,12 +98,14 @@ def load_dataset(args: argparse.Namespace) -> PreparedDataset:
     return pipeline.prepare(train_bytes=args.train_bytes, seed=args.data_seed)
 
 
-# Peak resident memory of training one variant, in bytes per byte of training text: the largest
-# value measured on 4 MB of the real corpus at V=16384 and V=65536 (unigram_lm 139, super_bpe 100,
-# BPE variants <= 45), plus ~25% margin. It grows linearly with the text and, for the merge-based
-# variants, with V (super_bpe 78 -> 100 B/B from 16k to 64k). Variants train one after another, so
-# the run's peak is the largest variant's.
-TRAIN_MEMORY_PER_BYTE: Dict[str, int] = {"unigram_lm": 175, "super_bpe": 125}
+# Peak memory of training one variant ~ BASE_MEMORY + per-byte cost x training text bytes. Measured
+# whole-process peak RSS at V=65536 (the largest supported size) on the real corpus, commit 1e3b4da
+# (see MEASURED_TRAIN_PEAKS in tests/e2e/test_bench_reporting.py): super_bpe 0.42 / 0.79 / 1.53 /
+# 2.92 GiB at 4.3 / 10.1 / 25.1 / 52.5 MB of text, the largest plain BPE variant (wp_bpe_pig) 1.25
+# GiB and unigram_lm 0.52 GiB at 52.5 MB. Growth per byte falls with size (super_bpe ~58 B/B at
+# 52.5 MB); the costs below cover every measurement with >= 20% margin. Variants train one after
+# another, so the run's peak is the largest variant's.
+TRAIN_MEMORY_PER_BYTE: Dict[str, int] = {"super_bpe": 75}
 DEFAULT_TRAIN_MEMORY_PER_BYTE = 60
 BASE_MEMORY = 600 * 2**20  # interpreter, torch, corpus copies, SIGMORPHON gold
 

@@ -88,21 +88,37 @@ def test_memory_preflight_refuses_runs_that_would_not_fit(monkeypatch):
     """The CLIs stop before training when the estimated peak exceeds available memory."""
     mb = 2**20
     monkeypatch.setattr(common, "available_memory", lambda: 3 * 1024 * mb)
-    common.check_memory(["bpe_frequency", "unigram_lm"], 4 * mb)  # ~1.3 GiB: fine
-    with pytest.raises(SystemExit, match="unigram_lm"):
-        common.check_memory(["bpe_frequency", "unigram_lm"], 50 * mb)  # ~9 GiB
+    common.check_memory(["bpe_frequency", "super_bpe"], 4 * mb)  # ~0.9 GiB: fine
+    with pytest.raises(SystemExit, match="super_bpe"):
+        common.check_memory(["bpe_frequency", "super_bpe"], 50 * mb)  # ~4.3 GiB
     common.check_memory(["bpe_frequency"], 35 * mb)  # BPE alone: ~2.6 GiB
     monkeypatch.setattr(common, "available_memory", lambda: None)  # unknown platform: no check
     common.check_memory(["unigram_lm"], 10**12)
 
 
+# Whole-process peak RSS (VmHWM) of training one variant at V=65536 on the real corpus (train split
+# of `python -m tokenisers.data --train-bytes N`, commit 1e3b4da): {variant: [(text bytes, peak GiB)]}.
+# Re-measure when training code changes: the earlier constants (unigram_lm 175 B/B) predated the
+# unigram memory fix and refused the default 50 MB run on a 16 GB machine.
+MEASURED_TRAIN_PEAKS = {
+    "super_bpe": [(4_256_447, 0.42), (10_105_464, 0.79), (25_101_597, 1.53), (52_512_567, 2.92)],
+    "wp_bpe_pig": [(4_256_447, 0.20), (25_101_597, 0.67), (52_512_567, 1.25)],
+    "unigram_lm": [(4_256_447, 0.29), (10_105_464, 0.32), (25_101_597, 0.40), (52_512_567, 0.52)],
+}
+
+
 def test_memory_estimate_covers_the_largest_vocabulary():
-    """Measured at V=65536 on 4 MB of the real corpus (peak RSS growth per training byte): super_bpe
-    100, wp_bpe_npmi/mdl_bits 47, unigram_lm 139. The estimate must cover these with a margin, since
-    65536 is a supported size."""
-    measured = {"super_bpe": 100, "wp_bpe_npmi": 47, "mdl_bits": 47, "unigram_lm": 139, "bpe_frequency": 38}
-    for variant, per_byte in measured.items():
-        assert common.estimate_train_memory([variant], 10**8) - common.BASE_MEMORY >= 1.2 * per_byte * 10**8, variant
+    """The estimate covers every measured peak at V=65536 (a supported size) with a 20% margin."""
+    for variant, points in MEASURED_TRAIN_PEAKS.items():
+        for text_bytes, peak_gib in points:
+            assert common.estimate_train_memory([variant], text_bytes) >= 1.2 * peak_gib * 2**30, (variant, text_bytes)
+
+
+def test_memory_estimate_does_not_refuse_the_default_run_for_no_reason():
+    """The full suite on the default 50 MB split is estimated at no more than 1.6x its measured peak
+    (super_bpe at V=65536), so the default run is not refused on a machine that can hold it."""
+    worst = max(peak for points in MEASURED_TRAIN_PEAKS.values() for n, peak in points if n >= common.DEFAULT_TRAIN_BYTES)
+    assert common.estimate_train_memory(common.VARIANTS, common.DEFAULT_TRAIN_BYTES) <= 1.6 * worst * 2**30
 
 
 def test_system_memory_keeps_a_reserve_for_the_desktop():
@@ -113,8 +129,8 @@ def test_system_memory_keeps_a_reserve_for_the_desktop():
     assert usable == int(9.5 * gib) - int(0.15 * 15 * gib)  # 15% of 15 GiB > the 2 GiB floor
     assert common.usable_system_memory(f"MemTotal: {4 * gib // 1024} kB\nMemAvailable: {3 * gib // 1024} kB\n") == gib
     assert common.usable_system_memory("MemTotal: 1 kB\n") is None
-    # the reviewer's scenario: a ~9.1 GiB unigram_lm estimate on a 15 GiB desktop with 9.5 GiB available
-    assert common.estimate_train_memory(["unigram_lm"], 50 * 2**20) > usable
+    # a ~7.9 GiB estimate (super_bpe on 100 MiB) fits the 9.5 GiB available but not what is usable
+    assert int(9.5 * gib) > common.estimate_train_memory(["super_bpe"], 100 * 2**20) > usable
 
 
 def test_memory_preflight_runs_before_the_dataset_is_prepared(monkeypatch, tmp_path):
@@ -134,7 +150,7 @@ def test_memory_preflight_counts_what_the_process_already_holds(monkeypatch):
     """The estimate is the run's total peak; memory the process already uses (interpreter, torch) is
     both part of it and missing from what is available, so only the difference must fit."""
     gib = 2**30
-    need = common.estimate_train_memory(["unigram_lm"], 10**7)  # ~2.2 GiB
+    need = common.estimate_train_memory(["unigram_lm"], 10**7)  # ~1.1 GiB
     monkeypatch.setattr(common, "available_memory", lambda: need - gib // 2)
     monkeypatch.setattr(common, "own_rss", lambda: gib // 2)
     common.check_memory(["unigram_lm"], 10**7)
