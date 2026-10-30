@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use crate::arena::{SymbolArena, NULL_NODE};
 use crate::curricula::morpheme::PairMorphologyStats;
-use crate::curricula::super_bpe::SuperBpeTrainer;
+use crate::curricula::super_bpe::{BoundaryJunction, SuperBpeTrainer};
 use crate::error::{Result, TokeniserError};
 use crate::index::{InvertedIndex, OccurrenceRef, Pair};
 use crate::scoring::{PairContext, PairScorer, ScoreDeps, ScoredPair};
@@ -32,18 +32,83 @@ pub struct BottomUpModel {
     /// training word was one segment), so no learned token spans a segment boundary. Encoding then
     /// pre-splits input with `SuperBpeTrainer::segment_bytes` and caches repeated segments, and the
     /// HF export emits the matching `Split` pre-tokenizer. False (the `new` default, SuperBPE
-    /// stage 2, models rebuilt from a bare merge list): each special-token-free span of the input
-    /// is one merge unit and the export is whole-text `ByteLevel`.
+    /// stage 2, models rebuilt from a bare merge list): the export is whole-text `ByteLevel` and a
+    /// span is cut only where no merge can ever join its two sides (see `may_join`).
     pub pretokenize: bool,
+    /// Bit `a << 8 | b` is set iff some merge output contains byte `a` directly followed by `b`.
+    joined_bigrams: Vec<u64>,
 }
 
-/// Reusable per-call buffers for the heap encoder.
+/// Reusable per-call buffers for the encoder.
 #[derive(Default)]
 struct Scratch {
     /// (token, prev, next); token == NONE marks a removed symbol.
     syms: Vec<(TokenId, u32, u32)>,
-    heap: BinaryHeap<Reverse<(u32, u32)>>,
-    skipped: Vec<Reverse<(u32, u32)>>,
+    queue: KeyQueue,
+    /// BPE-dropout: skipped keys per segment, re-queued after that segment's next non-skipped pop.
+    skipped: AHashMap<u32, Vec<u64>>,
+}
+
+/// Min-queue of encoder keys `rank << 32 | position`. Keys not below the last popped key go to a
+/// radix heap (one bucket per highest bit in which a key differs from `last`): pushes are appends
+/// and a key moves down at most 64 times, whereas a binary heap over a whole document misses cache
+/// on every sift. Deterministic encoding only pushes ranks above the one it pops, so it never goes
+/// below `last`; BPE-dropout re-queues do, and wait in `low`, whose keys all pop first.
+#[derive(Default)]
+struct KeyQueue {
+    last: u64,
+    /// Bit `b` is set iff `buckets[b]` is non-empty.
+    nonempty: u128,
+    buckets: Vec<Vec<u64>>,
+    low: BinaryHeap<Reverse<u64>>,
+}
+
+impl KeyQueue {
+    fn push(&mut self, key: u64) {
+        if key < self.last {
+            return self.low.push(Reverse(key));
+        }
+        let b = 64 - (key ^ self.last).leading_zeros() as usize;
+        if self.buckets.is_empty() {
+            self.buckets.resize_with(65, Vec::new);
+        }
+        self.buckets[b].push(key);
+        self.nonempty |= 1 << b;
+    }
+
+    /// Pops the smallest key. Once empty, the queue is reset for the next unit.
+    fn pop(&mut self) -> Option<u64> {
+        if let Some(Reverse(key)) = self.low.pop() {
+            return Some(key);
+        }
+        if self.nonempty & 1 == 0 {
+            if self.nonempty == 0 {
+                self.last = 0;
+                return None;
+            }
+            // Every key of the lowest non-empty bucket shares its bits above `b - 1` with that
+            // bucket's minimum, so after `last` moves there they all land in lower buckets.
+            let b = self.nonempty.trailing_zeros() as usize;
+            self.nonempty &= !(1 << b);
+            let mut keys = std::mem::take(&mut self.buckets[b]);
+            self.last = *keys.iter().min().unwrap();
+            for &key in &keys {
+                self.push(key);
+            }
+            keys.clear();
+            self.buckets[b] = keys;
+        }
+        let key = self.buckets[0].pop();
+        if self.buckets[0].is_empty() {
+            self.nonempty &= !1;
+        }
+        key
+    }
+}
+
+#[inline]
+fn queue_key(rank: u32, pos: u32) -> u64 {
+    (rank as u64) << 32 | pos as u64
 }
 
 impl BottomUpModel {
@@ -59,13 +124,30 @@ impl BottomUpModel {
                 next_same_rank[prev as usize] = rank;
             }
         }
+        let mut joined_bigrams = vec![0u64; 1024];
+        for &(_, _, w) in &merges {
+            for ab in vocab.get_bytes(w).unwrap_or_default().windows(2) {
+                let bit = (ab[0] as usize) << 8 | ab[1] as usize;
+                joined_bigrams[bit >> 6] |= 1 << (bit & 63);
+            }
+        }
         Self {
             vocab,
             merges,
             merge_ranks,
             next_same_rank,
             pretokenize: false,
+            joined_bigrams,
         }
+    }
+
+    /// False when no merge output contains `a` directly followed by `b`. Every symbol during
+    /// encoding is a byte or a merge output, so no symbol ever covers both sides of such a
+    /// boundary: the text on either side encodes independently, exactly as if it were split.
+    #[inline]
+    fn may_join(&self, a: u8, b: u8) -> bool {
+        let bit = (a as usize) << 8 | b as usize;
+        self.joined_bigrams[bit >> 6] & (1 << (bit & 63)) != 0
     }
 
     /// Smallest rank >= `min_rank` that merges `pair`.
@@ -87,10 +169,13 @@ impl BottomUpModel {
         self.encode_impl(bytes, None)
     }
 
-    /// BPE-dropout encoding (Provilkov et al. 2020, HF `tokenizers` semantics): within each merge
-    /// unit (segment for `pretokenize` models), every popped merge is skipped with probability `p` and
-    /// re-queued after the next successful merge. `p <= 0` equals `encode`, `p >= 1` yields raw
-    /// bytes (special tokens are still matched). A seed makes the output reproducible.
+    /// BPE-dropout encoding (Provilkov et al. 2020, HF `tokenizers` semantics with the training
+    /// segment as the word): every popped merge is skipped with probability `p` and re-queued after
+    /// the next non-skipped pop in its segment (`SuperBpeTrainer::segment_bytes`; a merge belongs
+    /// to the segment of its left symbol). For `pretokenize` models this is exactly HF dropout per
+    /// segment; whole-text (SuperBPE) models get the same per-segment fragmentation instead of
+    /// one document-wide re-queue that lets almost every merge through. `p <= 0` equals `encode`,
+    /// `p >= 1` yields raw bytes (special tokens are still matched). A seed makes it reproducible.
     pub fn encode_with_dropout(&self, bytes: &[u8], p: f32, seed: Option<u64>) -> Vec<TokenId> {
         if p.is_nan() || p <= 0.0 {
             return self.encode(bytes);
@@ -135,29 +220,45 @@ impl BottomUpModel {
         cache: &mut AHashMap<&'b [u8], (usize, usize)>,
         out: &mut Vec<TokenId>,
     ) {
-        if span.is_empty() {
-            return;
-        }
-        if !self.pretokenize {
-            return self.merge_unit(span, dropout, scratch, out);
-        }
-        // Byte-level segmentation: equals `segment_text` on valid UTF-8 and also splits invalid
-        // input, so a byte-level merge can never straddle a multi-byte whitespace character.
-        for piece in SuperBpeTrainer::segment_bytes(span) {
-            if dropout.is_some() {
-                self.merge_unit(piece, dropout, scratch, out);
-            } else if let Some(&(s, e)) = cache.get(piece) {
-                out.extend_from_within(s..e);
-            } else {
-                let s = out.len();
-                self.merge_unit(piece, dropout, scratch, out);
-                cache.insert(piece, (s, out.len()));
+        // Merge units are whole segments, cut between two segments when no merge can join them:
+        // always for `pretokenize` models, else where `may_join` says so. Independent units keep the
+        // working set small (a whole-document unit misses cache on almost every merge) and repeat,
+        // so they are cached. Byte-level segmentation equals `segment_text` on valid UTF-8 and also
+        // splits invalid input, so a merge never straddles a multi-byte whitespace character.
+        let (mut start, mut end) = (0, 0);
+        for seg in SuperBpeTrainer::segment_bytes(span) {
+            if end > start && (self.pretokenize || !self.may_join(span[end - 1], span[end])) {
+                self.encode_unit(&span[start..end], dropout, scratch, cache, out);
+                start = end;
             }
+            end += seg.len();
+        }
+        if end > start {
+            self.encode_unit(&span[start..end], dropout, scratch, cache, out);
         }
     }
 
-    /// Applies merges to one unit with a min-heap over (rank, position) and a linked list of
-    /// symbols, so equal ranks resolve leftmost-first exactly like training.
+    fn encode_unit<'b>(
+        &self,
+        unit: &'b [u8],
+        dropout: &mut Option<(f32, &mut Rng)>,
+        scratch: &mut Scratch,
+        cache: &mut AHashMap<&'b [u8], (usize, usize)>,
+        out: &mut Vec<TokenId>,
+    ) {
+        if dropout.is_some() {
+            return self.merge_unit(unit, dropout, scratch, out);
+        }
+        if let Some(&(s, e)) = cache.get(unit) {
+            return out.extend_from_within(s..e);
+        }
+        let s = out.len();
+        self.merge_unit(unit, dropout, scratch, out);
+        cache.insert(unit, (s, out.len()));
+    }
+
+    /// Applies merges to one unit in (rank, position) order over a linked list of symbols, so
+    /// equal ranks resolve leftmost-first exactly like training.
     fn merge_unit(
         &self,
         bytes: &[u8],
@@ -170,9 +271,8 @@ impl BottomUpModel {
             out.extend(bytes.iter().map(|&b| b as TokenId));
             return;
         }
-        let Scratch { syms, heap, skipped } = scratch;
+        let Scratch { syms, queue, skipped } = scratch;
         syms.clear();
-        heap.clear();
         skipped.clear();
         for (i, &b) in bytes.iter().enumerate() {
             let prev = if i == 0 { NONE } else { i as u32 - 1 };
@@ -182,20 +282,35 @@ impl BottomUpModel {
         for i in 0..n - 1 {
             let pair = Pair::new(bytes[i] as TokenId, bytes[i + 1] as TokenId);
             if let Some(rank) = self.rank_from(pair, 0) {
-                heap.push(Reverse((rank, i as u32)));
+                queue.push(queue_key(rank, i as u32));
             }
         }
+        // Dropout scope: start offset of every segment.
+        let seg_starts: Vec<u32> = match dropout {
+            Some(_) => SuperBpeTrainer::segment_bytes(bytes)
+                .iter()
+                .scan(0u32, |start, seg| {
+                    let s = *start;
+                    *start += seg.len() as u32;
+                    Some(s)
+                })
+                .collect(),
+            None => Vec::new(),
+        };
 
-        while let Some(top) = heap.pop() {
+        while let Some(key) = queue.pop() {
+            let (rank, pos) = ((key >> 32) as u32, key as u32);
             if let Some((p, rng)) = dropout.as_mut() {
+                let seg = seg_starts.partition_point(|&s| s <= pos) as u32;
                 if rng.f32() < *p {
-                    skipped.push(top);
+                    skipped.entry(seg).or_default().push(key);
                     continue;
                 }
+                for k in skipped.remove(&seg).unwrap_or_default() {
+                    queue.push(k);
+                }
             }
-            heap.extend(skipped.drain(..));
 
-            let Reverse((rank, pos)) = top;
             let (tok, prev, next) = syms[pos as usize];
             if tok == NONE || next == NONE {
                 continue;
@@ -212,12 +327,12 @@ impl BottomUpModel {
             }
             if prev != NONE {
                 if let Some(r) = self.rank_from(Pair::new(syms[prev as usize].0, w), rank + 1) {
-                    heap.push(Reverse((r, prev)));
+                    queue.push(queue_key(r, prev));
                 }
             }
             if after != NONE {
                 if let Some(r) = self.rank_from(Pair::new(w, syms[after as usize].0), rank + 1) {
-                    heap.push(Reverse((r, pos)));
+                    queue.push(queue_key(r, pos));
                 }
             }
         }
@@ -310,7 +425,13 @@ impl<'a> BottomUpTrainer<'a> {
             return Err(TokeniserError::EmptyCorpus);
         }
 
-        let mut state = TrainState::new(self.scorer, self.min_frequency.max(1), word_counts);
+        let mut state = TrainState::new(self.scorer, self.min_frequency, true);
+        for (word, freq) in word_counts {
+            if !word.is_empty() && *freq > 0 {
+                state.add_word(word, *freq);
+            }
+        }
+        state.queue_all();
         let mut merges = Vec::new();
         while state.vocab.len() < self.target_vocab_size {
             let Some(pair) = state.pop_best() else { break };
@@ -359,11 +480,12 @@ impl Ord for Entry {
     }
 }
 
-struct TrainState<'s> {
+/// The training engine's state; `SuperBpeTrainer` drives it too (with `link_words`).
+pub(crate) struct TrainState<'s> {
     scorer: &'s dyn PairScorer,
     deps: ScoreDeps,
     min_frequency: u64,
-    vocab: Vocabulary,
+    pub(crate) vocab: Vocabulary,
     arena: SymbolArena,
     index: InvertedIndex,
     stats: AHashMap<Pair, PairStat>,
@@ -379,32 +501,26 @@ struct TrainState<'s> {
     /// Pairs to re-score after the current merge.
     changed: Vec<Pair>,
     /// Per arena word: its morpheme boundaries (`PairScorer::word_boundaries`). Empty when no
-    /// training word is annotated, which turns morphology tracking off.
+    /// training word is annotated (or `morphology` is off), which turns morphology tracking off.
     word_bounds: Vec<Option<&'s [usize]>>,
+    morphology: bool,
     /// Per pair: its current occurrences inside annotated words, split intra / cross-boundary.
     morph: AHashMap<Pair, PairMorphologyStats>,
 }
 
 impl<'s> TrainState<'s> {
-    fn new(scorer: &'s dyn PairScorer, min_frequency: u64, word_counts: &[(Vec<u8>, u64)]) -> Self {
+    /// An empty corpus: `add_word` every training word, then `queue_all` once, then merge.
+    /// `morphology: false` ignores the scorer's morpheme annotations.
+    pub(crate) fn new(scorer: &'s dyn PairScorer, min_frequency: u64, morphology: bool) -> Self {
         let deps = scorer.deps();
         let track_pairs_of = matches!(deps, ScoreDeps::Marginals | ScoreDeps::MonotoneTotals);
-        // Same filter as the arena loop below, so index = word id.
-        let mut word_bounds: Vec<Option<&'s [usize]>> = word_counts
-            .iter()
-            .filter(|(word, freq)| !word.is_empty() && *freq > 0)
-            .map(|(word, _)| scorer.word_boundaries(word))
-            .collect();
-        if word_bounds.iter().all(Option::is_none) {
-            word_bounds.clear();
-        }
-        let mut state = Self {
+        Self {
             scorer,
             deps,
-            min_frequency,
+            min_frequency: min_frequency.max(1),
             vocab: Vocabulary::new_byte_level(),
-            arena: SymbolArena::with_capacity(word_counts.len() * 8, word_counts.len()),
-            index: InvertedIndex::with_capacity(word_counts.len() * 4),
+            arena: SymbolArena::new(),
+            index: InvertedIndex::new(),
             stats: AHashMap::default(),
             live_pairs: 0,
             token_counts: vec![0; BASE_VOCAB_SIZE],
@@ -414,33 +530,65 @@ impl<'s> TrainState<'s> {
             heap: BinaryHeap::new(),
             step: 0,
             changed: Vec::new(),
-            word_bounds,
+            word_bounds: Vec::new(),
+            morphology,
             morph: AHashMap::default(),
-        };
-
-        for (word_bytes, freq) in word_counts {
-            if word_bytes.is_empty() || *freq == 0 {
-                continue;
-            }
-            let tokens: Vec<TokenId> = word_bytes.iter().map(|&b| b as TokenId).collect();
-            for &tok in &tokens {
-                state.token_counts[tok as usize] += *freq;
-                state.total_tokens += *freq;
-            }
-            let word_id = state.arena.add_word(&tokens, *freq);
-            let head = state.arena.get_word(word_id).unwrap().head;
-            for (i, window) in tokens.windows(2).enumerate() {
-                let pair = Pair::new(window[0], window[1]);
-                state.count_occurrence(pair, word_id, head + i as u32, *freq as i64);
-                state.index.add_occurrence(pair, OccurrenceRef::new(word_id, head + i as u32, 0));
-            }
         }
+    }
 
-        let pairs: Vec<Pair> = state.stats.keys().copied().collect();
+    /// Adds a non-empty word occurring `freq` times as its own arena word; returns its id.
+    pub(crate) fn add_word(&mut self, word: &[u8], freq: u64) -> u32 {
+        if self.morphology {
+            self.word_bounds.push(self.scorer.word_boundaries(word));
+        }
+        let tokens: Vec<TokenId> = word.iter().map(|&b| b as TokenId).collect();
+        for &tok in &tokens {
+            self.token_counts[tok as usize] += freq;
+            self.total_tokens += freq;
+        }
+        let word_id = self.arena.add_word(&tokens, freq);
+        let head = self.arena.get_word(word_id).unwrap().head;
+        for (i, window) in tokens.windows(2).enumerate() {
+            let pair = Pair::new(window[0], window[1]);
+            self.count_occurrence(pair, word_id, head + i as u32, freq as i64);
+            self.index.add_occurrence(pair, OccurrenceRef::new(word_id, head + i as u32, 0));
+        }
+        word_id
+    }
+
+    /// Scores every pair once all words are added.
+    pub(crate) fn queue_all(&mut self) {
+        if self.word_bounds.iter().all(Option::is_none) {
+            self.word_bounds.clear();
+        }
+        let pairs: Vec<Pair> = self.stats.keys().copied().collect();
         for pair in pairs {
-            state.push(pair);
+            self.push(pair);
         }
-        state
+    }
+
+    /// SuperBPE stage 2: links the last symbol of each junction's left word to the first symbol of
+    /// its right word and counts the new cross-word pairs. Token counts and N do not change, so
+    /// only those pairs are re-scored.
+    pub(crate) fn link_words(&mut self, junctions: &[BoundaryJunction]) {
+        let mut linked = Vec::with_capacity(junctions.len());
+        for j in junctions {
+            let left = self.arena.get_word(j.left_word_idx).unwrap().tail;
+            let right = self.arena.get_word(j.right_word_idx).unwrap().head;
+            self.arena.link_nodes(left, right);
+            let pair = Pair::new(self.arena.get_token(left), self.arena.get_token(right));
+            self.add_count(pair, j.freq as i64);
+            let version = self.arena.get_version(left);
+            self.index.add_occurrence(pair, OccurrenceRef::new(j.left_word_idx, left, version));
+            linked.push(pair);
+        }
+        linked.sort_unstable();
+        linked.dedup();
+        for pair in linked {
+            let stat = self.stats.get_mut(&pair).unwrap();
+            stat.version = stat.version.wrapping_add(1);
+            self.push(pair);
+        }
     }
 
     /// Adds `delta` to a pair's count, keeping `pairs_of` / `live_pairs` in sync and queueing the
@@ -532,7 +680,7 @@ impl<'s> TrainState<'s> {
     }
 
     /// Pops the exact best pair (see `BottomUpTrainer` for why lazy refresh is exact).
-    fn pop_best(&mut self) -> Option<Pair> {
+    pub(crate) fn pop_best(&mut self) -> Option<Pair> {
         let lazy = self.deps == ScoreDeps::MonotoneTotals;
         let mut banded = false;
         while let Some(entry) = self.heap.pop() {
@@ -571,7 +719,7 @@ impl<'s> TrainState<'s> {
 
     /// Merges every occurrence of `pair` (left to right within each word) and re-queues the
     /// candidates whose score may have changed.
-    fn apply_merge(&mut self, pair: Pair) -> Result<TokenId> {
+    pub(crate) fn apply_merge(&mut self, pair: Pair) -> Result<TokenId> {
         let (u, v) = (pair.0, pair.1);
         let mut merged_bytes = self.vocab.get_bytes(u).unwrap().to_vec();
         merged_bytes.extend_from_slice(self.vocab.get_bytes(v).unwrap());
@@ -684,5 +832,39 @@ impl<'s> TrainState<'s> {
         }
 
         Ok(w)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_queue_pops_in_order_like_a_binary_heap() {
+        let mut rng = Rng::with_seed(5);
+        let mut queue = KeyQueue::default();
+        for _unit in 0..200 {
+            // Each unit starts from scratch, as `merge_unit` drains the queue every time.
+            let mut reference = BinaryHeap::new();
+            let span = [16u64, 1 << 20, u64::MAX][rng.usize(0..3)];
+            let mut budget = 300;
+            for _ in 0..rng.usize(0..50) {
+                let key = rng.u64(0..span);
+                queue.push(key);
+                reference.push(Reverse(key));
+            }
+            while let Some(key) = queue.pop() {
+                assert_eq!(Some(Reverse(key)), reference.pop());
+                for _ in 0..rng.usize(0..3).min(budget) {
+                    budget -= 1;
+                    // Mostly keys above the popped one (deterministic encoding); sometimes below
+                    // it (BPE-dropout re-queues skipped merges).
+                    let new = if rng.u8(0..4) == 0 { rng.u64(0..=key) } else { rng.u64(key..=key.saturating_add(span)) };
+                    queue.push(new);
+                    reference.push(Reverse(new));
+                }
+            }
+            assert!(reference.is_empty());
+        }
     }
 }

@@ -153,14 +153,16 @@ def test_tier1_f2_wordpiece_laplace_smoothing_guard(require_tokenisers):
 # ==============================================================================
 
 def test_tier1_f3_mdl_training_basic(require_tokenisers, sample_english_text):
-    """F3.1: MDL objective trains and generates valid vocabulary."""
+    """F3.1: MDL objective trains and generates valid vocabulary. It stops once no merge saves more
+    bits than its vocabulary entry costs, so vocab_size is an upper bound (with a warning if unmet)."""
     tokenisers = require_tokenisers
-    tok = tokenisers.BpeTokenizer.train(
-        corpus=[sample_english_text * 8],
-        vocab_size=300,
-        scorer="mdl"
-    )
-    assert tok.vocab_size == 300
+    with pytest.warns(UserWarning, match="requested vocab_size=300"):
+        tok = tokenisers.BpeTokenizer.train(
+            corpus=[sample_english_text * 8],
+            vocab_size=300,
+            scorer="mdl"
+        )
+    assert 256 < tok.vocab_size < 300
 
 
 def test_tier1_f3_mdl_encode_decode_roundtrip(require_tokenisers, sample_english_text):
@@ -179,15 +181,21 @@ def test_tier1_f3_mdl_entropy_reduction_monotonic(require_tokenisers, sample_eng
 
 
 def test_tier1_f3_mdl_variable_entry_cost(require_tokenisers, sample_english_text):
-    """F3.4: The MDL entry cost is configurable (MdlTokenizer.entry_cost / train_bpe penalty)."""
+    """F3.4: The MDL entry cost (MdlTokenizer.entry_cost / train_bpe penalty) changes the result: a
+    costlier entry stops training earlier. It never reorders merges, so each vocabulary is a prefix
+    of the cheaper one."""
     tokenisers = require_tokenisers
-    tok_low = tokenisers.MdlTokenizer.train(corpus=[sample_english_text * 5], vocab_size=280, entry_cost=8.0)
-    tok_high = tokenisers.MdlTokenizer.train(corpus=[sample_english_text * 5], vocab_size=280, entry_cost=64.0)
-    tok_generic = tokenisers.BpeTokenizer.train(
-        corpus=[sample_english_text * 5], vocab_size=280, scorer="mdl", penalty=64.0
-    )
-    assert tok_low.vocab_size == 280
-    assert tok_high.vocab_size == 280
+    corpus = [sample_english_text * 5]
+    tok_free = tokenisers.MdlTokenizer.train(corpus=corpus, vocab_size=280, entry_cost=0.0)
+    with pytest.warns(UserWarning, match="requested vocab_size=280"):
+        tok_low = tokenisers.MdlTokenizer.train(corpus=corpus, vocab_size=280, entry_cost=8.0)
+    with pytest.warns(UserWarning, match="requested vocab_size=280"):
+        tok_high = tokenisers.MdlTokenizer.train(corpus=corpus, vocab_size=280, entry_cost=64.0)
+    with pytest.warns(UserWarning, match="requested vocab_size=280"):
+        tok_generic = tokenisers.BpeTokenizer.train(corpus=corpus, vocab_size=280, scorer="mdl", penalty=64.0)
+    assert tok_free.vocab_size == 280
+    assert 280 > tok_low.vocab_size > tok_high.vocab_size >= 256
+    assert set(tok_high.get_vocab().items()) <= set(tok_low.get_vocab().items()) <= set(tok_free.get_vocab().items())
     assert tok_generic.get_vocab() == tok_high.get_vocab()
 
 

@@ -6,6 +6,9 @@ use super::{PairContext, PairScorer, ScoreDeps};
 /// Corpus cost is the unigram code length N*log2(N) - sum_t c_t*log2(c_t). Merging (u, v) with
 /// count c gives N' = N - c, c_u' = c_u - c, c_v' = c_v - c (c_u' = c_u - 2c when u == v) and
 /// c_uv' = c. Score = (corpus bits before - after) - (entry_overhead_bits + 8 * |uv|).
+/// A merge that does not shorten the total description (score <= 0) is ineligible, so training
+/// stops there (MDL stopping): `vocab_size` is an upper bound, and a larger entry cost stops it
+/// earlier. Among eligible pairs the entry cost is a constant offset and never changes the order.
 #[derive(Clone, Copy, Debug)]
 pub struct MdlScorer {
     /// Fixed bit overhead for adding a new vocabulary entry (metadata/pointer bits).
@@ -53,14 +56,10 @@ impl MdlScorer {
             d * x.log2() - (x - d) * (-d / x).ln_1p() / std::f64::consts::LN_2
         }
     }
-}
 
-impl PairScorer for MdlScorer {
-    fn score(&self, pair: Pair, ctx: &PairContext) -> f64 {
-        if ctx.freq_uv < self.min_frequency || ctx.total_tokens == 0 {
-            return f64::NEG_INFINITY;
-        }
-
+    /// Total description length saved by merging `pair` (corpus bits saved minus the new entry's
+    /// cost); negative when the merge does not pay for itself. `score` is this value when positive.
+    pub fn delta_bits(&self, pair: Pair, ctx: &PairContext) -> f64 {
         let c_uv = ctx.freq_uv as f64;
         let delta_n = Self::x_log2_x_drop(ctx.total_tokens as f64, c_uv);
         let delta_marginals = if pair.0 == pair.1 {
@@ -68,12 +67,22 @@ impl PairScorer for MdlScorer {
         } else {
             Self::x_log2_x_drop(ctx.freq_u as f64, c_uv) + Self::x_log2_x_drop(ctx.freq_v as f64, c_uv)
         };
-        let gain_uv = Self::x_log2_x(c_uv);
+        let delta_corpus_bits = delta_n - delta_marginals + Self::x_log2_x(c_uv);
+        delta_corpus_bits - (self.entry_overhead_bits + ctx.len_uv() as f64 * 8.0)
+    }
+}
 
-        let delta_corpus_bits = delta_n - delta_marginals + gain_uv;
-        let delta_vocab_bits = self.entry_overhead_bits + (ctx.len_uv() as f64 * 8.0);
-
-        delta_corpus_bits - delta_vocab_bits
+impl PairScorer for MdlScorer {
+    fn score(&self, pair: Pair, ctx: &PairContext) -> f64 {
+        if ctx.freq_uv < self.min_frequency || ctx.total_tokens == 0 {
+            return f64::NEG_INFINITY;
+        }
+        let gain = self.delta_bits(pair, ctx);
+        if gain > 0.0 {
+            gain
+        } else {
+            f64::NEG_INFINITY
+        }
     }
 
     #[inline(always)]

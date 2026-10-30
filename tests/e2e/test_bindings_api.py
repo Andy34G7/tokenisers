@@ -117,7 +117,7 @@ def test_decode_invalid_utf8_and_unknown_ids(trained, name):
     ("wp-bpe-scp", "alpha", 1.0),  # discount; was silently replaced by 0.75
     ("wp-bpe-npmi", "alpha", 1.0),  # was replaced by 0.5
     ("wp-bpe-ppig", "penalty", 0.0),  # length penalty; was replaced by 0.35
-    # mdl entry_cost=0 (was replaced by 24) is not listed: a constant offset never changes the argmax
+    ("mdl", "penalty", 0.0),  # entry cost; was replaced by 24 (it decides where MDL stops)
     ("wp-bpe-base", "min_frequency", 3),  # was ignored (always 1)
 ])
 def test_explicit_scorer_parameters_are_honoured(corpus, scorer, param, value):

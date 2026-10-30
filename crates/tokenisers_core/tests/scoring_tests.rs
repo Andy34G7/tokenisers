@@ -160,8 +160,10 @@ fn test_mdl_matches_recount_including_self_pairs() {
     let scorer = MdlScorer::new(24.0, 1);
     // Finding C5 repro: c_a = 100, c_aa = 40, N = 100 -> corpus gain -55.1 bits.
     let ctx = dummy_context(40, 100, 100, 100, 1, 1);
-    let corpus_gain = scorer.score(Pair::new(1, 1), &ctx) + 24.0 + 16.0;
+    let corpus_gain = scorer.delta_bits(Pair::new(1, 1), &ctx) + 24.0 + 16.0;
     assert!((corpus_gain + 55.098).abs() < 1e-2, "{corpus_gain}");
+    // A merge that does not shorten the description is ineligible (MDL stopping).
+    assert_eq!(scorer.score(Pair::new(1, 1), &ctx), f64::NEG_INFINITY);
 
     let mut rng = fastrand::Rng::with_seed(3);
     for _ in 0..500 {
@@ -176,8 +178,10 @@ fn test_mdl_matches_recount_including_self_pairs() {
         let count = |t: u32| seq.iter().filter(|&&x| x == t).count() as u64;
         let ctx = dummy_context(m, count(u), count(v), seq.len() as u64, 1, 1);
         let recount = unigram_bits(&seq) - unigram_bits(&merged) - (24.0 + 16.0);
-        let got = scorer.score(Pair::new(u, v), &ctx);
+        let got = scorer.delta_bits(Pair::new(u, v), &ctx);
         assert!((got - recount).abs() < 1e-9 * (1.0 + recount.abs()), "{u}/{v} on {seq:?}: {got} vs {recount}");
+        let score = scorer.score(Pair::new(u, v), &ctx);
+        assert_eq!(score, if got > 0.0 { got } else { f64::NEG_INFINITY });
     }
 }
 
