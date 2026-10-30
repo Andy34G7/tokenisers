@@ -324,9 +324,22 @@ def load_benchmark_data() -> Dict[str, Any]:
                 logger.warning(f"Failed reading {p}: {e}")
 
     colab_models = colab_data.get("models", {}) if isinstance(colab_data, dict) else {}
-    # Benchmark JSON is {"meta": ..., "models": {...}}; older files were the bare model map.
+    # Benchmark JSON is {"meta": ..., "models": {...}}; older files were the bare model map (no meta).
+    # meta is each run's provenance (data, budgets, backend, commit, synthetic flag): pass it through.
+    provenance = {
+        "tokka": tokka_data.get("meta"),
+        "intrinsic": intrinsic_data.get("meta"),
+        "proxy_lm": colab_data.get("meta") if isinstance(colab_data, dict) else None,
+    }
     tokka_data = tokka_data.get("models", tokka_data)
     intrinsic_data = intrinsic_data.get("models", intrinsic_data)
+    # Heatmap columns come from the data, not a fixed list: per-language cells are dicts; the
+    # aggregates are not languages and scalars (vocab_size, unique_tokens) are not cells.
+    tokka_languages = list(dict.fromkeys(
+        lang
+        for row in tokka_data.values() if isinstance(row, dict)
+        for lang, cell in row.items() if isinstance(cell, dict) and lang not in ("macro_avg", "micro_avg")
+    ))
 
     # Consolidate all model identifiers
     all_keys = set(tokka_data.keys()) | set(intrinsic_data.keys()) | set(colab_models.keys()) | set(ALGORITHM_METADATA.keys())
@@ -434,6 +447,8 @@ def load_benchmark_data() -> Dict[str, Any]:
         "summary": summary,
         "models": unified_models,
         "tokka_matrix": tokka_data,
+        "tokka_languages": tokka_languages,
+        "meta": provenance,
         "metadata": ALGORITHM_METADATA,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }

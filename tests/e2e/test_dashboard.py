@@ -76,6 +76,7 @@ def test_dashboard_static_app_js(dashboard_server: str) -> None:
         body = resp.read().decode("utf-8")
         assert "renderQuadrantChart" in body
         assert "runLiveTokenize" in body
+        assert "state.data.tokka_languages" in body  # heatmap columns come from the API, not a fixed list
 
 
 def test_api_benchmarks(dashboard_server: str) -> None:
@@ -101,13 +102,59 @@ def test_api_benchmarks(dashboard_server: str) -> None:
             assert "family" in m
             assert "formula" in m
 
-        # Verify tokka matrix
+        # Verify tokka matrix; the heatmap's columns must cover every language the matrix has
         assert "tokka_matrix" in data
+        for row in data["tokka_matrix"].values():
+            cells = {k for k, v in row.items() if isinstance(v, dict)} - {"macro_avg", "micro_avg"}
+            assert cells <= set(data["tokka_languages"])
+        # Every result file's provenance block is passed through (None for a legacy file)
+        assert set(data["meta"]) == {"tokka", "intrinsic", "proxy_lm"}
         # Verify metadata
         assert "metadata" in data
         assert "wp_bpe_npmi" in data["metadata"]
         assert "wp_bpe_scp" in data["metadata"]
         assert "wp_bpe_ppig" in data["metadata"]
+
+
+def _write_results(root, tokka, intrinsic=None, proxy_lm=None) -> None:
+    for rel, data in (("tokka/tokka_matrix.json", tokka),
+                      ("intrinsic/intrinsic_leaderboard.json", intrinsic),
+                      ("colab/extrinsic_bpb_results.json", proxy_lm)):
+        if data is not None:
+            path = root / "benchmarks" / "results" / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_benchmarks_pass_languages_and_provenance_through(tmp_path, monkeypatch) -> None:
+    """Heatmap columns follow the results file (es, per-language code, no pooled 'code'), and each
+    file's meta (budget, backend, commit, synthetic flag) reaches the client next to its numbers."""
+    cell = {"bytes_per_token": 3.0}
+    row = {"en": cell, "es": cell, "python": cell, "rust": cell, "macro_avg": cell, "micro_avg": cell,
+           "vocab_size": 300, "unique_tokens": 12}
+    tokka_meta = {"git_commit": "a" * 40, "macro_languages": ["en", "es", "python"]}
+    intrinsic_meta = {"git_commit": "a" * 40, "eval_split": "test"}
+    proxy_meta = {"git_commit": "b" * 40, "byte_budget": 1_000_000, "synthetic_data": False,
+                  "backend": {"kind": "local", "device": "cpu"}}
+    _write_results(tmp_path,
+                   {"meta": tokka_meta, "models": {"bpe_frequency": row}},
+                   {"meta": intrinsic_meta, "models": {"bpe_frequency": {"renyi_e_2_0": 0.4}}},
+                   {"meta": proxy_meta, "models": {"bpe_frequency": {"macro_val_bpb": 3.4}}})
+    monkeypatch.setattr(server_mod, "REPO_ROOT", tmp_path)
+    data = server_mod.load_benchmark_data()
+    assert data["tokka_languages"] == ["en", "es", "python", "rust"]
+    assert data["meta"] == {"tokka": tokka_meta, "intrinsic": intrinsic_meta, "proxy_lm": proxy_meta}
+    assert data["summary"]["best_downstream_quality"]["value"] == 3.4
+
+
+def test_benchmarks_legacy_bare_tokka_matrix(tmp_path, monkeypatch) -> None:
+    """Pre-meta result files are a bare model map: their pooled 'code' column still shows, meta is None."""
+    cell = {"bytes_per_token": 3.0}
+    _write_results(tmp_path, {"bpe_frequency": {"en": cell, "code": cell, "macro_avg": cell}})
+    monkeypatch.setattr(server_mod, "REPO_ROOT", tmp_path)
+    data = server_mod.load_benchmark_data()
+    assert data["tokka_languages"] == ["en", "code"]
+    assert data["meta"] == {"tokka": None, "intrinsic": None, "proxy_lm": None}
 
 
 def test_api_tokenize_live(dashboard_server: str) -> None:
