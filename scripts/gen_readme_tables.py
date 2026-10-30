@@ -25,6 +25,12 @@ SECTIONS = {
                   "tokenisers.benchmarks.intrinsic"),
     "colab": ("benchmarks/results/colab/extrinsic_bpb_results.json", render_colab, "tokenisers.benchmarks.colab"),
 }
+for _v in (32768, 65536):
+    SECTIONS[f"tokka_v{_v}"] = (f"benchmarks/results/v{_v}/tokka/tokka_matrix.json", render_tokka,
+                                f"tokenisers.benchmarks.tokka --vocab-size {_v} --output-dir benchmarks/results/v{_v}/tokka")
+    SECTIONS[f"intrinsic_v{_v}"] = (f"benchmarks/results/v{_v}/intrinsic/intrinsic_leaderboard.json", render_intrinsic,
+                                    f"tokenisers.benchmarks.intrinsic --vocab-size {_v} "
+                                    f"--output-dir benchmarks/results/v{_v}/intrinsic")
 
 
 def render_readme(text: str, root: Path = ROOT) -> str:

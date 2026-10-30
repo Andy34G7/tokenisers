@@ -1,7 +1,7 @@
 {
   "meta": {
     "benchmark": "tokka",
-    "created_utc": "2026-10-30T05:14:40Z",
+    "created_utc": "2026-10-30T07:17:31Z",
     "command": [
       "python",
       "-m",
@@ -9,7 +9,8 @@
       "--train-bytes",
       "10000000"
     ],
-    "git_commit": "df4c7d8edcf19b193aaf251d71652fca6352fecd",
+    "tokenisers_version": "0.1.0",
+    "git_commit": "b8f3504b3e1e6d6602e2c2a0d691aa1ab932037b",
     "git_dirty": false,
     "host": {
       "platform": "Linux-7.3.0-4-cachyos-x86_64-with-glibc2.44",
@@ -26,13 +27,13 @@
     "eval_bytes": 710815,
     "eval_docs": 114,
     "dataset": {
-      "root": "hf-3f5a808a5e45bf9c",
-      "format_version": 1,
-      "created_utc": "2026-10-30T05:02:25.613488+00:00",
+      "root": "hf-a9e9d22cc093daf4",
+      "format_version": 2,
+      "created_utc": "2026-10-30T07:14:27.380385+00:00",
       "synthetic": false,
       "complete": true,
       "config": {
-        "format_version": 1,
+        "format_version": 2,
         "train_bytes": 10000000,
         "val_fraction": 0.05,
         "test_fraction": 0.05,
@@ -574,7 +575,7 @@
           "sha256": "73be9ca0a1fdb9aef2888da75b729b6b31835d835ec8e49a96faea13744620a5"
         }
       },
-      "key": "3f5a808a5e45bf9c"
+      "key": "a9e9d22cc093daf4"
     },
     "variants": {
       "bpe_frequency": {
@@ -582,7 +583,7 @@
         "scorer": "frequency",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.78,
+        "train_seconds": 1.61,
         "warnings": []
       },
       "wordpiece_pmi": {
@@ -590,7 +591,7 @@
         "scorer": "wordpiece",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.21,
+        "train_seconds": 1.07,
         "warnings": []
       },
       "wp_bpe_base": {
@@ -598,7 +599,7 @@
         "scorer": "wp-bpe-base",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 0.97,
+        "train_seconds": 0.88,
         "warnings": []
       },
       "wp_bpe_ft": {
@@ -606,7 +607,7 @@
         "scorer": "wp-bpe-ft",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.23,
+        "train_seconds": 1.11,
         "warnings": []
       },
       "wp_bpe_pig": {
@@ -614,7 +615,7 @@
         "scorer": "wp-bpe-pig",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 4.27,
+        "train_seconds": 3.88,
         "warnings": []
       },
       "wp_bpe_scp": {
@@ -622,7 +623,7 @@
         "scorer": "wp-bpe-scp",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.85,
+        "train_seconds": 1.46,
         "warnings": []
       },
       "wp_bpe_npmi": {
@@ -630,7 +631,7 @@
         "scorer": "wp-bpe-npmi",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.29,
+        "train_seconds": 3.04,
         "warnings": []
       },
       "wp_bpe_ppig": {
@@ -638,7 +639,7 @@
         "scorer": "wp-bpe-ppig",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.66,
+        "train_seconds": 3.53,
         "warnings": []
       },
       "mdl_bits": {
@@ -646,7 +647,7 @@
         "scorer": "mdl",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.69,
+        "train_seconds": 3.25,
         "warnings": []
       },
       "length_penalized": {
@@ -655,7 +656,7 @@
         "beta": 0.5,
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.91,
+        "train_seconds": 1.77,
         "warnings": []
       },
       "super_bpe": {
@@ -663,7 +664,7 @@
         "v_switch": 14771,
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 3.8,
+        "train_seconds": 5.57,
         "warnings": []
       },
       "morpheme_bpe": {
@@ -672,14 +673,14 @@
         "lambda_weight": 2.0,
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 1.03,
+        "train_seconds": 1.85,
         "warnings": []
       },
       "unigram_lm": {
         "class": "UnigramTokenizer",
         "requested_vocab_size": 16384,
         "vocab_size": 16384,
-        "train_seconds": 16.39,
+        "train_seconds": 14.74,
         "warnings": []
       }
     },

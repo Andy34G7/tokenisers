@@ -111,6 +111,8 @@ def main(argv: List[str] | None = None) -> None:
         macro_min_docs=args.min_docs_per_lang,
         macro_min_bytes=args.min_bytes_per_lang,
         tokenizer_path=args.tokenizer_path,
+        # an external tokenizer was neither trained here nor at --vocab-size
+        **({"requested_vocab_size": None, "train_split": None} if args.tokenizer_path else {}),
     )
     runner.evaluate_matrix(models, texts, output_dir=args.output_dir, meta=meta, macro_langs=macro_langs)
     print((Path(args.output_dir) / "tokka_leaderboard.md").read_text(encoding="utf-8"))

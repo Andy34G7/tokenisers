@@ -79,7 +79,9 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--n-heads", type=int, default=4)
     parser.add_argument("--d-ffn", type=int, default=512)
     parser.add_argument("--gpu", default="T4", help="Colab accelerator (T4, L4, A100, H100)")
-    parser.add_argument("--timeout", type=float, default=6 * 3600, help="Colab execution timeout (s)")
+    parser.add_argument("--timeout", type=float, default=6 * 3600, help="Colab job wall-clock limit (s)")
+    parser.add_argument("--poll-interval", type=float, default=60.0,
+                        help="Seconds between status polls of the detached Colab job")
     parser.add_argument("--colab-bin", default=None, help="colab CLI executable (default ~/.local/bin/colab)")
     parser.add_argument("--local", action="store_true", help="Run the proxy LMs locally instead of on Colab")
     parser.add_argument("--allow-local-fallback", action="store_true",
@@ -129,7 +131,8 @@ def main(argv: List[str] | None = None) -> None:
             result = run_local(job_dir)
         else:
             try:
-                result = ColabOrchestrator(colab_bin=args.colab_bin).run_job(job_dir, gpu=args.gpu, timeout=args.timeout)
+                result = ColabOrchestrator(colab_bin=args.colab_bin).run_job(
+                    job_dir, gpu=args.gpu, timeout=args.timeout, poll_interval=args.poll_interval)
             except ColabError as e:
                 if not args.allow_local_fallback:
                     sys.exit(f"Colab run failed (pass --local or --allow-local-fallback to run locally): {e}")

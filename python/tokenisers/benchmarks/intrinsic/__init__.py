@@ -153,7 +153,8 @@ class IntrinsicEvaluator:
         f1 = (2.0 * p * r) / (p + r) if (p + r) > 0.0 else 0.0
         return {"precision": p, "recall": r, "f1": f1}
 
-    def _mean_f1(self, pairs: Iterable[tuple]) -> Dict[str, float]:
+    def _mean_f1(self, pairs: Iterable[tuple]) -> Dict[str, Any]:
+        """Per-item mean P/R/F1. With no items they are None (undefined), not 0.0: nothing was scored."""
         ps: List[float] = []
         rs: List[float] = []
         fs: List[float] = []
@@ -163,7 +164,7 @@ class IntrinsicEvaluator:
             rs.append(res["recall"])
             fs.append(res["f1"])
         if not fs:
-            return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "n": 0}
+            return {"precision": None, "recall": None, "f1": None, "n": 0}
         return {"precision": sum(ps) / len(ps), "recall": sum(rs) / len(rs), "f1": sum(fs) / len(fs), "n": len(fs)}
 
     def compute_morphological_f1(
@@ -291,8 +292,10 @@ class IntrinsicEvaluator:
         """
         Runs the suite on ``text_sample`` (one string or a list of documents; documents are
         encoded one by one) and writes intrinsic_leaderboard.{json,csv,md} when ``output_dir`` is
-        given. Morph F1 is reported overall and per gold ``lang``. Throughput is timed on
-        ``throughput_docs`` (default: the evaluation documents).
+        given. Morph F1 is the per-word F1 averaged within each gold ``lang``, then over languages
+        unweighted (``morph_f1``); it is also reported per language and word-weighted. Morph and
+        identifier P/R/F1 are None when there is nothing to score (no gold words / identifiers).
+        Throughput is timed on ``throughput_docs`` (default: the evaluation documents).
         """
         docs = [text_sample] if isinstance(text_sample, str) else list(text_sample)
         doc_bytes = sum(len(d.encode("utf-8")) for d in docs)
@@ -311,9 +314,11 @@ class IntrinsicEvaluator:
                     counts[tid] += 1
                     n_toks += 1
             morph_by_lang = {lang: self.compute_morphological_f1(tok, items) for lang, items in sorted(by_lang.items())}
-            n_morph = sum(m["n"] for m in morph_by_lang.values())
-            morph = {k: sum(m[k] * m["n"] for m in morph_by_lang.values()) / max(1, n_morph)
-                     for k in ("precision", "recall", "f1")}
+            scored = [m for m in morph_by_lang.values() if m["n"]]
+            n_morph = sum(m["n"] for m in scored)
+            # Headline = unweighted mean over languages: weighting by gold words would make it mostly
+            # the language with the most test words (hun: ~half of SIGMORPHON eng/fra/hun/rus/spa).
+            morph = {k: statistics.fmean(m[k] for m in scored) if scored else None for k in ("precision", "recall", "f1")}
             struct = self.compute_structural_diagnostics(tok, identifiers=identifiers)
             speed = self.benchmark_throughput(tok, throughput_docs or docs, repeats=repeats)
             util = self.compute_utilization_metrics(counts)
@@ -331,7 +336,9 @@ class IntrinsicEvaluator:
                 "morph_recall": morph["recall"],
                 "morph_f1": morph["f1"],
                 "morph_words": n_morph,
+                "morph_f1_word_weighted": sum(m["f1"] * m["n"] for m in scored) / n_morph if n_morph else None,
                 "morph_f1_by_lang": {lang: m["f1"] for lang, m in morph_by_lang.items()},
+                "morph_words_by_lang": {lang: m["n"] for lang, m in morph_by_lang.items()},
                 "identifier_precision": struct["identifier_precision"],
                 "identifier_recall": struct["identifier_recall"],
                 "identifier_f1": struct["identifier_f1"],

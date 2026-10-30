@@ -9,7 +9,7 @@ Job directory layout (written by ``tokenisers.benchmarks.colab.__main__``):
   eval_stride}, "seeds": [...], "domains": [...], "tokenizers": {name: {"vocab_size": int}}}
 - ``<name>.npz``: ``train`` and ``val_<domain>`` id arrays plus ``token_bytes`` (UTF-8 length of
   every vocabulary id), so consumed and scored bytes are exact.
-``run_job`` writes ``result.json``.
+``run_job`` writes ``result.json``; ``python lm.py <job_dir>`` also writes ``status.json`` (see ``main``).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import platform
 import statistics
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -366,5 +367,19 @@ def run_job(job_dir: str, device: Optional[str] = None, log=print) -> Dict[str, 
     return result
 
 
+def main(job_dir: str) -> int:
+    """Entry point of the detached job on the Colab VM. Writes ``status.json`` last, atomically:
+    {"state": "ok"} or {"state": "error", "traceback": ...}; the orchestrator polls for it."""
+    try:
+        run_job(job_dir)
+        status: Dict[str, Any] = {"state": "ok"}
+    except BaseException:
+        status = {"state": "error", "traceback": traceback.format_exc()}
+    tmp = Path(job_dir) / "status.json.tmp"
+    tmp.write_text(json.dumps(status))
+    os.replace(tmp, Path(job_dir) / "status.json")
+    return 0 if status["state"] == "ok" else 1
+
+
 if __name__ == "__main__":
-    run_job(sys.argv[1])
+    sys.exit(main(sys.argv[1]))

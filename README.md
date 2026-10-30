@@ -121,6 +121,16 @@ uv run python scripts/gen_readme_tables.py
 
 `--offline` runs everything on the synthetic test corpus (labelled synthetic in the output).
 
+**Colab.** Tier 3 on Colab needs the `colab` CLI (`google-colab-cli`) **>= 0.7.5**: 0.6.0's `exec`
+is broken. The run checks `colab version` before it starts a session; upgrade with
+`uv tool upgrade google-colab-cli`. The job is not one long `colab exec`: the benchmark uploads the
+job, starts it detached on the VM (output in `/content/job.log`) and polls it every
+`--poll-interval` seconds (default 60) with short `colab exec` calls. Polls that hang or lose the
+connection are retried (5 consecutive failures abort). `colab exec` exits 0 even when the remote
+code raises, so success is read from the `status.json` the job writes last. A remote exception
+fails the run with the remote traceback; so does a job that dies without a status (log tail
+shown) or runs past `--timeout`. The session is always stopped.
+
 **Memory.** Peak training memory grows linearly with the train split and, for the merge-based
 variants, with the vocabulary size (measured on 4 MB of the real corpus at V=16k and 64k:
 `unigram_lm` 139 bytes per text byte at both sizes, `super_bpe` 78 at 16k and 100 at 64k, the
@@ -140,15 +150,17 @@ test fails if they differ from the committed JSON. The numbers previously shown 
 synthetic data, evaluated on training text, with a proxy LM that silently ran on a local CPU; they
 are kept, marked invalid, in [`benchmarks/results/legacy_smoke/`](benchmarks/results/legacy_smoke/).
 
-The committed results use the default V = 16,384 but a 10 MB train split (`--train-bytes 10000000`):
-the default 50 MB split needs ~9 GiB for `unigram_lm`, more than the shared 15 GB machine they were
-produced on could spare. The proxy LM ran on that machine's CPU with a 1 MB byte budget. Each
-section's header lists the exact arguments, data sizes, backend and commit. 32k / 64k vocabularies
-are supported (`--vocab-size 32768` / `65536`); no results are committed for them yet.
+The committed results use a 10 MB train split (`--train-bytes 10000000`): the default 50 MB split
+needs ~9 GiB for `unigram_lm`, more than the shared 15 GB machine they were produced on could
+spare. Tokka and intrinsic results exist for the default V = 16,384 (sections 1 and 2) and for
+V = 32,768 and 65,536 (section 4). The proxy LM (section 3) ran only at V = 16,384, on that
+machine's CPU with a 1 MB byte budget, at an older commit than the other tables; a Colab GPU run
+with the default 10 MB budget has not been done yet. Each section's header lists the exact
+arguments, data sizes, backend and commit.
 
 ### 1. Tokka-Bench (natural languages + code, held-out test split)
 <!-- BEGIN GENERATED: tokka -->
-- requested V = 16384; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `df4c7d8edc`; generated 2026-10-30T05:14:40Z
+- requested V = 16384; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `b8f3504b3e`; generated 2026-10-30T07:17:31Z
 - arguments: `--train-bytes 10000000`
 - macro = unweighted mean over the 15 languages with >= 3 held-out documents and >= 10,000 bytes (en, de, fr, es, ru, zh, ar, hi, hu, fi, python, javascript, java, cpp, go); micro = totals summed over all 17 languages (token-weighted); unique tokens = union over languages
 
@@ -193,25 +205,43 @@ Held-out text per language:
 
 ### 2. Extended Intrinsic Evaluation
 <!-- BEGIN GENERATED: intrinsic -->
-- requested V = 16384; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `df4c7d8edc`; generated 2026-10-30T05:15:19Z
+- requested V = 16384; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `b8f3504b3e`; generated 2026-10-30T07:18:20Z
 - arguments: `--train-bytes 10000000`
-- morph F1: 126622 gold words (SIGMORPHON 2022 test split, surface entries (eng, fra, hun, rus, spa)); identifier F1: 1499 identifiers mined from held-out code; throughput: median of 5 passes over 1.1 MB (206 documents, one encode call each) on Intel(R) Core(TM) Ultra 7 155H
+- morph F1: per-word boundary F1 on 126622 gold words (SIGMORPHON 2022 test split, surface entries (eng, fra, hun, rus, spa)), averaged per language, then over the 5 languages unweighted (per language below); identifier F1: 1499 identifiers mined from held-out code; throughput: median of 5 passes over 1.1 MB (206 documents, one encode call each) on Intel(R) Core(TM) Ultra 7 155H
 
 | Tokenizer | \|V\| | Bytes/token (↑) | Fertility (↓) | Rényi E1 | Rényi E2.5 | Morph F1 (↑) | Ident F1 (↑) | Encode MB/s | Decode MB/s |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `super_bpe` | 16384 | 3.559 | 2.137 | 0.836 | 0.464 | 0.369 | 0.721 | 6.94 | 84.57 |
-| `wp_bpe_base` | 16384 | 1.007 | 6.720 | 0.392 | 0.291 | 0.252 | 0.247 | 44.22 | 61.74 |
-| `wp_bpe_ft` | 16384 | 1.016 | 6.664 | 0.391 | 0.290 | 0.252 | 0.247 | 43.35 | 62.31 |
-| `wordpiece_pmi` | 16384 | 1.017 | 6.662 | 0.391 | 0.289 | 0.252 | 0.247 | 45.21 | 62.20 |
-| `wp_bpe_scp` | 16384 | 1.651 | 3.921 | 0.494 | 0.285 | 0.309 | 0.357 | 28.54 | 53.71 |
-| `morpheme_bpe` | 16384 | 2.534 | 2.212 | 0.632 | 0.216 | 0.464 | 0.683 | 17.32 | 54.63 |
-| `wp_bpe_pig` | 16384 | 2.545 | 2.178 | 0.617 | 0.211 | 0.395 | 0.717 | 21.39 | 66.88 |
-| `length_penalized` | 16384 | 2.620 | 2.106 | 0.643 | 0.210 | 0.365 | 0.722 | 19.45 | 64.72 |
-| `bpe_frequency` | 16384 | 2.620 | 2.106 | 0.640 | 0.210 | 0.371 | 0.730 | 18.54 | 62.76 |
-| `unigram_lm` | 16384 | 2.574 | 2.131 | 0.628 | 0.207 | 0.408 | 0.715 | 10.70 | 56.74 |
-| `wp_bpe_npmi` | 16384 | 2.442 | 2.253 | 0.596 | 0.207 | 0.403 | 0.706 | 22.31 | 71.97 |
-| `wp_bpe_ppig` | 16384 | 2.544 | 2.156 | 0.616 | 0.206 | 0.398 | 0.729 | 21.80 | 69.89 |
-| `mdl_bits` | 16384 | 2.316 | 2.199 | 0.565 | 0.180 | 0.407 | 0.720 | 22.04 | 66.61 |
+| `super_bpe` | 16384 | 3.559 | 2.137 | 0.836 | 0.464 | 0.273 | 0.721 | 6.16 | 52.41 |
+| `wp_bpe_base` | 16384 | 1.007 | 6.720 | 0.392 | 0.291 | 0.206 | 0.247 | 31.21 | 44.80 |
+| `wp_bpe_ft` | 16384 | 1.016 | 6.664 | 0.391 | 0.290 | 0.206 | 0.247 | 30.26 | 43.87 |
+| `wordpiece_pmi` | 16384 | 1.017 | 6.662 | 0.391 | 0.289 | 0.206 | 0.247 | 30.14 | 45.36 |
+| `wp_bpe_scp` | 16384 | 1.651 | 3.921 | 0.494 | 0.285 | 0.249 | 0.357 | 16.66 | 33.24 |
+| `morpheme_bpe` | 16384 | 2.534 | 2.212 | 0.632 | 0.216 | 0.404 | 0.683 | 12.40 | 40.38 |
+| `wp_bpe_pig` | 16384 | 2.545 | 2.178 | 0.617 | 0.211 | 0.295 | 0.717 | 12.71 | 41.22 |
+| `length_penalized` | 16384 | 2.620 | 2.106 | 0.643 | 0.210 | 0.269 | 0.722 | 12.46 | 40.39 |
+| `bpe_frequency` | 16384 | 2.620 | 2.106 | 0.640 | 0.210 | 0.273 | 0.730 | 12.35 | 40.73 |
+| `unigram_lm` | 16384 | 2.574 | 2.131 | 0.628 | 0.207 | 0.315 | 0.715 | 7.95 | 40.57 |
+| `wp_bpe_npmi` | 16384 | 2.442 | 2.253 | 0.596 | 0.207 | 0.307 | 0.706 | 13.35 | 39.98 |
+| `wp_bpe_ppig` | 16384 | 2.544 | 2.156 | 0.616 | 0.206 | 0.292 | 0.729 | 12.93 | 40.46 |
+| `mdl_bits` | 16384 | 2.316 | 2.199 | 0.565 | 0.180 | 0.315 | 0.720 | 13.18 | 40.16 |
+
+Morph F1 by language:
+
+| Tokenizer | eng (40,455 words) | fra (6,299 words) | hun (61,213 words) | rus (8,526 words) | spa (10,129 words) | Word-weighted |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `super_bpe` | 0.303 | 0.154 | 0.481 | 0.163 | 0.267 | 0.369 |
+| `wp_bpe_base` | 0.212 | 0.187 | 0.312 | 0.126 | 0.193 | 0.252 |
+| `wp_bpe_ft` | 0.212 | 0.187 | 0.312 | 0.126 | 0.193 | 0.252 |
+| `wordpiece_pmi` | 0.212 | 0.187 | 0.312 | 0.126 | 0.193 | 0.252 |
+| `wp_bpe_scp` | 0.262 | 0.180 | 0.382 | 0.179 | 0.242 | 0.309 |
+| `morpheme_bpe` | 0.475 | 0.326 | 0.504 | 0.357 | 0.359 | 0.464 |
+| `wp_bpe_pig` | 0.334 | 0.179 | 0.508 | 0.159 | 0.294 | 0.395 |
+| `length_penalized` | 0.296 | 0.147 | 0.477 | 0.162 | 0.264 | 0.365 |
+| `bpe_frequency` | 0.302 | 0.154 | 0.486 | 0.160 | 0.265 | 0.371 |
+| `unigram_lm` | 0.389 | 0.222 | 0.490 | 0.209 | 0.266 | 0.408 |
+| `wp_bpe_npmi` | 0.364 | 0.205 | 0.498 | 0.170 | 0.298 | 0.403 |
+| `wp_bpe_ppig` | 0.334 | 0.173 | 0.516 | 0.160 | 0.280 | 0.398 |
+| `mdl_bits` | 0.386 | 0.227 | 0.490 | 0.170 | 0.301 | 0.407 |
 <!-- END GENERATED: intrinsic -->
 
 ### 3. Extrinsic Proxy-LM Validation Bits per Byte
@@ -239,3 +269,192 @@ Held-out text per language:
 | `wordpiece_pmi` | 16384 | 1.019 | 983,040 | 4.127 ± 0.044 | 5.568 ± 0.178 | 4.936 ± 0.098 | **4.877 ± 0.104** |
 | `wp_bpe_base` | 16384 | 1.009 | 993,280 | 4.176 ± 0.110 | 5.482 ± 0.155 | 5.002 ± 0.195 | **4.887 ± 0.135** |
 <!-- END GENERATED: colab -->
+
+### 4. Larger Vocabularies (V = 32,768 and 65,536)
+
+Same train and test data as sections 1 and 2; only `--vocab-size` differs. The proxy LM was not run at
+these sizes.
+
+<details><summary>Tokka-Bench, V = 32,768</summary>
+
+<!-- BEGIN GENERATED: tokka_v32768 -->
+- requested V = 32768; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `b8f3504b3e`; generated 2026-10-30T07:19:54Z
+- arguments: `--train-bytes 10000000 --vocab-size 32768 --output-dir benchmarks/results/v32768/tokka`
+- macro = unweighted mean over the 15 languages with >= 3 held-out documents and >= 10,000 bytes (en, de, fr, es, ru, zh, ar, hi, hu, fi, python, javascript, java, cpp, go); micro = totals summed over all 17 languages (token-weighted); unique tokens = union over languages
+
+| Tokenizer | \|V\| | Macro bytes/token (↑) | Micro bytes/token (↑) | Macro fertility (↓) | Macro continued-token % (↓) | Unique tokens used |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `super_bpe` | 32768 | 3.800 | 3.965 | 2.429 | 51.63 | 19977 |
+| `length_penalized` | 32768 | 2.931 | 2.796 | 3.141 | 50.61 | 18212 |
+| `bpe_frequency` | 32768 | 2.926 | 2.791 | 3.148 | 50.91 | 17928 |
+| `morpheme_bpe` | 32768 | 2.867 | 2.743 | 3.208 | 52.01 | 16726 |
+| `wp_bpe_pig` | 32768 | 2.859 | 2.722 | 3.246 | 52.02 | 15830 |
+| `wp_bpe_ppig` | 32768 | 2.851 | 2.729 | 3.266 | 51.66 | 16307 |
+| `unigram_lm` | 32768 | 2.820 | 2.711 | 3.255 | 52.02 | 17415 |
+| `wp_bpe_npmi` | 32768 | 2.727 | 2.613 | 3.506 | 53.26 | 14404 |
+| `mdl_bits` | 32768 | 2.567 | 2.467 | 3.947 | 52.20 | 15747 |
+| `wp_bpe_scp` | 32768 | 2.391 | 2.086 | 4.171 | 62.75 | 7009 |
+| `wordpiece_pmi` | 32768 | 1.072 | 1.033 | 9.000 | 83.51 | 1681 |
+| `wp_bpe_ft` | 32768 | 1.048 | 1.021 | 9.149 | 83.91 | 1230 |
+| `wp_bpe_base` | 32768 | 1.011 | 1.007 | 9.286 | 84.51 | 322 |
+
+Held-out text per language:
+
+| Language | Docs | Bytes | In macro |
+| :--- | ---: | ---: | :---: |
+| en | 41 | 291,639 | yes |
+| de | 7 | 19,537 | yes |
+| fr | 6 | 37,576 | yes |
+| es | 3 | 21,020 | yes |
+| ru | 6 | 22,131 | yes |
+| zh | 8 | 17,357 | yes |
+| ja | 2 | 16,979 | no |
+| ar | 3 | 17,853 | yes |
+| hi | 5 | 21,823 | yes |
+| hu | 3 | 21,795 | yes |
+| fi | 3 | 19,139 | yes |
+| python | 3 | 19,258 | yes |
+| javascript | 9 | 21,720 | yes |
+| java | 7 | 18,710 | yes |
+| cpp | 3 | 79,396 | yes |
+| go | 3 | 45,801 | yes |
+| rust | 2 | 19,178 | no |
+<!-- END GENERATED: tokka_v32768 -->
+
+</details>
+
+<details><summary>Extended intrinsic evaluation, V = 32,768</summary>
+
+<!-- BEGIN GENERATED: intrinsic_v32768 -->
+- requested V = 32768; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `b8f3504b3e`; generated 2026-10-30T07:21:06Z
+- arguments: `--train-bytes 10000000 --vocab-size 32768 --output-dir benchmarks/results/v32768/intrinsic`
+- morph F1: per-word boundary F1 on 126622 gold words (SIGMORPHON 2022 test split, surface entries (eng, fra, hun, rus, spa)), averaged per language, then over the 5 languages unweighted (per language below); identifier F1: 1499 identifiers mined from held-out code; throughput: median of 5 passes over 1.1 MB (206 documents, one encode call each) on Intel(R) Core(TM) Ultra 7 155H
+
+| Tokenizer | \|V\| | Bytes/token (↑) | Fertility (↓) | Rényi E1 | Rényi E2.5 | Morph F1 (↑) | Ident F1 (↑) | Encode MB/s | Decode MB/s |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `super_bpe` | 32768 | 3.965 | 1.942 | 0.814 | 0.441 | 0.275 | 0.760 | 5.29 | 51.34 |
+| `wp_bpe_base` | 32768 | 1.007 | 6.718 | 0.366 | 0.272 | 0.206 | 0.247 | 30.98 | 44.78 |
+| `wp_bpe_ft` | 32768 | 1.021 | 6.627 | 0.364 | 0.269 | 0.206 | 0.247 | 29.45 | 43.11 |
+| `wordpiece_pmi` | 32768 | 1.033 | 6.537 | 0.363 | 0.268 | 0.214 | 0.247 | 27.81 | 42.63 |
+| `wp_bpe_scp` | 32768 | 2.087 | 2.897 | 0.514 | 0.231 | 0.269 | 0.497 | 13.80 | 34.23 |
+| `morpheme_bpe` | 32768 | 2.743 | 1.967 | 0.596 | 0.189 | 0.411 | 0.754 | 8.90 | 29.96 |
+| `wp_bpe_pig` | 32768 | 2.722 | 1.979 | 0.583 | 0.187 | 0.299 | 0.776 | 11.72 | 38.51 |
+| `bpe_frequency` | 32768 | 2.791 | 1.916 | 0.602 | 0.186 | 0.277 | 0.770 | 11.15 | 40.02 |
+| `length_penalized` | 32768 | 2.796 | 1.911 | 0.605 | 0.186 | 0.274 | 0.771 | 10.74 | 37.24 |
+| `wp_bpe_ppig` | 32768 | 2.730 | 1.962 | 0.584 | 0.185 | 0.294 | 0.782 | 11.54 | 38.32 |
+| `wp_bpe_npmi` | 32768 | 2.613 | 2.050 | 0.564 | 0.185 | 0.312 | 0.748 | 11.83 | 38.84 |
+| `unigram_lm` | 32768 | 2.711 | 1.960 | 0.586 | 0.183 | 0.321 | 0.768 | 4.53 | 27.46 |
+| `mdl_bits` | 32768 | 2.468 | 1.982 | 0.531 | 0.157 | 0.316 | 0.784 | 11.74 | 37.69 |
+
+Morph F1 by language:
+
+| Tokenizer | eng (40,455 words) | fra (6,299 words) | hun (61,213 words) | rus (8,526 words) | spa (10,129 words) | Word-weighted |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `super_bpe` | 0.309 | 0.153 | 0.501 | 0.157 | 0.258 | 0.380 |
+| `wp_bpe_base` | 0.212 | 0.187 | 0.312 | 0.126 | 0.193 | 0.252 |
+| `wp_bpe_ft` | 0.212 | 0.187 | 0.312 | 0.126 | 0.193 | 0.252 |
+| `wordpiece_pmi` | 0.212 | 0.193 | 0.344 | 0.126 | 0.196 | 0.268 |
+| `wp_bpe_scp` | 0.314 | 0.194 | 0.426 | 0.169 | 0.241 | 0.346 |
+| `morpheme_bpe` | 0.473 | 0.325 | 0.522 | 0.365 | 0.367 | 0.474 |
+| `wp_bpe_pig` | 0.344 | 0.186 | 0.530 | 0.156 | 0.279 | 0.408 |
+| `bpe_frequency` | 0.310 | 0.155 | 0.503 | 0.156 | 0.260 | 0.381 |
+| `length_penalized` | 0.305 | 0.152 | 0.497 | 0.159 | 0.256 | 0.376 |
+| `wp_bpe_ppig` | 0.342 | 0.177 | 0.532 | 0.158 | 0.260 | 0.407 |
+| `wp_bpe_npmi` | 0.376 | 0.208 | 0.522 | 0.163 | 0.289 | 0.417 |
+| `unigram_lm` | 0.398 | 0.231 | 0.514 | 0.220 | 0.243 | 0.421 |
+| `mdl_bits` | 0.397 | 0.230 | 0.507 | 0.165 | 0.279 | 0.417 |
+<!-- END GENERATED: intrinsic_v32768 -->
+
+</details>
+
+<details><summary>Tokka-Bench, V = 65,536</summary>
+
+<!-- BEGIN GENERATED: tokka_v65536 -->
+- requested V = 65536; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `b8f3504b3e`; generated 2026-10-30T07:25:19Z
+- arguments: `--train-bytes 10000000 --vocab-size 65536 --output-dir benchmarks/results/v65536/tokka`
+- macro = unweighted mean over the 15 languages with >= 3 held-out documents and >= 10,000 bytes (en, de, fr, es, ru, zh, ar, hi, hu, fi, python, javascript, java, cpp, go); micro = totals summed over all 17 languages (token-weighted); unique tokens = union over languages
+
+| Tokenizer | \|V\| | Macro bytes/token (↑) | Micro bytes/token (↑) | Macro fertility (↓) | Macro continued-token % (↓) | Unique tokens used |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `super_bpe` | 65536 | 4.238 | 4.390 | 2.182 | 47.05 | 26837 |
+| `length_penalized` | 65536 | 3.141 | 2.950 | 2.941 | 46.23 | 23283 |
+| `bpe_frequency` | 65536 | 3.132 | 2.943 | 2.950 | 46.42 | 22853 |
+| `morpheme_bpe` | 65536 | 3.094 | 2.906 | 2.986 | 47.30 | 21840 |
+| `wp_bpe_ppig` | 65536 | 3.066 | 2.887 | 3.037 | 47.46 | 20872 |
+| `wp_bpe_pig` | 65536 | 3.062 | 2.873 | 3.037 | 47.96 | 20236 |
+| `unigram_lm` | 65536 | 2.972 | 2.827 | 3.103 | 48.48 | 21495 |
+| `wp_bpe_npmi` | 65536 | 2.911 | 2.756 | 3.297 | 49.38 | 18361 |
+| `wp_bpe_scp` | 65536 | 2.784 | 2.512 | 3.468 | 54.95 | 13014 |
+| `mdl_bits` | 40496 | 2.625 | 2.508 | 3.878 | 50.73 | 17288 |
+| `wordpiece_pmi` | 65536 | 1.241 | 1.056 | 8.579 | 80.73 | 3329 |
+| `wp_bpe_ft` | 65536 | 1.233 | 1.053 | 8.587 | 80.85 | 3087 |
+| `wp_bpe_base` | 65536 | 1.022 | 1.013 | 9.222 | 84.28 | 428 |
+
+Held-out text per language:
+
+| Language | Docs | Bytes | In macro |
+| :--- | ---: | ---: | :---: |
+| en | 41 | 291,639 | yes |
+| de | 7 | 19,537 | yes |
+| fr | 6 | 37,576 | yes |
+| es | 3 | 21,020 | yes |
+| ru | 6 | 22,131 | yes |
+| zh | 8 | 17,357 | yes |
+| ja | 2 | 16,979 | no |
+| ar | 3 | 17,853 | yes |
+| hi | 5 | 21,823 | yes |
+| hu | 3 | 21,795 | yes |
+| fi | 3 | 19,139 | yes |
+| python | 3 | 19,258 | yes |
+| javascript | 9 | 21,720 | yes |
+| java | 7 | 18,710 | yes |
+| cpp | 3 | 79,396 | yes |
+| go | 3 | 45,801 | yes |
+| rust | 2 | 19,178 | no |
+<!-- END GENERATED: tokka_v65536 -->
+
+</details>
+
+<details><summary>Extended intrinsic evaluation, V = 65,536</summary>
+
+<!-- BEGIN GENERATED: intrinsic_v65536 -->
+- requested V = 65536; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `b8f3504b3e`; generated 2026-10-30T07:27:03Z
+- arguments: `--train-bytes 10000000 --vocab-size 65536 --output-dir benchmarks/results/v65536/intrinsic`
+- morph F1: per-word boundary F1 on 126622 gold words (SIGMORPHON 2022 test split, surface entries (eng, fra, hun, rus, spa)), averaged per language, then over the 5 languages unweighted (per language below); identifier F1: 1499 identifiers mined from held-out code; throughput: median of 5 passes over 1.1 MB (206 documents, one encode call each) on Intel(R) Core(TM) Ultra 7 155H
+
+| Tokenizer | \|V\| | Bytes/token (↑) | Fertility (↓) | Rényi E1 | Rényi E2.5 | Morph F1 (↑) | Ident F1 (↑) | Encode MB/s | Decode MB/s |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `super_bpe` | 65536 | 4.390 | 1.783 | 0.790 | 0.418 | 0.278 | 0.806 | 7.28 | 90.77 |
+| `wp_bpe_base` | 65536 | 1.013 | 6.692 | 0.343 | 0.254 | 0.206 | 0.247 | 43.80 | 65.83 |
+| `wp_bpe_ft` | 65536 | 1.053 | 6.388 | 0.338 | 0.248 | 0.214 | 0.247 | 38.69 | 61.77 |
+| `wordpiece_pmi` | 65536 | 1.056 | 6.362 | 0.337 | 0.248 | 0.214 | 0.247 | 37.80 | 62.41 |
+| `wp_bpe_scp` | 65536 | 2.513 | 2.238 | 0.515 | 0.189 | 0.309 | 0.666 | 17.62 | 59.34 |
+| `wp_bpe_pig` | 65536 | 2.873 | 1.826 | 0.549 | 0.168 | 0.300 | 0.802 | 15.79 | 63.45 |
+| `morpheme_bpe` | 65536 | 2.907 | 1.801 | 0.561 | 0.168 | 0.407 | 0.793 | 12.61 | 54.09 |
+| `wp_bpe_ppig` | 65536 | 2.888 | 1.808 | 0.550 | 0.167 | 0.298 | 0.811 | 15.52 | 68.04 |
+| `bpe_frequency` | 65536 | 2.944 | 1.765 | 0.564 | 0.166 | 0.280 | 0.807 | 13.33 | 57.37 |
+| `length_penalized` | 65536 | 2.951 | 1.759 | 0.566 | 0.166 | 0.279 | 0.808 | 15.52 | 68.68 |
+| `wp_bpe_npmi` | 65536 | 2.756 | 1.892 | 0.531 | 0.166 | 0.318 | 0.788 | 16.79 | 65.50 |
+| `unigram_lm` | 65536 | 2.828 | 1.836 | 0.549 | 0.166 | 0.338 | 0.797 | 7.09 | 57.45 |
+| `mdl_bits` | 40496 | 2.509 | 1.928 | 0.521 | 0.152 | 0.318 | 0.796 | 17.61 | 62.33 |
+
+Morph F1 by language:
+
+| Tokenizer | eng (40,455 words) | fra (6,299 words) | hun (61,213 words) | rus (8,526 words) | spa (10,129 words) | Word-weighted |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `super_bpe` | 0.314 | 0.162 | 0.509 | 0.152 | 0.253 | 0.385 |
+| `wp_bpe_base` | 0.212 | 0.187 | 0.312 | 0.126 | 0.193 | 0.252 |
+| `wp_bpe_ft` | 0.212 | 0.193 | 0.344 | 0.126 | 0.196 | 0.268 |
+| `wordpiece_pmi` | 0.212 | 0.193 | 0.344 | 0.126 | 0.196 | 0.268 |
+| `wp_bpe_scp` | 0.367 | 0.226 | 0.496 | 0.173 | 0.284 | 0.403 |
+| `wp_bpe_pig` | 0.350 | 0.190 | 0.537 | 0.155 | 0.265 | 0.413 |
+| `morpheme_bpe` | 0.465 | 0.306 | 0.534 | 0.370 | 0.358 | 0.476 |
+| `wp_bpe_ppig` | 0.348 | 0.184 | 0.540 | 0.160 | 0.258 | 0.413 |
+| `bpe_frequency` | 0.315 | 0.164 | 0.511 | 0.152 | 0.255 | 0.387 |
+| `length_penalized` | 0.311 | 0.163 | 0.507 | 0.158 | 0.253 | 0.384 |
+| `wp_bpe_npmi` | 0.388 | 0.219 | 0.532 | 0.164 | 0.286 | 0.426 |
+| `unigram_lm` | 0.411 | 0.246 | 0.539 | 0.241 | 0.253 | 0.441 |
+| `mdl_bits` | 0.400 | 0.233 | 0.512 | 0.163 | 0.284 | 0.421 |
+<!-- END GENERATED: intrinsic_v65536 -->
+
+</details>

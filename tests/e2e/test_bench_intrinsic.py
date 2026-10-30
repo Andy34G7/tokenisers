@@ -184,3 +184,52 @@ def test_identifiers_are_mined_from_code_by_frequency():
     code = ["def get_user(user_id):\n    return load_user(user_id)\n", "x = get_user(1)\nuserId = 2\n"]
     assert mine_identifiers(code) == ["get_user", "user_id", "load_user", "userId"]
     assert mine_identifiers(code, max_items=2) == ["get_user", "user_id"]
+
+
+class ByteTok:
+    """Fake byte-level tokenizer: one token per UTF-8 byte, so every byte boundary is a cut."""
+
+    vocab_size = 256
+
+    def encode(self, text):
+        return list(text.encode())
+
+    def decode(self, ids):
+        return bytes(ids).decode()
+
+    def id_to_bytes(self, i):
+        return bytes([i])
+
+
+def _meta():
+    return {"requested_vocab_size": 256, "train_bytes": 1, "eval_split": "test", "eval_bytes": 1, "duplicates": {}}
+
+
+def test_morph_f1_headline_weights_languages_equally():
+    """The headline is the unweighted mean over languages; a language with many gold words (hun in
+    SIGMORPHON) must not dominate it. Per-language and word-weighted values are reported too."""
+    from tokenisers.benchmarks.report import render_intrinsic
+
+    gold = [{"word": "ab", "gold_cuts": {1}, "lang": "eng"}]  # byte cuts {1}: F1 1.0
+    gold += [{"word": "abc", "gold_cuts": set(), "lang": "hun"}] * 3  # cuts {1, 2} vs none: F1 0.0
+    res = IntrinsicEvaluator().evaluate_suite({"bytes": ByteTok()}, ["ab abc"], gold, repeats=1)["bytes"]
+    assert res["morph_f1_by_lang"] == {"eng": 1.0, "hun": 0.0}
+    assert res["morph_words_by_lang"] == {"eng": 1, "hun": 3} and res["morph_words"] == 4
+    assert res["morph_f1"] == pytest.approx(0.5) and res["morph_f1_word_weighted"] == pytest.approx(0.25)
+    md = render_intrinsic({"meta": _meta(), "models": {"bytes": res}})
+    assert "then over the 2 languages unweighted" in md
+    assert "| eng (1 words) | hun (3 words) | Word-weighted |" in md
+    assert "| `bytes` | 1.000 | 0.000 | 0.250 |" in md
+
+
+def test_morph_and_identifier_f1_are_undefined_without_items():
+    """No gold words / no identifiers: F1 is None and renders as n/a, not a score of 0.000."""
+    from tokenisers.benchmarks.report import render_intrinsic
+
+    res = IntrinsicEvaluator().evaluate_suite({"bytes": ByteTok()}, ["the cat sat"], gold_annotations=[],
+                                              identifiers=[], repeats=1)["bytes"]
+    assert res["morph_words"] == 0 and res["identifiers"] == 0
+    assert res["morph_f1"] is None and res["morph_f1_word_weighted"] is None and res["identifier_f1"] is None
+    row = next(line for line in render_intrinsic({"meta": _meta(), "models": {"bytes": res}}).splitlines()
+               if line.startswith("| `bytes`"))
+    assert "| n/a | n/a |" in row and "0.000" not in row
