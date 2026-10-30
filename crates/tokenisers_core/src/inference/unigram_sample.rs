@@ -1,5 +1,6 @@
 use fastrand::Rng;
 
+use crate::curricula::super_bpe::SuperBpeTrainer;
 use crate::engine::unigram::{CompactTrie, logsumexp2};
 use crate::vocab::TokenId;
 
@@ -13,6 +14,12 @@ pub struct LatticeEdge {
 }
 
 /// Stochastic Unigram Lattice Sampler supporting exact FFBS and k-best path sampling.
+///
+/// Temperature semantics (both samplers): a segmentation `s` is weighted by
+/// `P(s)^(1/temperature) = prod_{t in s} p(t)^(1/temperature)`. `temperature = 1` samples the
+/// model's exact posterior; SentencePiece's smoothing parameter is `alpha = 1/temperature`
+/// (alpha = 0.1 <=> temperature = 10); `temperature -> 0` approaches Viterbi. No hidden scaling.
+/// Like `UnigramModel::encode`, the lattice never spans a `segment_bytes` boundary.
 pub struct UnigramSampler<'a> {
     pub trie: &'a CompactTrie,
 }
@@ -22,22 +29,27 @@ impl<'a> UnigramSampler<'a> {
         Self { trie }
     }
 
-    /// Constructs the incoming lattice edges for each position in the byte sequence.
+    /// Constructs the incoming lattice edges for each position in the byte sequence. Edges stay
+    /// inside whitespace/non-whitespace segments, matching training and `UnigramModel::encode`.
     pub fn build_incoming_lattice(&self, bytes: &[u8]) -> Vec<Vec<LatticeEdge>> {
         let n = bytes.len();
         let mut incoming = vec![Vec::new(); n + 1];
 
-        for start in 0..n {
-            let matches = self.trie.common_prefix_search(&bytes[start..]);
-            for (len, token_id, log_prob) in matches {
-                let end = start + len;
-                incoming[end].push(LatticeEdge {
-                    start_pos: start,
-                    end_pos: end,
-                    token_id,
-                    log_prob,
-                });
+        let mut seg_start = 0;
+        for seg in SuperBpeTrainer::segment_bytes(bytes) {
+            let seg_end = seg_start + seg.len();
+            for start in seg_start..seg_end {
+                for (len, token_id, log_prob) in self.trie.common_prefix_search(&bytes[start..seg_end]) {
+                    let end = start + len;
+                    incoming[end].push(LatticeEdge {
+                        start_pos: start,
+                        end_pos: end,
+                        token_id,
+                        log_prob,
+                    });
+                }
             }
+            seg_start = seg_end;
         }
 
         // Guarantee fallback connectivity at any unreached position
@@ -57,7 +69,8 @@ impl<'a> UnigramSampler<'a> {
         incoming
     }
 
-    /// Forward-Filtering Backward-Sampling (FFBS) from the exact lattice posterior.
+    /// Forward-Filtering Backward-Sampling: an exact sample from `P(s)^(1/temperature)`
+    /// (normalised over all segmentations). `seed = None` draws a fresh random seed.
     pub fn sample_ffbs(&self, bytes: &[u8], temperature: f64, seed: Option<u64>) -> Vec<TokenId> {
         let n = bytes.len();
         if n == 0 {
@@ -107,7 +120,8 @@ impl<'a> UnigramSampler<'a> {
                 0.0
             };
 
-            let mut selected_idx = 0;
+            // Default to the last reachable edge if rounding leaves choice_val slightly > 0.
+            let mut selected_idx = probs.iter().rposition(|&p| p > 0.0).unwrap_or(0);
             for (idx, &p) in probs.iter().enumerate() {
                 choice_val -= p;
                 if choice_val <= 0.0 {
@@ -125,7 +139,9 @@ impl<'a> UnigramSampler<'a> {
         tokens
     }
 
-    /// k-Best shortest path sampling via multi-backpointer Viterbi.
+    /// Samples one of the `k` highest-scoring segmentations (multi-backpointer Viterbi) with
+    /// probability proportional to `P(s)^(1/temperature)` renormalised over those `k`
+    /// (SentencePiece `nbest_size = k`). `k = 1` is deterministic Viterbi.
     pub fn sample_kbest(&self, bytes: &[u8], k: usize, temperature: f64, seed: Option<u64>) -> Vec<TokenId> {
         let n = bytes.len();
         if n == 0 {
@@ -205,7 +221,7 @@ impl<'a> UnigramSampler<'a> {
         }
 
         let mut r = rng.f64() * sum_p;
-        let mut chosen_rank = 0;
+        let mut chosen_rank = unnorm_probs.len() - 1;
         for (idx, &p) in unnorm_probs.iter().enumerate() {
             r -= p;
             if r <= 0.0 {
