@@ -179,9 +179,11 @@ def render_throughput(doc: Dict[str, Any]) -> str:
     b = meta.get("backend", {})
     prep = meta.get("prepared", {})
     cpus = b.get("affinity") or []
+    lscpu = b.get("lscpu", {})
     if b.get("kind") == "colab":
         where = (f"Colab CPU runtime (no accelerator requested), session `{b.get('session', '?')}`; "
-                 f"{len(cpus)} vCPUs ({b.get('lscpu', {}).get('Hypervisor vendor', '?')} VM)")
+                 f"{len(cpus)} vCPUs ({lscpu.get('Core(s) per socket', '?')} core(s) x {lscpu.get('Thread(s) per core', '?')} "
+                 f"threads, {lscpu.get('Hypervisor vendor', '?')} VM)")
     else:
         pin = ", ".join(f"CPU {c['cpu']} (max {c['max_mhz']} MHz, governor {c['governor']}, "
                         f"SMT sibling(s) {c['thread_siblings']})" for c in cpus)
@@ -214,7 +216,8 @@ def render_throughput(doc: Dict[str, Any]) -> str:
         f"- run-to-run spread (max/min over the runs, per tokenizer): encode median "
         f"{spread['encode_mb_per_sec'][0]:.2f}x, max {spread['encode_mb_per_sec'][1]:.2f}x; decode median "
         f"{spread['decode_mb_per_sec'][0]:.2f}x, max {spread['decode_mb_per_sec'][1]:.2f}x",
-        f"- 1-min load average and MemAvailable before -> after each run: {load}",
+        f"- 1-min load average (the benchmark's own process adds about 1) and MemAvailable before -> after "
+        f"each run: {load}",
         "",
         "| Tokenizer | \\|V\\| | Encode MB/s | Decode MB/s |",
         "| :--- | ---: | ---: | ---: |",
