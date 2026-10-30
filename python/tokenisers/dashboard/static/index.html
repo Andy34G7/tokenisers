@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tokenisers Lab</title>
-  <meta name="description" content="Benchmark dashboard for subword tokenisation algorithms: downstream LM bits-per-byte, Tokka-Bench 11-language compression, intrinsic information metrics, and a live tokeniser playground." />
+  <meta name="description" content="Benchmark dashboard for subword tokenisation algorithms: downstream LM bits-per-byte, Tokka-Bench per-language compression, intrinsic information metrics, and a live tokeniser playground." />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -425,30 +425,35 @@
         <div class="kpi-value num"><span id="kpi-bpb-val">–</span><span class="kpi-unit">BPB</span></div>
         <div class="kpi-model" id="kpi-bpb-model">–</div>
         <div class="kpi-note">Macro val bits/byte · lower is better</div>
+        <div class="kpi-note" id="kpi-bpb-prov"></div>
       </div>
       <div class="kpi">
         <div class="eyebrow">Info efficiency</div>
         <div class="kpi-value num"><span id="kpi-renyi-val">–</span></div>
         <div class="kpi-model" id="kpi-renyi-model">–</div>
         <div class="kpi-note">Rényi efficiency, α = 2</div>
+        <div class="kpi-note" id="kpi-renyi-prov"></div>
       </div>
       <div class="kpi">
         <div class="eyebrow">Morphology</div>
         <div class="kpi-value num"><span id="kpi-morph-val">–</span><span class="kpi-unit">F1</span></div>
         <div class="kpi-model" id="kpi-morph-model">–</div>
         <div class="kpi-note">Sigmorphon boundary F1</div>
+        <div class="kpi-note" id="kpi-morph-prov"></div>
       </div>
       <div class="kpi">
         <div class="eyebrow">Compression</div>
         <div class="kpi-value num"><span id="kpi-bpt-val">–</span><span class="kpi-unit">B/tok</span></div>
         <div class="kpi-model" id="kpi-bpt-model">–</div>
         <div class="kpi-note">Bytes per token · higher is better</div>
+        <div class="kpi-note" id="kpi-bpt-prov"></div>
       </div>
       <div class="kpi">
         <div class="eyebrow">Throughput</div>
         <div class="kpi-value num"><span id="kpi-speed-val">–</span><span class="kpi-unit">MB/s</span></div>
         <div class="kpi-model" id="kpi-speed-model">–</div>
         <div class="kpi-note">Decode speed</div>
+        <div class="kpi-note" id="kpi-speed-prov"></div>
       </div>
     </section>
 
@@ -536,7 +541,7 @@
           <div class="card-head">
             <div>
               <h2>Validation BPB by domain</h2>
-              <p>Proxy LM trained on a byte-matched budget for 176 steps. Lower is better.</p>
+              <p>Proxy LM trained on the same byte budget for every tokeniser. Lower is better. <span id="extrinsic-prov"></span></p>
             </div>
           </div>
           <div class="chart xtall"><canvas id="extrinsic-bar-chart"></canvas></div>
@@ -583,8 +588,8 @@
       <section class="card">
         <div class="card-head">
           <div>
-            <h2>Compression across 11 scripts</h2>
-            <p>European (EN, DE, FR), Slavic (RU), CJK (ZH, JA), Semitic (AR), Indic (HI), Uralic (HU, FI) and source code.</p>
+            <h2>Compression by language</h2>
+            <p id="tokka-sub"></p>
           </div>
           <div class="segmented" role="group" aria-label="Metric">
             <button class="tokka-metric-btn" data-metric="bytes_per_token" aria-pressed="true">Bytes / token</button>
@@ -597,13 +602,7 @@
         <div class="table-wrap">
           <table class="heat" id="tokka-heatmap-table">
             <thead>
-              <tr>
-                <th>Tokeniser</th>
-                <th class="c">EN</th><th class="c">DE</th><th class="c">FR</th><th class="c">RU</th>
-                <th class="c">ZH</th><th class="c">JA</th><th class="c">AR</th><th class="c">HI</th>
-                <th class="c">HU</th><th class="c">FI</th><th class="c">Code</th>
-                <th class="c">Avg</th>
-              </tr>
+              <tr id="tokka-heatmap-head"></tr>
             </thead>
             <tbody id="tokka-heatmap-tbody"></tbody>
           </table>
@@ -623,7 +622,7 @@
         <div class="card-head">
           <div>
             <h2>Intrinsic metrics</h2>
-            <p>How each tokeniser uses its vocabulary, measured on the training corpus without training a model. <span id="intrinsic-vocab-note"></span></p>
+            <p>How each tokeniser uses its vocabulary, measured on held-out text without training a model. <span id="intrinsic-vocab-note"></span></p>
           </div>
           <input type="search" id="intrinsic-search" placeholder="Filter tokenisers…" class="input" style="width: 200px" />
         </div>

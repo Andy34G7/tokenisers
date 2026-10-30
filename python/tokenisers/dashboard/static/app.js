@@ -93,6 +93,20 @@ function pct(v) {
   return isNum(v) ? (v * 100).toFixed(1) + '%' : DASH;
 }
 
+// One line of provenance from a result file's meta block (legacy files have none)
+function provenance(m) {
+  if (!m) return 'no provenance recorded';
+  const mb = (b) => `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} MB`;
+  const parts = [];
+  if (m.synthetic_data) parts.push('SYNTHETIC data');
+  if (isNum(m.byte_budget)) parts.push(`${mb(m.byte_budget)} LM budget`);
+  else if (isNum(m.train_bytes)) parts.push(`${mb(m.train_bytes)} train`);
+  if (m.eval_split) parts.push(`${m.eval_split} split`);
+  if (m.backend?.kind) parts.push(`${m.backend.kind} ${m.backend.device ?? ''}`.trim());
+  if (m.git_commit) parts.push(`@${m.git_commit.slice(0, 7)}${m.git_dirty ? '+dirty' : ''}`);
+  return parts.join(' · ');
+}
+
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -267,7 +281,8 @@ function renderCharts() {
 function renderMeta() {
   const n = Object.keys(state.data.models).length;
   const sub = document.getElementById('brand-sub');
-  if (sub) sub.textContent = `${n} subword tokenisers · 11 languages · downstream LM, compression & morphology`;
+  const nl = (state.data.tokka_languages || []).length;
+  if (sub) sub.textContent = `${n} subword tokenisers${nl ? ` · ${nl} languages` : ''} · downstream LM, compression & morphology`;
   const foot = document.getElementById('footer-updated');
   if (foot && state.data.timestamp) foot.textContent = `Data loaded ${new Date(state.data.timestamp).toLocaleString()}`;
 }
@@ -296,18 +311,21 @@ function renderKPIs() {
   const sum = state.data.summary;
   if (!sum) return;
 
-  const set = (id, kpi, format) => {
+  const meta = state.data.meta || {};
+  const set = (id, kpi, format, m) => {
     const valEl = document.getElementById(`kpi-${id}-val`);
     const modEl = document.getElementById(`kpi-${id}-model`);
+    const provEl = document.getElementById(`kpi-${id}-prov`);
     if (valEl) valEl.textContent = kpi ? format(kpi.value) : '–';
     if (modEl) modEl.textContent = kpi ? kpi.display_name : '–';
+    if (provEl) provEl.textContent = provenance(m);
   };
 
-  set('bpb', sum.best_downstream_quality, (v) => v.toFixed(3));
-  set('renyi', sum.highest_information_efficiency, (v) => v.toFixed(3));
-  set('morph', sum.best_morphological_f1, (v) => (v * 100).toFixed(1) + '%');
-  set('bpt', sum.best_compression, (v) => v.toFixed(2));
-  set('speed', sum.fastest_throughput, (v) => v.toFixed(1));
+  set('bpb', sum.best_downstream_quality, (v) => v.toFixed(3), meta.proxy_lm);
+  set('renyi', sum.highest_information_efficiency, (v) => v.toFixed(3), meta.intrinsic);
+  set('morph', sum.best_morphological_f1, (v) => (v * 100).toFixed(1) + '%', meta.intrinsic);
+  set('bpt', sum.best_compression, (v) => v.toFixed(2), meta.intrinsic);
+  set('speed', sum.fastest_throughput, (v) => v.toFixed(1), meta.intrinsic);
 }
 
 // 2. Leaderboard Table
@@ -479,6 +497,9 @@ function renderExtrinsicTab() {
     .sort((a, b) => a.macro_val_bpb - b.macro_val_bpb);
   const t = chartTheme();
 
+  const prov = document.getElementById('extrinsic-prov');
+  if (prov) prov.textContent = `Run: ${provenance(state.data.meta?.proxy_lm)}.`;
+
   // Grouped Bar Chart
   const barCanvas = document.getElementById('extrinsic-bar-chart');
   if (barCanvas) {
@@ -588,17 +609,34 @@ function renderExtrinsicTab() {
   }
 }
 
-// 5. Tokka-Bench 11-Language Heatmap & Grouped Chart
+// 5. Tokka-Bench Per-Language Heatmap & Grouped Chart
 // +1: higher is better, -1: lower is better, 0: neutral magnitude
 const TOKKA_DIRECTION = { bytes_per_token: 1, subword_fertility: -1, continued_word_rate: -1, unique_tokens: 0 };
+// Natural languages show as upper-case ISO codes; code languages (and the legacy pooled 'code') by name
+const LANG_LABELS = { code: 'Code', python: 'Python', javascript: 'JS', java: 'Java', cpp: 'C++', go: 'Go', rust: 'Rust' };
+const langLabel = (l) => LANG_LABELS[l] ?? l.toUpperCase();
 
 function renderTokkaTab() {
   if (!state.data || !state.data.tokka_matrix) return;
 
   const matrix = state.data.tokka_matrix;
   const models = Object.keys(matrix);
-  const langs = ['en', 'de', 'fr', 'ru', 'zh', 'ja', 'ar', 'hi', 'hu', 'fi', 'code'];
+  // Columns are whatever languages the results file has (server derives them from the data)
+  const langs = state.data.tokka_languages || [];
   const metric = state.tokkaActiveMetric;
+
+  const tokkaMeta = state.data.meta?.tokka;
+  const sub = document.getElementById('tokka-sub');
+  if (sub) {
+    const macro = tokkaMeta?.macro_languages;
+    const left = macro ? langs.filter((l) => !macro.includes(l)).map(langLabel) : [];
+    sub.textContent =
+      `${langs.length} languages, natural and code. Avg is the macro average` +
+      (left.length ? ` and leaves out ${left.join(', ')} (too little eval text)` : '') +
+      `. Run: ${provenance(tokkaMeta)}.`;
+  }
+  const head = document.getElementById('tokka-heatmap-head');
+  if (head) head.innerHTML = `<th>Tokeniser</th>${langs.map((l) => `<th class="c">${esc(langLabel(l))}</th>`).join('')}<th class="c">Avg</th>`;
   const dir = TOKKA_DIRECTION[metric] ?? 0;
 
   const lo = document.getElementById('tokka-scale-lo');
@@ -674,7 +712,7 @@ function renderTokkaTab() {
 
     state.charts.tokkaBar = new Chart(barCanvas, {
       type: 'bar',
-      data: { labels: langs.map((l) => (l === 'code' ? 'Code' : l.toUpperCase())), datasets },
+      data: { labels: langs.map(langLabel), datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -726,7 +764,7 @@ function renderIntrinsicTab() {
   // Vocab size is shared across runs; say it once instead of a constant column
   const vocabs = [...new Set(all.map((m) => m.intrinsic?.vocab_size).filter(isNum))];
   const note = document.getElementById('intrinsic-vocab-note');
-  if (note) note.textContent = vocabs.length ? `Vocabulary size ${vocabs.join(', ')}.` : '';
+  if (note) note.textContent = `${vocabs.length ? `Vocabulary size ${vocabs.join(', ')}. ` : ''}Run: ${provenance(state.data.meta?.intrinsic)}.`;
 
   const groups = [];
   INTRINSIC_COLS.forEach((c, i) => {
