@@ -27,11 +27,13 @@ pub struct BottomUpModel {
     pub merge_ranks: AHashMap<Pair, u32>,
     /// `next_same_rank[r]`: next rank that merges the same pair as rank `r` (`u32::MAX` if none).
     next_same_rank: Vec<u32>,
-    /// True when every training word was a single `SuperBpeTrainer::segment_text` segment, so no
-    /// learned token spans a segment boundary. Encoding then splits valid UTF-8 input with that same
-    /// function and caches repeated segments. Otherwise (SuperBPE, models rebuilt from a merge list)
-    /// each special-token-free span of the input is one merge unit.
-    pub segmented: bool,
+    /// True when training only ever merged inside `SuperBpeTrainer::segment_text` segments (every
+    /// training word was one segment), so no learned token spans a segment boundary. Encoding then
+    /// pre-splits input with `SuperBpeTrainer::segment_bytes` and caches repeated segments, and the
+    /// HF export emits the matching `Split` pre-tokenizer. False (the `new` default, SuperBPE
+    /// stage 2, models rebuilt from a bare merge list): each special-token-free span of the input
+    /// is one merge unit and the export is whole-text `ByteLevel`.
+    pub pretokenize: bool,
 }
 
 /// Reusable per-call buffers for the heap encoder.
@@ -61,7 +63,7 @@ impl BottomUpModel {
             merges,
             merge_ranks,
             next_same_rank,
-            segmented: false,
+            pretokenize: false,
         }
     }
 
@@ -85,7 +87,7 @@ impl BottomUpModel {
     }
 
     /// BPE-dropout encoding (Provilkov et al. 2020, HF `tokenizers` semantics): within each merge
-    /// unit (segment for segmented models), every popped merge is skipped with probability `p` and
+    /// unit (segment for `pretokenize` models), every popped merge is skipped with probability `p` and
     /// re-queued after the next successful merge. `p <= 0` equals `encode`, `p >= 1` yields raw
     /// bytes (special tokens are still matched). A seed makes the output reproducible.
     pub fn encode_with_dropout(&self, bytes: &[u8], p: f32, seed: Option<u64>) -> Vec<TokenId> {
@@ -135,16 +137,12 @@ impl BottomUpModel {
         if span.is_empty() {
             return;
         }
-        let text = match std::str::from_utf8(span) {
-            Ok(text) if self.segmented => text,
-            // One unit. For a segmented model fed invalid UTF-8 this equals per-segment encoding
-            // under ASCII-whitespace segmentation, since no learned token mixes the two classes.
-            _ => return self.merge_unit(span, dropout, scratch, out),
-        };
-        let mut offset = 0;
-        for segment in SuperBpeTrainer::segment_text(text) {
-            let piece = &span[offset..offset + segment.len()];
-            offset += segment.len();
+        if !self.pretokenize {
+            return self.merge_unit(span, dropout, scratch, out);
+        }
+        // Byte-level segmentation: equals `segment_text` on valid UTF-8 and also splits invalid
+        // input, so a byte-level merge can never straddle a multi-byte whitespace character.
+        for piece in SuperBpeTrainer::segment_bytes(span) {
             if dropout.is_some() {
                 self.merge_unit(piece, dropout, scratch, out);
             } else if let Some(&(s, e)) = cache.get(piece) {
@@ -155,7 +153,6 @@ impl BottomUpModel {
                 cache.insert(piece, (s, out.len()));
             }
         }
-        debug_assert_eq!(offset, span.len(), "segment_text must cover its input");
     }
 
     /// Applies merges to one unit with a min-heap over (rank, position) and a linked list of
@@ -320,11 +317,11 @@ impl<'a> BottomUpTrainer<'a> {
             merges.push((pair.0, pair.1, new_token));
         }
 
-        let segmented = word_counts.iter().all(|(word, _)| {
+        let pretokenize = word_counts.iter().all(|(word, _)| {
             std::str::from_utf8(word).is_ok_and(|text| SuperBpeTrainer::segment_text(text).len() <= 1)
         });
         let mut model = BottomUpModel::new(state.vocab, merges);
-        model.segmented = segmented;
+        model.pretokenize = pretokenize;
         Ok(model)
     }
 }

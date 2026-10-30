@@ -86,7 +86,7 @@ fn engine_matches_bruteforce_argmax_for_every_scorer() {
             let (ref_merges, ref_words) = reference_train(scorer.as_ref(), &corpus, target, min_freq);
 
             assert_eq!(model.merges, ref_merges, "{name}: merge sequence differs from brute force (seed {seed})");
-            assert!(model.segmented, "{name}: single-segment training words must give a segmented model");
+            assert!(model.pretokenize, "{name}: single-segment training words must give a segmented model");
 
             // Encoding a training word reproduces its training segmentation.
             let words = corpus.iter().filter(|(w, f)| !w.is_empty() && *f > 0);
@@ -114,7 +114,7 @@ fn encode_matches_rank_replay_on_unseen_text() {
         let scorer = WpBpePigScorer::new(1);
         let model = BottomUpTrainer::new(&scorer, 256 + 40).train(&corpus).unwrap();
         let whole = BottomUpModel::new(model.vocab.clone(), model.merges.clone());
-        assert!(!whole.segmented);
+        assert!(!whole.pretokenize);
 
         for _ in 0..10 {
             let len = rng.usize(0..60);

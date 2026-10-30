@@ -37,7 +37,7 @@ fn best_of(runs: usize, f: impl Fn()) -> Duration {
 #[test]
 fn segmented_and_whole_text_encoding_agree() {
     let model = trained_model(1500);
-    assert!(model.segmented);
+    assert!(model.pretokenize);
     let whole = BottomUpModel::new(model.vocab.clone(), model.merges.clone());
     let text = pseudo_text(99, 50_000);
     let ids = model.encode(text.as_bytes());
@@ -46,7 +46,7 @@ fn segmented_and_whole_text_encoding_agree() {
     assert!(ids.len() * 2 < text.len(), "learned merges must actually compress");
     assert_eq!(model.decode_lossless(&ids).unwrap(), text);
 
-    // Invalid UTF-8 falls back to one unit and stays lossless.
+    // Invalid UTF-8 is segmented byte-wise (invalid bytes count as non-whitespace).
     let mut raw = text.as_bytes()[..2000].to_vec();
     raw.extend_from_slice(&[0xff, 0xc3, b'x', 0x80]);
     assert_eq!(model.encode(&raw), reference_encode(&model.merges, &raw));
