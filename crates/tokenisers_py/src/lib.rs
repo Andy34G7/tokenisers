@@ -20,19 +20,47 @@ use tokenisers_core::scoring::{
 };
 use tokenisers_core::vocab::{TokenId, Vocabulary, BASE_VOCAB_SIZE};
 
-fn extract_word_counts(corpus: &[String]) -> Result<Vec<(Vec<u8>, u64)>, &'static str> {
+/// The text between the special tokens of `doc`, cut where `BottomUpModel::encode` cuts it
+/// (leftmost-longest match), so training never sees a special's bytes, as encode never does.
+fn split_specials<'a>(doc: &'a str, specials: &[String]) -> Vec<&'a str> {
+    let bytes = doc.as_bytes();
+    let mut pieces = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < bytes.len() && !specials.is_empty() {
+        let hit = specials
+            .iter()
+            .filter(|s| !s.is_empty() && bytes[i..].starts_with(s.as_bytes()))
+            .map(|s| s.len())
+            .max();
+        match hit {
+            // A valid UTF-8 special starts and ends on char boundaries of `doc`.
+            Some(len) => {
+                pieces.push(&doc[start..i]);
+                i += len;
+                start = i;
+            }
+            None => i += 1,
+        }
+    }
+    pieces.push(&doc[start..]);
+    pieces
+}
+
+/// Segment counts of `corpus` with `specials` cut out.
+fn extract_word_counts(
+    corpus: &[String],
+    specials: &[String],
+) -> Result<Vec<(Vec<u8>, u64)>, &'static str> {
     if corpus.is_empty() {
         return Err("Corpus cannot be empty");
     }
     let mut word_counts_map: ahash::AHashMap<Vec<u8>, u64> = ahash::AHashMap::default();
     for doc in corpus {
-        if doc.is_empty() {
-            continue;
-        }
-        let segments = SuperBpeTrainer::segment_text(doc);
-        for seg in segments {
-            if !seg.is_empty() {
-                *word_counts_map.entry(seg).or_insert(0) += 1;
+        for piece in split_specials(doc, specials) {
+            for seg in SuperBpeTrainer::segment_text(piece) {
+                if !seg.is_empty() {
+                    *word_counts_map.entry(seg).or_insert(0) += 1;
+                }
             }
         }
     }
@@ -43,6 +71,23 @@ fn extract_word_counts(corpus: &[String]) -> Result<Vec<(Vec<u8>, u64)>, &'stati
     // AHashMap iteration order is seeded per process: sort so training input is reproducible.
     word_counts.sort_unstable();
     Ok(word_counts)
+}
+
+/// Number of merged tokens to train so that the vocabulary has `vocab_size` tokens once
+/// `specials` are added. Training never sees a special's bytes (`split_specials`), so each
+/// multi-byte special gets a new id; a one-byte special is that byte's existing id.
+fn merge_target(vocab_size: usize, specials: &[String]) -> PyResult<usize> {
+    if specials.iter().any(|s| s.is_empty()) {
+        return Err(value_err("special tokens must be non-empty"));
+    }
+    let new_ids = specials.iter().filter(|s| s.len() > 1).count();
+    match vocab_size.checked_sub(new_ids) {
+        Some(target) if target >= BASE_VOCAB_SIZE => Ok(target),
+        _ => Err(value_err(format!(
+            "vocab_size must be at least {BASE_VOCAB_SIZE} + the number of multi-byte special \
+             tokens ({new_ids})"
+        ))),
+    }
 }
 
 fn value_err(e: impl ToString) -> PyErr {
@@ -93,11 +138,67 @@ fn hf_json_path(path: &str) -> std::path::PathBuf {
     }
 }
 
+/// True for the post-processor transformers' `save_pretrained` writes: a TemplateProcessing that
+/// only concatenates the sequences, so it adds no tokens.
+fn identity_post_processor(p: &serde_json::Value) -> bool {
+    let only_sequences = |key| {
+        p.get(key)
+            .and_then(|t| t.as_array())
+            .is_some_and(|t| t.iter().all(|piece| piece.get("Sequence").is_some()))
+    };
+    p.get("type").and_then(|t| t.as_str()) == Some("TemplateProcessing")
+        && only_sequences("single")
+        && only_sequences("pair")
+}
+
+/// Parses a tokenizer.json, rejecting settings with which Hugging Face would encode differently
+/// from native encoding: a post-processor that adds tokens, added tokens matched with
+/// lstrip/rstrip/single_word, and the BPE options dropout, continuing_subword_prefix,
+/// end_of_word_suffix and ignore_merges.
+/// unk_token, byte_fallback and fuse_unk never apply (every byte is in the vocabulary);
+/// truncation and padding are per-call settings that transformers resets on every call.
 fn read_hf_json(path: &str) -> PyResult<HfTokenizerJson> {
     let file = File::open(hf_json_path(path))
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to open {path}: {e}")))?;
-    serde_json::from_reader(file)
-        .map_err(|e| PyRuntimeError::new_err(format!("Failed to parse {path}: {e}")))
+    let json: HfTokenizerJson = serde_json::from_reader(file)
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to parse {path}: {e}")))?;
+    let mut unsupported = Vec::new();
+    if json.post_processor.as_ref().is_some_and(|p| !identity_post_processor(p)) {
+        unsupported.push("post_processor");
+    }
+    if json.added_tokens.iter().any(|t| t.lstrip || t.rstrip || t.single_word) {
+        unsupported.push("added token lstrip/rstrip/single_word");
+    }
+    if let HfModelConfig::BPE {
+        dropout,
+        continuing_subword_prefix,
+        end_of_word_suffix,
+        ignore_merges,
+        ..
+    } = &json.model
+    {
+        let set = |s: &Option<String>| s.as_deref().is_some_and(|s| !s.is_empty());
+        if dropout.is_some_and(|p| p != 0.0) {
+            unsupported.push("dropout");
+        }
+        if set(continuing_subword_prefix) {
+            unsupported.push("continuing_subword_prefix");
+        }
+        if set(end_of_word_suffix) {
+            unsupported.push("end_of_word_suffix");
+        }
+        if *ignore_merges {
+            unsupported.push("ignore_merges");
+        }
+    }
+    if !unsupported.is_empty() {
+        return Err(value_err(format!(
+            "{path}: unsupported tokenizer.json settings (Hugging Face would encode differently \
+             from native): {}",
+            unsupported.join(", ")
+        )));
+    }
+    Ok(json)
 }
 
 #[pyclass(frozen)]
@@ -184,7 +285,8 @@ impl PyBpeModel {
     /// Loads a byte-level BPE tokenizer.json (as `export_hf_json` writes it, or as Hugging Face
     /// re-saves it). Ids are taken from the file: ids 0..=255 must be the 256 single bytes, the
     /// rest contiguous; special tokens come from `added_tokens`. A normalizer or pre-tokenizer
-    /// that native encoding does not implement, or anything else, raises `ValueError`.
+    /// that native encoding does not implement, or a setting `read_hf_json` rejects, raises
+    /// `ValueError`.
     #[staticmethod]
     pub fn from_hf_json(path: &str) -> PyResult<Self> {
         let json = read_hf_json(path)?;
@@ -396,8 +498,8 @@ impl PyUnigramModel {
 
     /// Loads a byte-level Unigram tokenizer.json (as `export_hf_json` writes it). Entry `i` of
     /// the vocab list gets id `i`: the first 256 must be the single bytes 0..=255, the rest
-    /// distinct multi-byte tokens. Anything else (added tokens, a normalizer or pre-tokenizer
-    /// native encoding does not implement) raises `ValueError`.
+    /// distinct multi-byte tokens. Added tokens, a normalizer or pre-tokenizer native encoding
+    /// does not implement, or a setting `read_hf_json` rejects raise `ValueError`.
     #[staticmethod]
     pub fn from_hf_json(path: &str) -> PyResult<Self> {
         let json = read_hf_json(path)?;
@@ -570,7 +672,8 @@ fn check_param(name: &str, value: Option<f64>, allow_negative: bool) -> PyResult
 }
 
 /// Trains a byte-level BPE model. `vocab_size` counts every token, special tokens included; it
-/// is an upper bound (training stops early when no eligible pair is left). `None` parameters take
+/// is an upper bound (training stops early when no eligible pair is left). Special tokens are cut
+/// out of the corpus before training, as encode cuts them out of the text. `None` parameters take
 /// the scorer's default; a parameter the scorer does not use raises `ValueError`.
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
@@ -590,13 +693,7 @@ pub fn train_bpe(
     check_param("beta", beta, true)?;
     check_param("penalty", penalty, false)?;
     let specials = special_tokens.unwrap_or_default();
-    let merge_target = vocab_size.saturating_sub(specials.len());
-    if merge_target < BASE_VOCAB_SIZE {
-        return Err(PyValueError::new_err(format!(
-            "vocab_size must be at least {BASE_VOCAB_SIZE} + the number of special tokens ({})",
-            specials.len()
-        )));
-    }
+    let target = merge_target(vocab_size, &specials)?;
 
     let scorer_norm = scorer_type.to_lowercase().replace('-', "_");
     // (default min_frequency, uses alpha, uses beta, uses penalty); defaults are the scorers' own.
@@ -636,7 +733,8 @@ pub fn train_bpe(
 
     let model = py
         .allow_threads(|| -> Result<BottomUpModel, String> {
-            let word_counts = extract_word_counts(&corpus).map_err(|e| e.to_string())?;
+            let word_counts =
+                extract_word_counts(&corpus, &specials).map_err(|e| e.to_string())?;
             let scorer: Box<dyn PairScorer> = match scorer_norm.as_str() {
                 "frequency" | "bpe" => Box::new(BpeScorer::new()),
                 "wordpiece" | "pmi" => Box::new(WordPieceScorer::new(
@@ -668,7 +766,7 @@ pub fn train_bpe(
                 )),
                 _ => unreachable!(),
             };
-            let mut model = BottomUpTrainer::new(scorer.as_ref(), merge_target)
+            let mut model = BottomUpTrainer::new(scorer.as_ref(), target)
                 .with_min_frequency(min_freq)
                 .train(&word_counts)
                 .map_err(|e| e.to_string())?;
@@ -720,7 +818,7 @@ pub fn train_unigram(
     };
 
     let model = py.allow_threads(|| -> Result<UnigramModel, String> {
-        let word_counts = extract_word_counts(&corpus).map_err(|e| e.to_string())?;
+        let word_counts = extract_word_counts(&corpus, &[]).map_err(|e| e.to_string())?;
         trainer
             .train(&word_counts)
             .map_err(|e| e.to_string())
@@ -786,12 +884,7 @@ pub fn train_morpheme_guided(
     special_tokens: Option<Vec<String>>,
 ) -> PyResult<PyBpeModel> {
     let specials = special_tokens.unwrap_or_default();
-    if vocab_size < BASE_VOCAB_SIZE + specials.len() {
-        return Err(PyValueError::new_err(format!(
-            "vocab_size must be at least {BASE_VOCAB_SIZE} + the number of special tokens ({})",
-            specials.len()
-        )));
-    }
+    let target = merge_target(vocab_size, &specials)?;
     if !lambda_weight.is_finite() || lambda_weight < 0.0 {
         return Err(PyValueError::new_err(format!(
             "lambda_weight must be a finite number >= 0, got {lambda_weight}"
@@ -843,9 +936,8 @@ pub fn train_morpheme_guided(
     }
 
     let min_freq = min_frequency.max(1);
-    let target = vocab_size - specials.len();
     let model = py.allow_threads(|| -> Result<BottomUpModel, String> {
-        let word_counts = extract_word_counts(&corpus).map_err(|e| e.to_string())?;
+        let word_counts = extract_word_counts(&corpus, &specials).map_err(|e| e.to_string())?;
 
         macro_rules! train_with_inner {
             ($inner_scorer:expr) => {{
