@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use tokenisers_core::curricula::morpheme::PairMorphologyStats;
 use tokenisers_core::index::Pair;
 use tokenisers_core::scoring::{PairContext, PairScorer, ScoredPair};
 use tokenisers_core::vocab::{TokenId, Vocabulary};
@@ -27,7 +28,9 @@ pub fn apply_leftmost(seq: &[TokenId], u: TokenId, v: TokenId, w: TokenId) -> Ve
 
 /// Reference trainer: every step recounts pair counts, token counts and N from scratch, scores
 /// every pair, merges the maximum under `ScoredPair` ordering and re-segments every word.
-/// Returns the merges and the final segmentation of each non-empty word (input order).
+/// If the scorer annotates any word (`word_boundaries`), it also recounts each pair's intra /
+/// cross-boundary occurrences from the byte spans of the current segmentation and scores with
+/// `score_morph`. Returns the merges and the final segmentation of each non-empty word (input order).
 pub fn reference_train(
     scorer: &dyn PairScorer,
     word_counts: &[(Vec<u8>, u64)],
@@ -41,11 +44,33 @@ pub fn reference_train(
         .filter(|(w, f)| !w.is_empty() && *f > 0)
         .map(|(w, f)| (w.iter().map(|&b| b as TokenId).collect(), *f))
         .collect();
+    let bounds: Vec<Option<&[usize]>> = word_counts
+        .iter()
+        .filter(|(w, f)| !w.is_empty() && *f > 0)
+        .map(|(w, _)| scorer.word_boundaries(w))
+        .collect();
+    let annotated = bounds.iter().any(Option::is_some);
     let mut merges = Vec::new();
     while vocab.len() < target_vocab_size {
         let mut pair_counts: BTreeMap<Pair, u64> = BTreeMap::new();
         let mut token_counts: HashMap<TokenId, u64> = HashMap::new();
         let mut total = 0u64;
+        let mut morph: HashMap<Pair, PairMorphologyStats> = HashMap::new();
+        for ((w, f), b) in words.iter().zip(&bounds) {
+            let Some(b) = b else { continue };
+            let mut start = 0;
+            for pair in w.windows(2) {
+                let len_u = vocab.get_bytes(pair[0]).unwrap().len();
+                let end = start + len_u + vocab.get_bytes(pair[1]).unwrap().len();
+                let stat = morph.entry(Pair::new(pair[0], pair[1])).or_default();
+                if b.iter().any(|&x| start < x && x < end) {
+                    stat.n_cross += f;
+                } else {
+                    stat.n_intra += f;
+                }
+                start += len_u;
+            }
+        }
         for (w, f) in &words {
             for t in w {
                 *token_counts.entry(*t).or_default() += f;
@@ -69,7 +94,11 @@ pub fn reference_train(
                 len_u: vocab.get_bytes(pair.0).unwrap().len(),
                 len_v: vocab.get_bytes(pair.1).unwrap().len(),
             };
-            let score = scorer.score(pair, &ctx);
+            let score = if annotated {
+                scorer.score_morph(pair, &ctx, morph.get(&pair).copied().unwrap_or_default())
+            } else {
+                scorer.score(pair, &ctx)
+            };
             if !score.is_finite() {
                 continue;
             }

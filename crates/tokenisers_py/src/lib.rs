@@ -10,7 +10,6 @@ use tokenisers_core::curricula::super_bpe::{SuperBpeConfig, SuperBpeTrainer};
 use tokenisers_core::engine::bottom_up::{BottomUpModel, BottomUpTrainer};
 use tokenisers_core::engine::unigram::{UnigramModel, UnigramTrainer};
 use tokenisers_core::export::huggingface::{HfModelConfig, HfTokenizerJson};
-use tokenisers_core::index::Pair;
 use tokenisers_core::inference::byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 use tokenisers_core::scoring::{
@@ -711,9 +710,12 @@ pub fn train_super_bpe(
     Ok(PyBpeModel { model })
 }
 
-
+/// Morpheme-guided BPE. `morpheme_lexicon` maps training words (whole whitespace-free segments)
+/// to their surface morphemes; it must come from training data or an unsupervised segmenter, never
+/// from evaluation gold. Inner-scorer parameters left as `None` take the scorer's defaults.
 #[pyfunction]
-#[pyo3(signature = (corpus, vocab_size, morpheme_lexicon, lambda_weight=1.0, scorer="frequency"))]
+#[pyo3(signature = (corpus, vocab_size, morpheme_lexicon, lambda_weight=1.0, scorer="frequency", min_frequency=1, alpha=None, beta=None, penalty=None, special_tokens=None))]
+#[allow(clippy::too_many_arguments)]
 pub fn train_morpheme_guided(
     py: Python<'_>,
     corpus: Vec<String>,
@@ -721,73 +723,80 @@ pub fn train_morpheme_guided(
     morpheme_lexicon: HashMap<String, Vec<String>>,
     lambda_weight: f64,
     scorer: &str,
+    min_frequency: u64,
+    alpha: Option<f64>,
+    beta: Option<f64>,
+    penalty: Option<f64>,
+    special_tokens: Option<Vec<String>>,
 ) -> PyResult<PyBpeModel> {
-    if vocab_size < BASE_VOCAB_SIZE {
+    let specials = special_tokens.unwrap_or_default();
+    if vocab_size < BASE_VOCAB_SIZE + specials.len() {
         return Err(PyValueError::new_err(format!(
-            "vocab_size must be at least {BASE_VOCAB_SIZE}"
+            "vocab_size must be at least {BASE_VOCAB_SIZE} + the number of special tokens ({})",
+            specials.len()
+        )));
+    }
+    if !lambda_weight.is_finite() || lambda_weight < 0.0 {
+        return Err(PyValueError::new_err(format!(
+            "lambda_weight must be a finite number >= 0, got {lambda_weight}"
         )));
     }
 
     let scorer_norm = scorer.to_lowercase();
-    match scorer_norm.as_str() {
-        "frequency" | "bpe" | "wordpiece" | "pmi" | "mdl" | "length_penalized" => {}
+    let applies_to = match scorer_norm.as_str() {
+        "frequency" | "bpe" => "",
+        "wordpiece" | "pmi" => "alpha",
+        "mdl" => "penalty",
+        "length_penalized" => "beta",
         unknown => {
             return Err(PyValueError::new_err(format!(
                 "Unknown scorer type for morpheme-guided BPE: {unknown}"
             )));
         }
+    };
+    for (name, value) in [("alpha", alpha), ("beta", beta), ("penalty", penalty)] {
+        let Some(value) = value else { continue };
+        if name != applies_to {
+            return Err(PyValueError::new_err(format!(
+                "{name} does not apply to scorer '{scorer}'"
+            )));
+        }
+        if !value.is_finite() || (name != "beta" && value < 0.0) {
+            return Err(PyValueError::new_err(format!("invalid {name}: {value}")));
+        }
     }
 
+    let mut lexicon = MorphemeLexicon::new();
+    let mut rejected = Vec::new();
+    for (word, morphemes) in &morpheme_lexicon {
+        let m_refs: Vec<&[u8]> = morphemes.iter().map(|m| m.as_bytes()).collect();
+        if !lexicon.insert_segmentation(word.as_bytes(), &m_refs) {
+            rejected.push(word.as_str());
+        }
+    }
+    if !rejected.is_empty() {
+        rejected.sort_unstable();
+        let msg = format!(
+            "morpheme_lexicon: ignored {} entries whose morphemes do not concatenate to the word \
+             (byte offsets need surface segmentations): {:?}",
+            rejected.len(),
+            &rejected[..rejected.len().min(10)]
+        );
+        let category = py.get_type::<pyo3::exceptions::PyUserWarning>();
+        PyErr::warn(py, category.as_any(), &std::ffi::CString::new(msg)?, 1)?;
+    }
+
+    let min_freq = min_frequency.max(1);
+    let target = vocab_size - specials.len();
     let model = py.allow_threads(|| -> Result<BottomUpModel, String> {
         let word_counts = extract_word_counts(&corpus).map_err(|e| e.to_string())?;
 
-        let mut lexicon = MorphemeLexicon::new();
-        for (word, morphemes) in &morpheme_lexicon {
-            let m_refs: Vec<&[u8]> = morphemes.iter().map(|m| m.as_bytes()).collect();
-            lexicon.insert_segmentation(word.as_bytes(), &m_refs);
-        }
-
         macro_rules! train_with_inner {
             ($inner_scorer:expr) => {{
-                let mut morpheme_scorer =
-                    MorphemeGuidedScorer::new($inner_scorer, lambda_weight, 1.0);
-                for (word_bytes, freq) in &word_counts {
-                    if word_bytes.len() > 1 && lexicon.get_boundaries(word_bytes).is_some() {
-                        for offset in 1..word_bytes.len() {
-                            let pair = Pair::new(
-                                word_bytes[offset - 1] as TokenId,
-                                word_bytes[offset] as TokenId,
-                            );
-                            for _ in 0..(*freq).min(10) {
-                                morpheme_scorer.record_occurrence(
-                                    pair,
-                                    word_bytes,
-                                    offset,
-                                    &lexicon,
-                                );
-                            }
-                        }
-                    }
-                }
-                for (word, _) in &morpheme_lexicon {
-                    let word_bytes = word.as_bytes();
-                    if word_bytes.len() > 1 && lexicon.get_boundaries(word_bytes).is_some() {
-                        for offset in 1..word_bytes.len() {
-                            let pair = Pair::new(
-                                word_bytes[offset - 1] as TokenId,
-                                word_bytes[offset] as TokenId,
-                            );
-                            morpheme_scorer.record_occurrence(
-                                pair,
-                                word_bytes,
-                                offset,
-                                &lexicon,
-                            );
-                        }
-                    }
-                }
-                let trainer = BottomUpTrainer::new(&morpheme_scorer, vocab_size);
-                trainer
+                let morpheme_scorer =
+                    MorphemeGuidedScorer::new($inner_scorer, lexicon, lambda_weight, 1.0);
+                BottomUpTrainer::new(&morpheme_scorer, target)
+                    .with_min_frequency(min_freq)
                     .train(&word_counts)
                     .map_err(|e| e.to_string())?
             }};
@@ -795,21 +804,39 @@ pub fn train_morpheme_guided(
 
         let mut model = match scorer_norm.as_str() {
             "frequency" | "bpe" => train_with_inner!(BpeScorer::new()),
-            "wordpiece" | "pmi" => train_with_inner!(WordPieceScorer::new(1.0, 1)),
-            "mdl" => train_with_inner!(MdlScorer::new(24.0, 1)),
-            "length_penalized" => train_with_inner!(LengthPenalizedScorer::new(0.5, 1)),
+            "wordpiece" | "pmi" => train_with_inner!(WordPieceScorer::new(
+                alpha.unwrap_or(WordPieceScorer::default().alpha),
+                min_freq
+            )),
+            "mdl" => train_with_inner!(MdlScorer::new(
+                penalty.unwrap_or(MdlScorer::default().entry_overhead_bits),
+                min_freq
+            )),
+            "length_penalized" => train_with_inner!(LengthPenalizedScorer::new(
+                beta.unwrap_or(LengthPenalizedScorer::default().beta),
+                min_freq
+            )),
             _ => unreachable!(),
         };
 
-        let mut pad_idx = 0;
-        while model.vocab.len() < vocab_size {
-            let token_str = format!("<unused_{pad_idx}>");
-            model.vocab.add_token(token_str.into_bytes());
-            pad_idx += 1;
+        for special in &specials {
+            model
+                .vocab
+                .add_special_token(special)
+                .map_err(|e| e.to_string())?;
         }
-
         Ok(model)
     }).map_err(PyValueError::new_err)?;
+
+    // No <unused_N> padding: a strong prior (or a small corpus) can leave fewer mergeable pairs.
+    if model.vocab.len() < vocab_size {
+        let msg = format!(
+            "morpheme-guided training stopped at {} tokens (requested {vocab_size}): no eligible merges left",
+            model.vocab.len()
+        );
+        let category = py.get_type::<pyo3::exceptions::PyUserWarning>();
+        PyErr::warn(py, category.as_any(), &std::ffi::CString::new(msg)?, 1)?;
+    }
 
     Ok(PyBpeModel { model })
 }

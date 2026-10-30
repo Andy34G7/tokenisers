@@ -1,7 +1,13 @@
-use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon};
+mod common;
+
+use common::{random_corpus, reference_train};
+use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon, PairMorphologyStats};
 use tokenisers_core::curricula::super_bpe::{SuperBpeConfig, SuperBpeTrainer};
+use tokenisers_core::engine::bottom_up::{BottomUpModel, BottomUpTrainer};
 use tokenisers_core::index::Pair;
-use tokenisers_core::scoring::{BpeScorer, PairContext, PairScorer};
+use tokenisers_core::scoring::{
+    BpeScorer, LengthPenalizedScorer, MdlScorer, PairContext, PairScorer, WordPieceScorer, WpBpePigScorer,
+};
 
 #[test]
 fn test_superbpe_config_validation() {
@@ -89,97 +95,222 @@ fn test_superbpe_two_stage_training() {
     assert_eq!(test_str, decoded);
 }
 
-#[test]
-fn test_morpheme_prior_amplification_and_attenuation() {
-    let mut lexicon = MorphemeLexicon::new();
-    // "unhappiness" -> "un" | "happi" | "ness" (byte offsets 2 and 7)
-    lexicon.insert_segmentation(b"unhappiness", &[b"un", b"happi", b"ness"]);
+// =========================================================================
+// Morpheme-guided BPE
+// =========================================================================
 
-    let bpe = BpeScorer::new();
-    let mut scorer = MorphemeGuidedScorer::new(bpe, 2.0, 1.5);
+fn lexicon(entries: &[(&str, &[&str])]) -> MorphemeLexicon {
+    let mut lex = MorphemeLexicon::new();
+    for (word, morphemes) in entries {
+        let parts: Vec<&[u8]> = morphemes.iter().map(|m| m.as_bytes()).collect();
+        assert!(lex.insert_segmentation(word.as_bytes(), &parts), "{word}");
+    }
+    lex
+}
 
-    let pair_intra = Pair::new(b'h' as u32, b'a' as u32);
-    let pair_cross = Pair::new(b'n' as u32, b'h' as u32);
-    let pair_neutral = Pair::new(b'x' as u32, b'y' as u32);
+fn pieces(model: &BottomUpModel, word: &str) -> Vec<String> {
+    model
+        .encode(word.as_bytes())
+        .iter()
+        .map(|&id| String::from_utf8_lossy(model.vocab.get_bytes(id).unwrap()).into_owned())
+        .collect()
+}
 
-    // Record 'h'-'a' at offset 3 (inside "happi" -> intra-morphemic)
-    scorer.record_occurrence(pair_intra, b"unhappiness", 3, &lexicon);
-    // Record 'n'-'h' at offset 2 (boundary between "un" and "happi" -> cross-boundary)
-    scorer.record_occurrence(pair_cross, b"unhappiness", 2, &lexicon);
-
-    assert_eq!(scorer.concordance(pair_intra), 1.0);
-    assert_eq!(scorer.concordance(pair_cross), -1.0);
-    assert_eq!(scorer.concordance(pair_neutral), 0.0);
-
-    let ctx = PairContext {
-        freq_uv: 100,
+fn ctx(freq_uv: u64) -> PairContext {
+    PairContext {
+        freq_uv,
         freq_u: 100,
         freq_v: 100,
         total_tokens: 1000,
         active_vocab_size: 256,
         len_u: 1,
         len_v: 1,
-    };
-
-    let base_score = 100.0;
-    let score_intra = scorer.score(pair_intra, &ctx);
-    let score_cross = scorer.score(pair_cross, &ctx);
-    let score_neutral = scorer.score(pair_neutral, &ctx);
-
-    // Intra-morphemic should be strictly boosted: base * exp(2.0 * 1.0) = base * e^2
-    assert!((score_intra - (base_score * 2.0f64.exp())).abs() < 1e-4);
-    // Cross-boundary should be strictly penalized: base * exp(2.0 * -1.0) = base * e^-2
-    assert!((score_cross - (base_score * (-2.0f64).exp())).abs() < 1e-4);
-    // Neutral should remain unaffected: base * exp(0) = base
-    assert!((score_neutral - base_score).abs() < 1e-4);
+    }
 }
 
 #[test]
-fn test_morpheme_negative_base_score_prior_ranking() {
-    let mut lexicon = MorphemeLexicon::new();
-    lexicon.insert_segmentation(b"unhappiness", &[b"un", b"happi", b"ness"]);
+fn morpheme_lexicon_stores_inner_byte_offsets_and_rejects_non_surface_segmentations() {
+    let lex = lexicon(&[("unhappiness", &["un", "happi", "ness"]), ("перестройка", &["пере", "строй", "ка"])]);
+    assert_eq!(lex.get_boundaries(b"unhappiness"), Some(&[2usize, 7][..]));
+    assert_eq!(lex.get_boundaries("перестройка".as_bytes()), Some(&[8usize, 18][..]));
+    assert_eq!(lex.get_boundaries(b"happiness"), None);
 
-    // Dummy negative scorer simulating MDL compression loss
-    #[derive(Debug, Clone)]
-    struct NegativeScorer(f64);
-    impl PairScorer for NegativeScorer {
-        fn score(&self, _pair: Pair, _ctx: &PairContext) -> f64 {
-            self.0
-        }
-        fn name(&self) -> &'static str {
-            "negative_scorer"
-        }
-    }
-
-    let inner = NegativeScorer(-10.0);
-    let mut scorer = MorphemeGuidedScorer::new(inner, 1.5, 1.0);
-
-    let pair_intra = Pair::new(b'h' as u32, b'a' as u32);
-    let pair_cross = Pair::new(b'n' as u32, b'h' as u32);
-
-    scorer.record_occurrence(pair_intra, b"unhappiness", 3, &lexicon);
-    scorer.record_occurrence(pair_cross, b"unhappiness", 2, &lexicon);
-
-    let ctx = PairContext {
-        freq_uv: 10,
-        freq_u: 10,
-        freq_v: 10,
-        total_tokens: 100,
-        active_vocab_size: 256,
-        len_u: 1,
-        len_v: 1,
-    };
-
-    let score_intra = scorer.score(pair_intra, &ctx);
-    let score_cross = scorer.score(pair_cross, &ctx);
-
-    // For negative base scores, intra-morphemic (M=1.0) must be higher (less negative) than cross-boundary (M=-1.0)
-    assert!(
-        score_intra > score_cross,
-        "Intra-morphemic score {score_intra} should be higher than cross-boundary score {score_cross}"
-    );
-    // Expected: -10.0 / exp(1.5) ≈ -2.23 > -10.0 / exp(-1.5) ≈ -44.82
-    assert!((score_intra - (-10.0 / 1.5f64.exp())).abs() < 1e-4);
-    assert!((score_cross - (-10.0 / (-1.5f64).exp())).abs() < 1e-4);
+    let mut lex = MorphemeLexicon::new();
+    // Empty morphemes add no boundary; a single morpheme gives an annotated word without one.
+    assert!(lex.insert_segmentation(b"ab", &[b"", b"a", b"", b"b", b""]));
+    assert!(lex.insert_segmentation(b"cat", &[b"cat"]));
+    assert_eq!(lex.get_boundaries(b"ab"), Some(&[1usize][..]));
+    assert_eq!(lex.get_boundaries(b"cat"), Some(&[][..]));
+    // Canonical (non-surface) segmentations would give wrong offsets: rejected, not inserted.
+    assert!(!lex.insert_segmentation(b"happiness", &[b"happy", b"ness"]));
+    assert!(!lex.insert_segmentation(b"short", &[b"sho", b"rt", b"extra"]));
+    assert_eq!(lex.get_boundaries(b"happiness"), None);
+    assert_eq!(lex.len(), 2);
 }
 
+#[test]
+fn morpheme_scorer_scales_by_concordance_and_vetoes_sub_unit_counts() {
+    let pair = Pair::new(b'h' as u32, b'a' as u32);
+    let intra = PairMorphologyStats { n_intra: 10, n_cross: 0 };
+    let cross = PairMorphologyStats { n_intra: 0, n_cross: 10 };
+    let mixed = PairMorphologyStats { n_intra: 3, n_cross: 1 };
+    let scorer = MorphemeGuidedScorer::new(BpeScorer::new(), MorphemeLexicon::new(), 2.0, 1.0);
+
+    assert_eq!(scorer.concordance(intra), 1.0);
+    assert_eq!(scorer.concordance(cross), -1.0);
+    assert_eq!(scorer.concordance(mixed), 0.5);
+    assert_eq!(scorer.concordance(PairMorphologyStats::default()), 0.0);
+
+    let c = ctx(100);
+    assert!((scorer.score_morph(pair, &c, intra) - 100.0 * 2.0f64.exp()).abs() < 1e-9);
+    assert!((scorer.score_morph(pair, &c, cross) - 100.0 * (-2.0f64).exp()).abs() < 1e-9);
+    assert_eq!(scorer.score_morph(pair, &c, PairMorphologyStats::default()), 100.0);
+    assert_eq!(scorer.score(pair, &c), 100.0);
+    // 5 * e^-2 < 1 occurrence: not a merge candidate.
+    assert_eq!(scorer.score_morph(pair, &ctx(5), cross), f64::NEG_INFINITY);
+    assert!(scorer.score_morph(pair, &ctx(8), cross).is_finite());
+
+    // Negative base scores (MDL-like): intra less negative than cross.
+    #[derive(Debug)]
+    struct Negative;
+    impl PairScorer for Negative {
+        fn score(&self, _: Pair, _: &PairContext) -> f64 {
+            -10.0
+        }
+        fn name(&self) -> &'static str {
+            "negative"
+        }
+    }
+    let neg = MorphemeGuidedScorer::new(Negative, MorphemeLexicon::new(), 1.5, 1.0);
+    assert!((neg.score_morph(pair, &c, intra) - (-10.0 / 1.5f64.exp())).abs() < 1e-9);
+    assert!((neg.score_morph(pair, &c, cross) - (-10.0 * 1.5f64.exp())).abs() < 1e-9);
+
+    // gamma weighs cross occurrences: (3 - 2 * 1) / 4.
+    let gamma2 = MorphemeGuidedScorer::new(BpeScorer::new(), MorphemeLexicon::new(), 1.0, 2.0);
+    assert_eq!(gamma2.concordance(mixed), 0.25);
+
+    // Absurd lambdas stay finite (no inf/NaN that would silently drop intra pairs).
+    for lambda in [1e6, f64::INFINITY] {
+        let huge = MorphemeGuidedScorer::new(BpeScorer::new(), MorphemeLexicon::new(), lambda, 1.0);
+        assert_eq!(huge.score_morph(pair, &c, intra), f64::MAX);
+        assert_eq!(huge.score_morph(pair, &c, cross), f64::NEG_INFINITY);
+        let neg = MorphemeGuidedScorer::new(Negative, MorphemeLexicon::new(), lambda, 1.0);
+        let s = neg.score_morph(pair, &c, intra);
+        assert!(s.is_finite() && s <= 0.0);
+    }
+}
+
+/// Acceptance: a strong prior keeps every learned token inside the morphemes of an annotated word,
+/// including merges of already-merged tokens (un + happy), while plain BPE crosses the boundary.
+#[test]
+fn strong_prior_never_learns_a_token_across_a_lexicon_boundary() {
+    let corpus: Vec<(Vec<u8>, u64)> = [("unhappy", 100), ("happy", 40), ("unhappiness", 20), ("undo", 30)]
+        .iter()
+        .map(|&(w, f)| (w.as_bytes().to_vec(), f))
+        .collect();
+    let target = 256 + 40; // more merges than intra-morpheme pairs exist
+
+    let bpe = BottomUpTrainer::new(&BpeScorer, target).train(&corpus).unwrap();
+    assert_eq!(pieces(&bpe, "unhappy"), ["unhappy"], "plain BPE must cross un|happy for this test to mean anything");
+
+    let lex = lexicon(&[("unhappy", &["un", "happy"])]);
+    let guided = MorphemeGuidedScorer::new(BpeScorer, lex.clone(), 50.0, 1.0);
+    let model = BottomUpTrainer::new(&guided, target).train(&corpus).unwrap();
+    assert_eq!(pieces(&model, "unhappy"), ["un", "happy"]);
+    // No learned token, wherever it occurs inside "unhappy", may span offset 2.
+    for id in 256..model.vocab.len() as u32 {
+        let tok = model.vocab.get_bytes(id).unwrap();
+        for (p, window) in b"unhappy".windows(tok.len()).enumerate() {
+            let crosses = p < 2 && p + tok.len() > 2;
+            assert!(!(crosses && window == tok), "token {:?} crosses un|happy", String::from_utf8_lossy(tok));
+        }
+    }
+    // Training stops rather than merge vetoed pairs; it does not pad.
+    assert!(model.vocab.len() < target);
+
+    // The same lexicon at lambda = 0, or an empty lexicon, is plain BPE.
+    for scorer in [
+        MorphemeGuidedScorer::new(BpeScorer, lex, 0.0, 1.0),
+        MorphemeGuidedScorer::new(BpeScorer, MorphemeLexicon::new(), 50.0, 1.0),
+    ] {
+        let same = BottomUpTrainer::new(&scorer, target).train(&corpus).unwrap();
+        assert_eq!(same.merges, bpe.merges);
+    }
+}
+
+fn assert_matches_oracle<S: PairScorer>(
+    name: &str,
+    inner: S,
+    lexicon: &MorphemeLexicon,
+    corpus: &[(Vec<u8>, u64)],
+    lambda: f64,
+    gamma: f64,
+) -> Vec<(u32, u32, u32)> {
+    let scorer = MorphemeGuidedScorer::new(inner, lexicon.clone(), lambda, gamma);
+    let target = 256 + 30;
+    let model = BottomUpTrainer::new(&scorer, target).train(corpus).unwrap();
+    let (ref_merges, ref_words) = reference_train(&scorer, corpus, target, 1);
+    assert_eq!(model.merges, ref_merges, "{name}: merges differ from brute force");
+    for ((word, _), seg) in corpus.iter().zip(&ref_words) {
+        assert_eq!(&model.encode(word), seg, "{name}: encode != training segmentation");
+    }
+    model.merges
+}
+
+/// The engine's incremental intra/cross counts (every pair, merged tokens included) must equal a
+/// from-scratch recount over the byte spans of the current segmentation at every step.
+#[test]
+fn morpheme_guided_training_matches_bruteforce_oracle() {
+    let mut prior_changed_merges = 0;
+    for seed in 0..120u64 {
+        let mut rng = fastrand::Rng::with_seed(seed);
+        let alphabet: &[u8] = if seed % 2 == 0 { b"ab" } else { b"abc" };
+        let corpus = random_corpus(&mut rng, alphabet, 30, 10);
+        let mut lex = MorphemeLexicon::new();
+        for (word, _) in &corpus {
+            if word.len() > 1 && rng.bool() {
+                let mut cuts: Vec<usize> = (1..word.len()).filter(|_| rng.u8(0..3) == 0).collect();
+                cuts.insert(0, 0);
+                cuts.push(word.len());
+                let parts: Vec<&[u8]> = cuts.windows(2).map(|c| &word[c[0]..c[1]]).collect();
+                assert!(lex.insert_segmentation(word, &parts));
+            }
+        }
+        for &(lambda, gamma) in &[(0.7, 1.0), (3.0, 2.0), (50.0, 1.0)] {
+            let tag = format!("seed {seed} lambda {lambda} gamma {gamma}");
+            let bpe = assert_matches_oracle(&format!("bpe {tag}"), BpeScorer, &lex, &corpus, lambda, gamma);
+            let plain = BottomUpTrainer::new(&BpeScorer, 256 + 30).train(&corpus).unwrap();
+            prior_changed_merges += usize::from(bpe != plain.merges);
+            assert_matches_oracle(&format!("wordpiece {tag}"), WordPieceScorer::new(1.0, 1), &lex, &corpus, lambda, gamma);
+            assert_matches_oracle(&format!("mdl {tag}"), MdlScorer::new(4.0, 1), &lex, &corpus, lambda, gamma);
+            assert_matches_oracle(&format!("lp {tag}"), LengthPenalizedScorer::new(0.5, 1), &lex, &corpus, lambda, gamma);
+            assert_matches_oracle(&format!("pig {tag}"), WpBpePigScorer::new(1), &lex, &corpus, lambda, gamma);
+        }
+    }
+    assert!(prior_changed_merges > 100, "the prior must actually change training ({prior_changed_merges})");
+}
+
+#[test]
+fn empty_or_unmatched_lexicon_trains_exactly_like_the_inner_scorer() {
+    let text = common::pseudo_text(3, 30_000);
+    let mut counts = std::collections::BTreeMap::new();
+    for seg in SuperBpeTrainer::segment_text(&text) {
+        *counts.entry(seg).or_insert(0u64) += 1;
+    }
+    let corpus: Vec<(Vec<u8>, u64)> = counts.into_iter().collect();
+    let unmatched = lexicon(&[("zzzz", &["zz", "zz"])]);
+    fn check<S: PairScorer + Clone>(inner: S, lexicons: &[&MorphemeLexicon], corpus: &[(Vec<u8>, u64)]) {
+        let plain = BottomUpTrainer::new(&inner, 600).train(corpus).unwrap();
+        for lex in lexicons {
+            let guided = MorphemeGuidedScorer::new(inner.clone(), (*lex).clone(), 50.0, 1.0);
+            let model = BottomUpTrainer::new(&guided, 600).train(corpus).unwrap();
+            assert_eq!(model.merges, plain.merges, "{}", inner.name());
+        }
+    }
+    let empty = MorphemeLexicon::new();
+    let lexicons = [&empty, &unmatched];
+    check(BpeScorer, &lexicons, &corpus);
+    check(WordPieceScorer::new(1.0, 1), &lexicons, &corpus);
+    check(MdlScorer::new(24.0, 1), &lexicons, &corpus);
+    check(LengthPenalizedScorer::new(0.5, 1), &lexicons, &corpus);
+}
