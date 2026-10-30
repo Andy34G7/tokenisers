@@ -73,7 +73,8 @@ def test_every_class_has_the_uniform_api(trained, name, tmp_path):
 @pytest.mark.parametrize("name", ["bpe", "wordpiece", "unigram", "super_bpe", "morpheme", "byte_entropy"])
 def test_get_vocab_is_a_bijection_onto_all_ids(trained, name):
     """P2/P4/T15: one key per id, len == vocab_size, token_to_id/id_to_token are exact inverses.
-    (Latin-1 keys for invalid-UTF-8 tokens collided with real UTF-8 tokens: 596 keys for 600.)"""
+    (Latin-1 keys for invalid-UTF-8 tokens collided with real UTF-8 tokens: 596 keys for 600.)
+    Only a one-byte special token has a second key, as in tokenizer.json (test_bindings_hf_parity)."""
     tok = trained[name]
     vocab = tok.get_vocab()
     assert len(vocab) == tok.vocab_size

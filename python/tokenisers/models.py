@@ -5,7 +5,9 @@ Every class has the same API: ``train`` (classmethod), ``encode``/``encode_bytes
 ``decode``/``decode_bytes``, ``id_to_bytes``, ``id_to_token``/``token_to_id``, ``get_vocab``,
 ``special_tokens``, ``vocab_size``, ``save`` and ``from_pretrained``. Token strings are the GPT-2 byte-level printable
 form of the token bytes (special tokens: their raw content), i.e. the keys of the exported
-``tokenizer.json``; ``id_to_bytes`` gives the raw bytes.
+``tokenizer.json``; ``id_to_bytes`` gives the raw bytes. ``get_vocab`` is exactly that file's
+vocabulary, where a special token can also keep its byte-level key (a one-byte special "\\n" is
+both "\\n" and "Ċ"), so it can have more entries than ``vocab_size``.
 
 ``vocab_size`` passed to ``train`` is the requested total size, special tokens included. Training
 never pads: when the corpus cannot supply that many tokens the real, smaller vocabulary is kept
@@ -148,14 +150,32 @@ class BpeTokenizer(_CoreTokenizer):
         _warn_if_short(cls.__name__, model.vocab_size(), vocab_size)
         return cls(model=model)
 
-    def encode(self, text: str, dropout: Optional[float] = None, seed: Optional[int] = None) -> List[int]:
-        """BPE ids of ``text``; ``dropout`` is the BPE-dropout probability (HF semantics)."""
-        return self._require().encode(text, dropout=dropout, seed=seed)
+    def encode(
+        self,
+        text: str,
+        dropout: Optional[float] = None,
+        seed: Optional[int] = None,
+        split_special_tokens: bool = False,
+    ) -> List[int]:
+        """
+        BPE ids of ``text``; ``dropout`` is the BPE-dropout probability (HF semantics). Special
+        tokens in the text get their ids unless ``split_special_tokens`` (HF semantics: their text
+        is encoded as ordinary text).
+        """
+        return self._require().encode(
+            text, dropout=dropout, seed=seed, split_special_tokens=split_special_tokens
+        )
 
     def encode_bytes(
-        self, data: bytes, dropout: Optional[float] = None, seed: Optional[int] = None
+        self,
+        data: bytes,
+        dropout: Optional[float] = None,
+        seed: Optional[int] = None,
+        split_special_tokens: bool = False,
     ) -> List[int]:
-        return self._require().encode_bytes(bytes(data), dropout=dropout, seed=seed)
+        return self._require().encode_bytes(
+            bytes(data), dropout=dropout, seed=seed, split_special_tokens=split_special_tokens
+        )
 
 
 class WordPieceTokenizer(BpeTokenizer):

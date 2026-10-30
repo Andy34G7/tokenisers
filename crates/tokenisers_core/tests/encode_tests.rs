@@ -184,6 +184,7 @@ fn single_word_dropout_follows_hf_semantics() {
 #[test]
 fn special_tokens_are_matched_before_bpe() {
     let mut model = trained_model(800);
+    let no_specials = model.clone();
     let eot = model.vocab.add_special_token("<|endoftext|>").unwrap();
     let pad = model.vocab.add_special_token("<pad>").unwrap();
     let text = "hello world<|endoftext|>world<pad><pad>tail <|endoftext";
@@ -201,6 +202,13 @@ fn special_tokens_are_matched_before_bpe() {
     // Specials survive dropout; everything else falls back to bytes at p = 1.
     let dropped = model.encode_with_dropout(b"ab<pad>c", 1.0, None);
     assert_eq!(dropped, vec![b'a' as TokenId, b'b' as TokenId, pad, b'c' as TokenId]);
+
+    // encode_ordinary (HF split_special_tokens=True) encodes a special's text as ordinary bytes.
+    let plain = no_specials.encode(text.as_bytes());
+    assert!(!plain.contains(&eot) && !plain.contains(&pad));
+    assert_eq!(model.encode_ordinary(text.as_bytes(), 0.0, None), plain);
+    let raw: Vec<TokenId> = b"ab<pad>c".iter().map(|&b| b as TokenId).collect();
+    assert_eq!(model.encode_ordinary(b"ab<pad>c", 1.0, None), raw);
 }
 
 #[test]

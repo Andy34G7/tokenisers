@@ -94,9 +94,10 @@ fn value_err(e: impl ToString) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-/// The string a token is known by in `get_vocab`/`id_to_token`/`token_to_id`: a special token's
-/// raw content, otherwise the GPT-2 byte-level printable form of its bytes. These are the keys the
-/// HF export writes, and they are unique per id (raw latin-1/UTF-8 strings are not).
+/// The string a token is known by in `id_to_token` (HF `id_to_token` on the export): a special
+/// token's raw content, otherwise the GPT-2 byte-level printable form of its bytes. These strings
+/// are unique per id (raw latin-1/UTF-8 strings are not) and are keys of the HF export, which
+/// also keeps some specials' byte-level keys (see `PyBpeModel::get_vocab`).
 fn token_string(vocab: &Vocabulary, id: TokenId) -> Option<String> {
     let bytes = vocab.get_bytes(id)?;
     Some(match vocab.special_tokens().iter().find(|s| s.id == id) {
@@ -213,9 +214,15 @@ impl PyBpeModel {
         self.model.vocab.len()
     }
 
-    /// `{token string: id}` with exactly `vocab_size()` entries (see `token_string`).
+    /// The keys of the exported tokenizer.json (HF `get_vocab(with_added_tokens=True)`): each
+    /// id's `token_string`, and also the byte-level key of a special token where the export
+    /// keeps it (a one-byte special such as "\n" is both "\n" and "Ċ"), so a special may have two
+    /// keys. `token_to_id` maps every key to its id.
     pub fn get_vocab(&self) -> HashMap<String, u32> {
-        vocab_map(&self.model.vocab)
+        match HfTokenizerJson::from_bpe_model(&self.model, None).model {
+            HfModelConfig::BPE { vocab, .. } => vocab.into_iter().collect(),
+            HfModelConfig::Unigram { .. } => unreachable!("from_bpe_model writes a BPE model"),
+        }
     }
 
     pub fn token_to_id(&self, token: &str) -> Option<u32> {
@@ -246,25 +253,29 @@ impl PyBpeModel {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
-    #[pyo3(signature = (text, dropout=None, seed=None))]
+    #[pyo3(signature = (text, dropout=None, seed=None, split_special_tokens=false))]
     pub fn encode(
         &self,
         py: Python<'_>,
         text: &str,
         dropout: Option<f32>,
         seed: Option<u64>,
+        split_special_tokens: bool,
     ) -> PyResult<Vec<u32>> {
-        self.encode_bytes(py, text.as_bytes(), dropout, seed)
+        self.encode_bytes(py, text.as_bytes(), dropout, seed, split_special_tokens)
     }
 
-    /// BPE (with BPE-dropout probability `dropout`, HF semantics) of raw bytes. Releases the GIL.
-    #[pyo3(signature = (bytes, dropout=None, seed=None))]
+    /// BPE (with BPE-dropout probability `dropout`, HF semantics) of raw bytes. Special tokens are
+    /// matched first unless `split_special_tokens` (HF semantics: their text is encoded as
+    /// ordinary bytes). Releases the GIL.
+    #[pyo3(signature = (bytes, dropout=None, seed=None, split_special_tokens=false))]
     pub fn encode_bytes(
         &self,
         py: Python<'_>,
         bytes: &[u8],
         dropout: Option<f32>,
         seed: Option<u64>,
+        split_special_tokens: bool,
     ) -> PyResult<Vec<u32>> {
         let p = dropout.unwrap_or(0.0);
         if !(0.0..=1.0).contains(&p) {
@@ -272,7 +283,13 @@ impl PyBpeModel {
                 "dropout probability must be between 0.0 and 1.0",
             ));
         }
-        Ok(py.allow_threads(|| self.model.encode_with_dropout(bytes, p, seed)))
+        Ok(py.allow_threads(|| {
+            if split_special_tokens {
+                self.model.encode_ordinary(bytes, p, seed)
+            } else {
+                self.model.encode_with_dropout(bytes, p, seed)
+            }
+        }))
     }
 
     pub fn export_hf_json(&self, path: &str) -> PyResult<()> {

@@ -85,6 +85,24 @@ def test_from_pretrained_reloads_the_underlying_model(pair, tmp_path):
         assert reloaded(text)["input_ids"] == wrapper(text)["input_ids"]
 
 
+def test_added_token_lstrip_rstrip_single_word_are_honoured(pair):
+    """The tokenize override dropped the base class's AddedToken handling: a RoBERTa-style
+    <mask> with lstrip/rstrip kept its neighbouring spaces ('a', 'Ġ', '<X>', 'Ġ', 'b')."""
+    tok, _ = pair
+    wrapper = tokenisers.DynamicResearchTokenizer(tok)  # keep added tokens off the shared fixture
+    wrapper.add_tokens([transformers.AddedToken("<X>", lstrip=True, rstrip=True, special=True),
+                        transformers.AddedToken("<W>", single_word=True)])
+    x, w = wrapper.convert_tokens_to_ids(["<X>", "<W>"])
+    assert wrapper.tokenize("a <X> b") == [tok.id_to_token(i) for i in tok.encode("a")] + ["<X>"] + [
+        tok.id_to_token(i) for i in tok.encode("b")]
+    assert wrapper("a <X> b")["input_ids"] == tok.encode("a") + [x] + tok.encode("b")
+    # single_word: "<W>" glued to a word is text, a standalone "<W>" is the added token.
+    assert wrapper("x<W> <W>")["input_ids"] == tok.encode("x<W>") + tok.encode(" ") + [w]
+    # Per-call encode options still reach the pieces around the added tokens.
+    opts = {"dropout": 1.0} if isinstance(tok, tokenisers.BpeTokenizer) else {"temperature": 1.0, "seed": 3}
+    assert wrapper("hello <X> world", **opts)["input_ids"] == tok.encode("hello", **opts) + [x] + tok.encode("world", **opts)
+
+
 def test_needs_a_model():
     with pytest.raises(ValueError):
         tokenisers.DynamicResearchTokenizer()
