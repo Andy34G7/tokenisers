@@ -143,6 +143,16 @@ class ColabOrchestrator:
                 except ColabError:
                     pass
 
+    def _colab_retry(self, *args: str, attempts: int, delay: float, timeout: float) -> str:
+        """``_colab`` for an idempotent step (upload, download): a transient failure such as a lost
+        connection is retried, ``delay`` s apart, up to ``attempts`` calls in all."""
+        for _ in range(attempts - 1):
+            try:
+                return self._colab(*args, timeout=timeout)
+            except ColabError:
+                time.sleep(delay)
+        return self._colab(*args, timeout=timeout)
+
     def _poll(self, name: str, control: Path) -> Dict[str, Any]:
         out = self._colab("exec", "-s", name, "-f", str(control), "--timeout", "120", timeout=EXEC_TIMEOUT)
         for line in out.splitlines():
@@ -184,9 +194,10 @@ class ColabOrchestrator:
         Checks the CLI version, uploads ``lm.py`` and the job files, starts ``lm.py`` detached on
         the VM and polls it every ``poll_interval`` s with short ``colab exec`` calls (no exec stays
         open for the whole job), then downloads result.json and returns it with
-        ``backend.kind = "colab"``. A remote exception, a job that dies or runs past ``timeout``,
-        or any failed CLI step raises ColabError (with the remote traceback / log tail); the
-        session is always stopped. There is no silent local fallback.
+        ``backend.kind = "colab"``. Polls, uploads and the download are each retried until
+        ``max_poll_failures`` consecutive calls failed. A remote exception, a job that dies or runs
+        past ``timeout``, or a CLI step that keeps failing raises ColabError (with the remote
+        traceback / log tail); the session is always stopped. There is no silent local fallback.
         """
         job_dir = Path(job_dir)
         if not self.mock:
@@ -198,13 +209,17 @@ class ColabOrchestrator:
         local_result = job_dir / "result.json"
         local_result.unlink(missing_ok=True)
         with self.managed_session(name, gpu):
+            retry = {"attempts": max_poll_failures, "delay": poll_interval}
             for f in files:
-                self._colab("upload", "-s", name, str(f), f"{REMOTE_DIR}/{f.name}", timeout=3600)
+                self._colab_retry("upload", "-s", name, str(f), f"{REMOTE_DIR}/{f.name}", timeout=3600, **retry)
             status = self._wait(name, control, timeout, poll_interval, max_poll_failures)
             if status["state"] != "ok":
                 detail = status.get("traceback") or f"no status.json; log tail:\n{status.get('log_tail', '')}"
                 raise ColabError(f"the remote job failed ({status['state']}):\n{detail}")
-            self._colab("download", "-s", name, f"{REMOTE_DIR}/result.json", str(local_result), timeout=600)
+            # The finished job's only copy is on the VM, released when the session stops: a download
+            # lost to a dropped connection is retried like a poll.
+            self._colab_retry("download", "-s", name, f"{REMOTE_DIR}/result.json", str(local_result),
+                              timeout=600, **retry)
         if not local_result.is_file():
             raise ColabError("the Colab job produced no result.json")
         result = json.loads(local_result.read_text(encoding="utf-8"))

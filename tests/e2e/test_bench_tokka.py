@@ -117,6 +117,30 @@ def test_cli_trains_on_train_split_and_evaluates_on_test_split(require_tokeniser
     assert (out / "tokka_leaderboard.md").read_text().count("| `") == 2
 
 
+def test_cli_records_the_morpheme_lexicon_it_trained_with(require_tokenisers, tmp_path, monkeypatch):
+    """morpheme_bpe trains with a SIGMORPHON-train lexicon: tokka_matrix.json must say which one, as
+    the intrinsic and proxy-LM results do; without morpheme_bpe there is none to record."""
+    from tokenisers.benchmarks.tokka import __main__ as cli
+
+    provs = []
+    real = cli.load_morphology
+
+    def spy(*a, **kw):
+        out = real(*a, **kw)
+        provs.append(out[2])
+        return out
+
+    monkeypatch.setattr(cli, "load_morphology", spy)
+    args = ["--offline", "--cache-dir", str(tmp_path / "cache"), "--train-bytes", "30000", "--vocab-size", "280",
+            "--min-docs-per-lang", "1", "--min-bytes-per-lang", "0"]
+    cli.main(args + ["--variants", "morpheme_bpe", "--output-dir", str(tmp_path / "a")])
+    meta = json.loads((tmp_path / "a" / "tokka_matrix.json").read_text())["meta"]
+    assert len(provs) == 1 and provs[0]["gold_source"] and meta["morphology"] == provs[0]
+    cli.main(args + ["--variants", "bpe_frequency", "--output-dir", str(tmp_path / "b")])
+    assert json.loads((tmp_path / "b" / "tokka_matrix.json").read_text())["meta"]["morphology"] is None
+    assert len(provs) == 1
+
+
 def test_default_vocab_size_is_16k(capsys):
     """B14: every CLI defaults to a 16,384-token vocabulary."""
     from tokenisers.benchmarks.colab import __main__ as colab_cli
