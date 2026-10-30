@@ -53,18 +53,43 @@ impl<'a> SuperBpeTrainer<'a> {
         }
     }
 
-    /// Splits text into alternating words and whitespace segments.
+    /// Splits text into alternating maximal runs of whitespace and non-whitespace characters.
+    ///
+    /// Whitespace is Unicode `White_Space` (`char::is_whitespace`), so U+3000, U+00A0, U+2028 etc.
+    /// separate words just like ASCII space. This is THE segmentation used for training and must
+    /// be reused verbatim by any encoder that pre-splits text (see [`Self::segment_bytes`]).
     pub fn segment_text(text: &str) -> Vec<Vec<u8>> {
+        Self::segment_bytes(text.as_bytes())
+            .into_iter()
+            .map(<[u8]>::to_vec)
+            .collect()
+    }
+
+    /// Byte-level form of [`Self::segment_text`]: identical on valid UTF-8; bytes that are not
+    /// valid UTF-8 count as non-whitespace. Concatenating the returned slices gives back `bytes`.
+    pub fn segment_bytes(bytes: &[u8]) -> Vec<&[u8]> {
+        // (is_whitespace, byte length) per char; each invalid UTF-8 run is one non-ws unit.
+        let units = bytes.utf8_chunks().flat_map(|chunk| {
+            let invalid = chunk.invalid().len();
+            chunk
+                .valid()
+                .chars()
+                .map(|c| (c.is_whitespace(), c.len_utf8()))
+                .chain((invalid > 0).then_some((false, invalid)))
+        });
         let mut segments = Vec::new();
-        let bytes = text.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            let start = i;
-            let is_ws = bytes[i].is_ascii_whitespace();
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() == is_ws {
-                i += 1;
+        let (mut start, mut pos) = (0, 0);
+        let mut prev_ws: Option<bool> = None;
+        for (ws, len) in units {
+            if prev_ws.is_some_and(|p| p != ws) {
+                segments.push(&bytes[start..pos]);
+                start = pos;
             }
-            segments.push(bytes[start..i].to_vec());
+            prev_ws = Some(ws);
+            pos += len;
+        }
+        if pos > start {
+            segments.push(&bytes[start..pos]);
         }
         segments
     }
@@ -413,6 +438,9 @@ impl<'a> SuperBpeTrainer<'a> {
             }
         }
 
-        Ok(BottomUpModel::new(vocab, merges))
+        let mut model = BottomUpModel::new(vocab, merges);
+        // Stage-2 merges may span whitespace, so such a model must encode whole text.
+        model.pretokenize = stage == 1;
+        Ok(model)
     }
 }

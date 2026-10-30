@@ -19,6 +19,53 @@ fn test_superbpe_text_segmentation() {
 }
 
 #[test]
+fn segment_text_splits_on_unicode_whitespace() {
+    let segs = |t: &str| -> Vec<String> {
+        SuperBpeTrainer::segment_text(t)
+            .into_iter()
+            .map(|s| String::from_utf8(s).unwrap())
+            .collect()
+    };
+    assert_eq!(segs("中文\u{3000}文本"), ["中文", "\u{3000}", "文本"]);
+    assert_eq!(segs("a\u{a0}b \u{2003}\tc"), ["a", "\u{a0}", "b", " \u{2003}\t", "c"]);
+    assert_eq!(segs("x\u{2028}\u{85}y"), ["x", "\u{2028}\u{85}", "y"]);
+    // Not White_Space: zero-width space, BOM, Mongolian vowel separator.
+    assert_eq!(segs("a\u{200b}\u{feff}\u{180e}b"), ["a\u{200b}\u{feff}\u{180e}b"]);
+    assert_eq!(segs("  lead"), ["  ", "lead"]);
+    assert!(segs("").is_empty());
+}
+
+#[test]
+fn segment_bytes_matches_segment_text_and_tolerates_invalid_utf8() {
+    let text = "Hello\u{3000}世界 \t\n🚀x";
+    let from_bytes: Vec<Vec<u8>> = SuperBpeTrainer::segment_bytes(text.as_bytes())
+        .into_iter()
+        .map(<[u8]>::to_vec)
+        .collect();
+    assert_eq!(from_bytes, SuperBpeTrainer::segment_text(text));
+
+    // Invalid bytes are non-whitespace; segments always concatenate back to the input.
+    let raw = b"a\xff \xc3\xe3\x80\x80 \x80";
+    let segs = SuperBpeTrainer::segment_bytes(raw);
+    assert_eq!(segs, vec![&b"a\xff"[..], b" ", b"\xc3", b"\xe3\x80\x80 ", b"\x80"]);
+    assert_eq!(segs.concat(), raw.to_vec());
+}
+
+#[test]
+fn super_bpe_marks_whole_text_encoding_only_after_stage_two() {
+    let lines = vec!["the quick brown fox jumps over the lazy dog"; 4];
+    let scorer = BpeScorer::new();
+    let stage1_only = SuperBpeTrainer::new(SuperBpeConfig::new(270, 270).unwrap(), &scorer)
+        .train(&lines)
+        .unwrap();
+    assert!(stage1_only.pretokenize);
+    let two_stage = SuperBpeTrainer::new(SuperBpeConfig::new(270, 285).unwrap(), &scorer)
+        .train(&lines)
+        .unwrap();
+    assert!(!two_stage.pretokenize);
+}
+
+#[test]
 fn test_superbpe_two_stage_training() {
     let lines = vec![
         "the quick brown fox jumps over the lazy dog",

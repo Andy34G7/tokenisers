@@ -14,6 +14,10 @@ pub struct BottomUpModel {
     pub vocab: Vocabulary,
     pub merges: Vec<(TokenId, TokenId, TokenId)>,
     pub merge_ranks: AHashMap<Pair, (TokenId, u32)>,
+    /// True when training only ever merged inside `SuperBpeTrainer::segment_text` segments, so
+    /// encoding must pre-split text with that same function. False for SuperBPE models whose
+    /// stage-2 tokens span whitespace: those encode (and export) whole text.
+    pub pretokenize: bool,
 }
 
 impl BottomUpModel {
@@ -29,6 +33,7 @@ impl BottomUpModel {
             vocab,
             merges,
             merge_ranks,
+            pretokenize: true,
         }
     }
 
