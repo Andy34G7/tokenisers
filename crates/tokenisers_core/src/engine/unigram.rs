@@ -432,7 +432,7 @@ impl UnigramModel {
     }
 
     /// Decodes token IDs back to raw bytes.
-    pub fn decode(&self, ids: &[TokenId]) -> Vec<u8> {
+    pub fn decode(&self, ids: &[TokenId]) -> Result<Vec<u8>> {
         self.vocab.decode(ids)
     }
 

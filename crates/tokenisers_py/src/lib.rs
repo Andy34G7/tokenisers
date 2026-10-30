@@ -11,7 +11,6 @@ use tokenisers_core::engine::bottom_up::{BottomUpModel, BottomUpTrainer};
 use tokenisers_core::engine::unigram::{UnigramModel, UnigramTrainer};
 use tokenisers_core::export::huggingface::{HfModelConfig, HfTokenizerJson};
 use tokenisers_core::index::Pair;
-use tokenisers_core::inference::bpe_dropout::BpeDropoutEncoder;
 use tokenisers_core::inference::byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 use tokenisers_core::scoring::{
@@ -68,8 +67,7 @@ impl PyBpeModel {
                 ));
             }
             if p > 0.0 {
-                let encoder = BpeDropoutEncoder::new(&self.model.merges);
-                return Ok(encoder.encode(text.as_bytes(), p, seed));
+                return Ok(self.model.encode_with_dropout(text.as_bytes(), p, seed));
             }
         }
         Ok(self.model.encode(text.as_bytes()))
@@ -92,8 +90,7 @@ impl PyBpeModel {
                 ));
             }
             if p > 0.0 {
-                let encoder = BpeDropoutEncoder::new(&self.model.merges);
-                return Ok(encoder.encode(bytes, p, seed));
+                return Ok(self.model.encode_with_dropout(bytes, p, seed));
             }
         }
         Ok(self.model.encode(bytes))
@@ -103,7 +100,10 @@ impl PyBpeModel {
         if ids.is_empty() {
             return Ok(String::new());
         }
-        let raw_bytes = self.model.decode(&ids);
+        let raw_bytes = self
+            .model
+            .decode(&ids)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         match String::from_utf8(raw_bytes.clone()) {
             Ok(s) => Ok(s),
             Err(_) => {
@@ -279,7 +279,10 @@ impl PyUnigramModel {
         if ids.is_empty() {
             return Ok(String::new());
         }
-        let raw_bytes = self.model.decode(&ids);
+        let raw_bytes = self
+            .model
+            .decode(&ids)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         match String::from_utf8(raw_bytes.clone()) {
             Ok(s) => Ok(s),
             Err(_) => {
@@ -503,7 +506,7 @@ pub fn train_bpe(
                     .map_err(|e| e.to_string())?
             }
             "wp-bpe-ft" | "wp_bpe_ft" => {
-                let scorer = WpBpeFtScorer::new(min_freq.max(2), alpha);
+                let scorer = WpBpeFtScorer::new(min_freq.max(2));
                 BottomUpTrainer::new(&scorer, vocab_size)
                     .with_min_frequency(min_freq.max(2))
                     .train(&word_counts)

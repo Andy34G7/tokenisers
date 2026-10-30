@@ -69,11 +69,12 @@ def test_wp_bpe_lossless_roundtrip(require_tokenisers, sample_corpus):
 
 def test_wp_bpe_distinct_vocabularies(require_tokenisers):
     """Verify that uncalibrated PMI, thresholded PMI, PIG, SCP, NPMI, and PPIG yield valid merge orders."""
+    # The rare line appears once, so its pairs are true singletons (count 1): that is the only
+    # thing separating wp-bpe-base (no cutoff) from wp-bpe-ft (count >= 2), which share a formula.
     corpus = [
         "the internationalization of natural language processing systems",
         "understanding tokenization algorithms with mutual information",
-        "rare_unique_pair_xyzz occurs_once_only",
-    ] * 3
+    ] * 3 + ["rare_unique_pair_xyzz occurs_once_only"]
 
     t_base = WpBpeBaseTokenizer.train(corpus, vocab_size=275)
     t_ft = WpBpeFtTokenizer.train(corpus, vocab_size=275, min_frequency=2)

@@ -205,27 +205,20 @@ impl Vocabulary {
     }
 
     /// Concatenates token byte slices into raw bytes.
-    pub fn decode(&self, ids: &[TokenId]) -> Vec<u8> {
-        let mut total_len = 0;
+    /// Returns `InvalidTokenId` for any id outside the vocabulary.
+    pub fn decode(&self, ids: &[TokenId]) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(ids.len() * 4);
         for &id in ids {
-            if let Some(bytes) = self.get_bytes(id) {
-                total_len += bytes.len();
-            }
+            let bytes = self.get_bytes(id).ok_or(TokeniserError::InvalidTokenId(id))?;
+            out.extend_from_slice(bytes);
         }
-
-        let mut out = Vec::with_capacity(total_len);
-        for &id in ids {
-            if let Some(bytes) = self.get_bytes(id) {
-                out.extend_from_slice(bytes);
-            }
-        }
-        out
+        Ok(out)
     }
 
     /// Decodes a sequence of TokenIds losslessly to a UTF-8 String.
-    /// If the decoded bytes are not valid UTF-8, returns FromUtf8Error.
+    /// Returns `InvalidTokenId` for unknown ids and `Utf8` if the bytes are not valid UTF-8.
     pub fn decode_lossless(&self, ids: &[TokenId]) -> Result<String> {
-        let bytes = self.decode(ids);
+        let bytes = self.decode(ids)?;
         String::from_utf8(bytes).map_err(TokeniserError::Utf8)
     }
 

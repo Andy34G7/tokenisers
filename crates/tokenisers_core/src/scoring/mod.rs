@@ -43,6 +43,22 @@ impl PairContext {
     }
 }
 
+/// Which `PairContext` fields a scorer reads. The training engine uses it to re-score exactly the
+/// candidates whose score can change after a merge, so every step merges the true argmax.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScoreDeps {
+    /// Only `freq_uv`, `len_u`, `len_v`.
+    PairOnly,
+    /// Also `freq_u` / `freq_v`.
+    Marginals,
+    /// Also `total_tokens` / `active_vocab_size`. Contract: with `freq_uv`, `freq_u`, `freq_v` and the
+    /// lengths fixed, the score must never increase as `total_tokens` shrinks and `active_vocab_size`
+    /// grows. A stale score is then an upper bound and the engine re-scores lazily at pop time.
+    MonotoneTotals,
+    /// Unknown dependencies: every candidate is re-scored after every merge (exact but slow).
+    Arbitrary,
+}
+
 /// Pluggable interface for evaluating merge priority of adjacent symbol pairs.
 pub trait PairScorer: Send + Sync + Debug {
     /// Evaluates merge score for `pair` under the provided `ctx`.
@@ -52,6 +68,12 @@ pub trait PairScorer: Send + Sync + Debug {
 
     /// Canonical identifier for serialization and diagnostics.
     fn name(&self) -> &'static str;
+
+    /// Statistics this scorer depends on (see [`ScoreDeps`]). The default is always exact but
+    /// re-scores every candidate after every merge; declare a narrower set for speed.
+    fn deps(&self) -> ScoreDeps {
+        ScoreDeps::Arbitrary
+    }
 }
 
 /// Candidate pair stored in max-heap priority queue with version tombstoning and deterministic tie-breaking.

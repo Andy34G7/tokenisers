@@ -2,7 +2,7 @@ use ahash::{AHashMap, AHashSet};
 use std::fmt::Debug;
 
 use crate::index::Pair;
-use crate::scoring::{PairContext, PairScorer};
+use crate::scoring::{PairContext, PairScorer, ScoreDeps};
 
 /// Lexicon mapping word byte slices to known morphological boundary byte offsets.
 #[derive(Debug, Clone, Default)]
@@ -132,5 +132,10 @@ impl<S: PairScorer> PairScorer for MorphemeGuidedScorer<S> {
 
     fn name(&self) -> &'static str {
         "morpheme_guided"
+    }
+
+    /// The modulation is a fixed positive factor per pair, so dependencies are the inner scorer's.
+    fn deps(&self) -> ScoreDeps {
+        self.inner_scorer.deps()
     }
 }

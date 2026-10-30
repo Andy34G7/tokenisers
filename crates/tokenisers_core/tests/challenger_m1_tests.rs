@@ -1,3 +1,5 @@
+mod common;
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -40,6 +42,18 @@ fn test_scorer_distinctiveness_on_identical_corpus() {
     let model_wp = BottomUpTrainer::new(&wordpiece, target_vocab_size).train(&corpus).unwrap();
     let model_mdl = BottomUpTrainer::new(&mdl, target_vocab_size).train(&corpus).unwrap();
     let model_lp = BottomUpTrainer::new(&lp, target_vocab_size).train(&corpus).unwrap();
+
+    // Distinct is not enough: each must be the exact greedy argmax sequence of its own objective.
+    for (name, scorer, model) in [
+        ("bpe", &bpe as &dyn PairScorer, &model_bpe),
+        ("wordpiece", &wordpiece, &model_wp),
+        ("mdl", &mdl, &model_mdl),
+        ("length_penalized", &lp, &model_lp),
+    ] {
+        let (reference, _) = common::reference_train(scorer, &corpus, target_vocab_size, 1);
+        assert_eq!(model.merges, reference, "{name} diverged from the brute-force argmax");
+        assert_eq!(model.vocab.len(), target_vocab_size, "{name} stopped early");
+    }
 
     let merges_bpe: Vec<Pair> = model_bpe.merges.iter().map(|&(u, v, _)| Pair::new(u, v)).collect();
     let merges_wp: Vec<Pair> = model_wp.merges.iter().map(|&(u, v, _)| Pair::new(u, v)).collect();
