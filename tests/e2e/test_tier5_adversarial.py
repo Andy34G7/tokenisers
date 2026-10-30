@@ -25,22 +25,25 @@ def test_tier5_adv1_tokka_cjk_segmentation_fertility_bounds(require_tokenisers):
 
 
 def test_tier5_adv2_data_pipeline_train_and_val_splits(require_tokenisers, tmp_path):
-    """Adv-2: DataPipeline.prepare_corpus generates both deterministic train and val split files."""
+    """Adv-2: DataPipeline.prepare writes train/val/test split files that share no document."""
     tokenisers = require_tokenisers
     pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path, force_offline=True)
-    train_path = Path(pipeline.prepare_corpus(preset="smoke", max_bytes=20_000, split="train"))
-    val_path = Path(pipeline.prepare_corpus(preset="smoke", max_bytes=20_000, split="val"))
+    ds = pipeline.prepare(train_bytes=20_000)
+    texts = {split: ds.texts(split) for split in ("train", "val", "test")}
 
-    assert train_path.exists() and train_path.stat().st_size >= 20_000
-    assert val_path.exists() and val_path.stat().st_size > 0
-    assert train_path != val_path
+    assert sum(len(t.encode("utf-8")) for t in texts["train"]) >= 20_000
+    assert texts["val"] and texts["test"]
+    assert len({ds.path(s) for s in texts}) == 3
+    assert not set(texts["train"]) & set(texts["val"])
+    assert not set(texts["train"]) & set(texts["test"])
+    assert not set(texts["val"]) & set(texts["test"])
 
 
 def test_tier5_adv3_sigmorphon_builtin_loader_gold_cuts(require_tokenisers):
-    """Adv-3: SigmorphonLoader.load_builtin_samples returns valid multilingual morphological cuts."""
+    """Adv-3: SigmorphonLoader.load_offline_fixture returns valid multilingual morphological cuts."""
     tokenisers = require_tokenisers
     loader = tokenisers.data.SigmorphonLoader()
-    samples = loader.load_builtin_samples()
+    samples = loader.load_offline_fixture()
     assert len(samples) >= 10
     for item in samples:
         word_bytes = len(item["word"].encode("utf-8"))
@@ -53,7 +56,7 @@ def test_tier5_adv4_intrinsic_evaluate_suite_exports_leaderboards(require_tokeni
     """Adv-4: IntrinsicEvaluator.evaluate_suite exports JSON, CSV, and Markdown leaderboards."""
     tokenisers = require_tokenisers
     corpus = [sample_english_text * 4]
-    gold = tokenisers.data.SigmorphonLoader().load_builtin_samples()
+    gold = tokenisers.data.SigmorphonLoader().load_offline_fixture()
     models = {
         "bpe_freq": tokenisers.BpeTokenizer.train(corpus=corpus, vocab_size=275, scorer="frequency"),
         "super_bpe": tokenisers.SuperBpeTokenizer.train(corpus=corpus, v_switch=265, v_final=275),

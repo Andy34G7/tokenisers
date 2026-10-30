@@ -663,13 +663,13 @@ def test_tier2_f14_pipeline_zero_target_size_raises(require_tokenisers):
 
 
 def test_tier2_f14_pipeline_corrupted_cache_regeneration(require_tokenisers, tmp_path):
-    """F14-B2: Corrupted cache file is detected and regenerated cleanly."""
+    """F14-B2: Corrupted cache file is detected (checksum) and regenerated cleanly."""
     tokenisers = require_tokenisers
-    pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path)
-    corrupt_file = tmp_path / "corpus_smoke_train.txt"
-    corrupt_file.write_text("CORRUPTED_INCOMPLETE", encoding="utf-8")
-    path = pipeline.prepare_corpus(preset="smoke", max_bytes=50_000, verify_cache=True)
-    assert Path(path).stat().st_size > len("CORRUPTED_INCOMPLETE")
+    pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path, force_offline=True)
+    ds = pipeline.prepare(train_bytes=50_000)
+    good = ds.path("train").read_bytes()
+    ds.path("train").write_text("CORRUPTED_INCOMPLETE", encoding="utf-8")
+    assert pipeline.prepare(train_bytes=50_000).path("train").read_bytes() == good
 
 
 def test_tier2_f14_pipeline_hash_collision_resistance(require_tokenisers):
@@ -684,15 +684,16 @@ def test_tier2_f14_pipeline_hash_collision_resistance(require_tokenisers):
 
 
 def test_tier2_f14_pipeline_sigmorphon_gold_parsing(require_tokenisers, tmp_path):
-    """F14-B4: SIGMORPHON TSV parser handles malformed rows and valid morpheme cuts."""
+    """F14-B4: SIGMORPHON 2022 TSV parser handles malformed rows and valid morpheme cuts."""
     tokenisers = require_tokenisers
-    tsv_content = "unhappiness\tun\thappi\tness\nmalformed_row_single_col\n"
+    tsv_content = "unhappiness\tun @@happi @@ness\t110\nmalformed_row_single_col\n"
     tsv_file = tmp_path / "sigmorphon.tsv"
     tsv_file.write_text(tsv_content, encoding="utf-8")
     loader = tokenisers.data.SigmorphonLoader()
     parsed = loader.load_tsv(str(tsv_file))
-    assert len(parsed) >= 1
+    assert len(parsed) == 1
     assert parsed[0]["word"] == "unhappiness"
+    assert parsed[0]["gold_cuts"] == {2, 7}
 
 
 def test_tier2_f14_pipeline_zero_network_sandbox(require_tokenisers):
