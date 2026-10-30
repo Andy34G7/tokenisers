@@ -45,14 +45,16 @@ def test_tier3_morpheme_priors_with_mdl(require_tokenisers, sample_morpheme_anno
     tokenisers = require_tokenisers
     lexicon = {item["word"]: item["segments"] for item in sample_morpheme_annotations}
     corpus = ["unhappiness and disagreement in pretokenization"] * 10
-    tok = tokenisers.MorphemeBpeTokenizer.train(
-        corpus=corpus,
-        vocab_size=280,
-        morpheme_lexicon=lexicon,
-        scorer="mdl",
-        lambda_weight=2.0
-    )
-    assert tok.vocab_size == 280
+    # MDL stops once no merge pays for its vocabulary entry, before vocab_size on this tiny corpus.
+    with pytest.warns(UserWarning, match="stopped at"):
+        tok = tokenisers.MorphemeBpeTokenizer.train(
+            corpus=corpus,
+            vocab_size=280,
+            morpheme_lexicon=lexicon,
+            scorer="mdl",
+            lambda_weight=2.0
+        )
+    assert 256 < tok.vocab_size < 280
     assert tok.decode(tok.encode(corpus[0])) == corpus[0]
 
 

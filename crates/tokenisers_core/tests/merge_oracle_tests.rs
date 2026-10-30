@@ -2,14 +2,18 @@
 //! every scorer, and encoding must reproduce the training segmentation.
 mod common;
 
-use common::{random_corpus, reference_encode, reference_train};
+use std::collections::{BTreeMap, HashMap};
+
+use common::{apply_leftmost, random_corpus, reference_encode, reference_train, Merges};
 use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon};
+use tokenisers_core::curricula::super_bpe::{SuperBpeConfig, SuperBpeTrainer};
 use tokenisers_core::engine::bottom_up::{BottomUpModel, BottomUpTrainer};
 use tokenisers_core::index::Pair;
 use tokenisers_core::scoring::{
-    BpeScorer, LengthPenalizedScorer, MdlScorer, PairContext, PairScorer, ScoreDeps, WordPieceScorer,
+    BpeScorer, LengthPenalizedScorer, MdlScorer, PairContext, PairScorer, ScoreDeps, ScoredPair, WordPieceScorer,
     WpBpeBaseScorer, WpBpeFtScorer, WpBpeNpmiScorer, WpBpePigScorer, WpBpePpigScorer, WpBpeScpScorer,
 };
+use tokenisers_core::vocab::{TokenId, Vocabulary};
 
 /// Reads every context field in a non-monotone way and keeps the default (`Arbitrary`) deps.
 #[derive(Debug)]
@@ -76,10 +80,23 @@ fn scorers() -> Vec<(&'static str, Box<dyn PairScorer>, u64)> {
 fn engine_matches_bruteforce_argmax_for_every_scorer() {
     const TRIALS: u64 = 300;
     for (name, scorer, min_freq) in scorers() {
+        let mut merged = 0;
         for seed in 0..TRIALS {
             let mut rng = fastrand::Rng::with_seed(seed);
             let alphabet: &[u8] = [&b"ab"[..], b"abc", b"abcd"][(seed % 3) as usize];
-            let corpus = random_corpus(&mut rng, alphabet, 30, 10);
+            let corpus = if name.starts_with("mdl") {
+                // MDL stops once merges stop paying for their entry, which on i.i.d. letters is
+                // almost at once: build words from a few repeated chunks so there is structure.
+                let chunks: Vec<Vec<u8>> = (0..4).map(|_| random_corpus(&mut rng, alphabet, 1, 4)[0].0.clone()).collect();
+                let mut counts = std::collections::BTreeMap::new();
+                for _ in 0..30 {
+                    let word: Vec<u8> = (0..rng.usize(1..4)).flat_map(|_| chunks[rng.usize(0..4)].clone()).collect();
+                    *counts.entry(word).or_insert(0u64) += rng.u64(1..6) * 20;
+                }
+                counts.into_iter().collect()
+            } else {
+                random_corpus(&mut rng, alphabet, 30, 10)
+            };
             let target = 256 + 30;
 
             let model = BottomUpTrainer::new(scorer.as_ref(), target)
@@ -96,7 +113,9 @@ fn engine_matches_bruteforce_argmax_for_every_scorer() {
             for ((word, _), ref_seg) in words.zip(&ref_words) {
                 assert_eq!(&model.encode(word), ref_seg, "{name}: encode != training segmentation (seed {seed})");
             }
+            merged += model.merges.len();
         }
+        assert!(merged as u64 >= 3 * TRIALS, "{name}: only {merged} merges in {TRIALS} trials");
     }
 }
 
@@ -215,6 +234,154 @@ fn training_reaches_target_size_when_pairs_remain() {
             .with_min_frequency(min_freq)
             .train(&corpus)
             .unwrap();
+        if name.starts_with("mdl") {
+            // MDL stops once no merge shortens the description: exactly where brute force stops.
+            let (ref_merges, _) = reference_train(scorer.as_ref(), &corpus, 400, min_freq);
+            assert_eq!(model.merges, ref_merges, "{name}");
+            continue;
+        }
         assert_eq!(model.vocab.len(), 400, "{name} stopped early");
     }
+}
+
+fn pseudo_corpus(seed: u64, n_bytes: usize) -> Vec<(Vec<u8>, u64)> {
+    let mut counts = BTreeMap::new();
+    for seg in SuperBpeTrainer::segment_text(&common::pseudo_text(seed, n_bytes)) {
+        *counts.entry(seg).or_insert(0u64) += 1;
+    }
+    counts.into_iter().collect()
+}
+
+#[test]
+fn mdl_entry_cost_controls_where_training_stops() {
+    // Review finding: entry_cost 0 / 24 / 1e6 used to give identical vocabularies, because a
+    // constant offset never changes the argmax. With MDL stopping a costlier entry stops earlier,
+    // and since the order is unchanged each run is a prefix of the cheaper one.
+    let corpus = pseudo_corpus(7, 20_000);
+    let train = |cost: f64| BottomUpTrainer::new(&MdlScorer::new(cost, 1), 3000).train(&corpus).unwrap().merges;
+    let runs: Vec<Merges> = [0.0, 24.0, 500.0, 1e6].into_iter().map(train).collect();
+    let sizes: Vec<usize> = runs.iter().map(Vec::len).collect();
+    assert!(sizes[0] < 3000 - 256, "MDL must stop on its own before the cap: {sizes:?}");
+    assert!(sizes[0] > sizes[1] && sizes[1] > sizes[2] && sizes[2] > 0, "{sizes:?}");
+    assert_eq!(sizes[3], 0, "no merge pays for a 1e6-bit entry");
+    for w in runs.windows(2) {
+        assert_eq!(w[1][..], w[0][..w[1].len()], "entry cost must not reorder merges");
+    }
+}
+
+/// Brute-force two-stage SuperBPE: every step recounts pairs, token counts and N over the current
+/// merge units and merges the best `scorer.score`. Units are segments in stage 1 and whole lines
+/// in stage 2. Returns the merges, whether stage 2 started, and each line's final tokens.
+fn reference_super_bpe(
+    scorer: &dyn PairScorer,
+    lines: &[&str],
+    config: &SuperBpeConfig,
+    min_frequency: u64,
+) -> (Merges, bool, Vec<Vec<TokenId>>) {
+    let to_ids = |b: &[u8]| b.iter().map(|&x| x as TokenId).collect::<Vec<_>>();
+    let mut units: Vec<Vec<Vec<TokenId>>> = lines
+        .iter()
+        .map(|l| SuperBpeTrainer::segment_text(l).iter().map(|s| to_ids(s)).collect())
+        .collect();
+    let mut vocab = Vocabulary::new_byte_level();
+    let mut merges = Vec::new();
+    let mut stage2 = false;
+    while vocab.len() < config.v_final {
+        if !stage2 && vocab.len() >= config.v_switch {
+            stage2 = true;
+            units = units.into_iter().map(|segs| vec![segs.concat()]).collect();
+        }
+        let mut pairs: BTreeMap<Pair, u64> = BTreeMap::new();
+        let mut tokens: HashMap<TokenId, u64> = HashMap::new();
+        for seq in units.iter().flatten() {
+            for &t in seq {
+                *tokens.entry(t).or_default() += 1;
+            }
+            for w in seq.windows(2) {
+                *pairs.entry(Pair::new(w[0], w[1])).or_default() += 1;
+            }
+        }
+        let total = tokens.values().sum();
+        let best = pairs
+            .iter()
+            .filter(|&(_, &c)| c >= min_frequency.max(1))
+            .filter_map(|(&pair, &count)| {
+                let ctx = PairContext {
+                    freq_uv: count,
+                    freq_u: tokens[&pair.0],
+                    freq_v: tokens[&pair.1],
+                    total_tokens: total,
+                    active_vocab_size: vocab.len(),
+                    len_u: vocab.get_bytes(pair.0).unwrap().len(),
+                    len_v: vocab.get_bytes(pair.1).unwrap().len(),
+                };
+                let score = scorer.score(pair, &ctx);
+                score.is_finite().then_some(ScoredPair { score, pair, version: 0 })
+            })
+            .max();
+        let Some(best) = best else {
+            if stage2 {
+                break;
+            }
+            stage2 = true;
+            units = units.into_iter().map(|segs| vec![segs.concat()]).collect();
+            continue;
+        };
+        let (u, v) = (best.pair.0, best.pair.1);
+        let mut bytes = vocab.get_bytes(u).unwrap().to_vec();
+        bytes.extend_from_slice(vocab.get_bytes(v).unwrap());
+        let w = vocab.add_token(bytes);
+        merges.push((u, v, w));
+        for seq in units.iter_mut().flatten() {
+            *seq = apply_leftmost(seq, u, v, w);
+        }
+    }
+    (merges, stage2, units.into_iter().map(|segs| segs.concat()).collect())
+}
+
+#[test]
+fn super_bpe_matches_bruteforce_argmax_for_every_scorer() {
+    // Review finding: SuperBpeTrainer re-scored only pairs whose count changed, so marginal- or
+    // N-dependent scorers merged on stale scores. It now runs the exact BottomUpTrainer engine.
+    let mut cross_merges = 0;
+    for (name, scorer, min_freq) in scorers() {
+        for seed in 0..100u64 {
+            let mut rng = fastrand::Rng::with_seed(seed);
+            let alphabet: &[u8] = [&b"ab "[..], b"abc ", b"abcd  "][(seed % 3) as usize];
+            let texts: Vec<String> = (0..12)
+                .map(|_| (0..rng.usize(1..24)).map(|_| alphabet[rng.usize(0..alphabet.len())] as char).collect())
+                .collect();
+            let lines: Vec<&str> = texts.iter().map(String::as_str).collect();
+            let config = SuperBpeConfig::new(256 + 8, 256 + 25).unwrap();
+            let mut trainer = SuperBpeTrainer::new(config.clone(), scorer.as_ref());
+            trainer.min_frequency = min_freq;
+            let model = trainer.train(&lines).unwrap();
+            let (ref_merges, ref_stage2, ref_lines) = reference_super_bpe(scorer.as_ref(), &lines, &config, min_freq);
+
+            assert_eq!(model.merges, ref_merges, "{name}: merge sequence differs from brute force (seed {seed})");
+            assert_eq!(model.pretokenize, !ref_stage2, "{name} (seed {seed})");
+            for (line, ref_tokens) in lines.iter().zip(&ref_lines) {
+                assert_eq!(&model.encode(line.as_bytes()), ref_tokens, "{name}: encode != training (seed {seed})");
+            }
+            cross_merges += model.merges.iter().filter(|&&(_, _, w)| {
+                let b = model.vocab.get_bytes(w).unwrap();
+                b.contains(&b' ') && b.iter().any(|&c| c != b' ')
+            }).count();
+        }
+    }
+    assert!(cross_merges > 100, "stage 2 must learn cross-whitespace tokens: {cross_merges}");
+}
+
+#[test]
+fn super_bpe_wordpiece_regression_from_review() {
+    // Same repro as `wordpiece_regression_from_review`, through SuperBpeTrainer.
+    let mut lines = vec!["ab"; 10];
+    lines.extend(["ac"; 2]);
+    lines.extend(["de"; 3]);
+    lines.extend(["d"; 3]);
+    lines.extend(["e"; 3]);
+    let scorer = WordPieceScorer::new(1.0, 1);
+    let model = SuperBpeTrainer::new(SuperBpeConfig::new(258, 258).unwrap(), &scorer).train(&lines).unwrap();
+    let pairs: Vec<(u8, u8)> = model.merges.iter().map(|&(u, v, _)| (u as u8, v as u8)).collect();
+    assert_eq!(pairs, vec![(b'a', b'b'), (b'a', b'c')]);
 }
