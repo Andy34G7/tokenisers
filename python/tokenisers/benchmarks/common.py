@@ -333,11 +333,37 @@ def _cpu_model() -> str:
     return platform.processor() or platform.machine()
 
 
+# Tracked inputs of the native extension (tokenisers._core), which builds and runs every tokenizer.
+_NATIVE_SOURCES = (":(top)crates", ":(top)Cargo.toml", ":(top)Cargo.lock")
+
+
+def native_extension(in_checkout: bool) -> Optional[Dict[str, Any]]:
+    """File name, sha256 and build time of the loaded native extension. The extension is untracked
+    and only rebuilt by ``maturin develop``: after a pull or merge without a rebuild, old Rust code
+    runs under the new commit. In a source checkout ``stale_sources`` lists the tracked Rust
+    sources modified after the extension was written (git checkout/merge touch the files they
+    change); non-empty means the extension is stale or may be. None outside a checkout."""
+    try:
+        from tokenisers import _core
+    except ImportError:
+        return None
+    so = Path(_core.__file__)
+    built = so.stat().st_mtime
+    stale: Optional[List[str]] = None
+    if in_checkout:
+        top = Path(_git("rev-parse", "--show-toplevel") or ".")
+        files = (_git("ls-files", "--full-name", "--", *_NATIVE_SOURCES) or "").splitlines()
+        stale = [f for f in files if (top / f).is_file() and (top / f).stat().st_mtime > built]
+    return {"file": so.name, "sha256": hashlib.sha256(so.read_bytes()).hexdigest(),
+            "built_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(built)), "stale_sources": stale}
+
+
 def start_provenance(module: str, argv: Optional[Sequence[str]]) -> Dict[str, Any]:
-    """Command line, package version, and commit and dirty flag of the source checkout (None for an
-    installed copy, which no commit identifies). CLIs call this when they start: a run can take
-    hours, and the tree may change before its results are written. Dirty means modified tracked
-    code: result files and README.md (e.g. written by an earlier benchmark run) do not count."""
+    """Command line, package version, commit and dirty flag of the source checkout (None for an
+    installed copy, which no commit identifies), and the native extension that produces the
+    tokenizers. CLIs call this when they start: a run can take hours, and the tree may change
+    before its results are written. Dirty means modified tracked code: result files and README.md
+    (e.g. written by an earlier benchmark run) do not count."""
     in_checkout = _git("ls-files", "--error-unmatch", "--", Path(__file__).name) is not None
     status = _git("status", "--porcelain", "--untracked-files=no", "--", ":(top)",
                   ":(top,exclude)benchmarks/results", ":(top,exclude)README.md") if in_checkout else None
@@ -345,11 +371,17 @@ def start_provenance(module: str, argv: Optional[Sequence[str]]) -> Dict[str, An
         version: Optional[str] = importlib.metadata.version("tokenisers")
     except importlib.metadata.PackageNotFoundError:
         version = None
+    native = native_extension(in_checkout)
+    if native and native["stale_sources"]:
+        print(f"warning: the native extension {native['file']} is older than {len(native['stale_sources'])} "
+              f"Rust source file(s) (e.g. {native['stale_sources'][0]}): results may come from older code "
+              "than the recorded commit. Rebuild with `uv run maturin develop --release`.", file=sys.stderr)
     return {
         "command": ["python", "-m", module, *(sys.argv[1:] if argv is None else argv)],
         "tokenisers_version": version,
         "git_commit": _git("rev-parse", "HEAD") if in_checkout else None,
         "git_dirty": None if status is None else bool(status),
+        "native_extension": native,
     }
 
 
@@ -410,6 +442,7 @@ __all__ = [
     "start_provenance",
     "load_dataset",
     "load_morphology",
+    "native_extension",
     "run_metadata",
     "tokenizer_fingerprint",
     "train_suite",

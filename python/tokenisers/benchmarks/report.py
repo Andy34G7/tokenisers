@@ -19,6 +19,9 @@ def _mb(n: Any) -> str:
 def _summary(meta: Dict[str, Any]) -> str:
     data = "SYNTHETIC offline corpus" if meta.get("synthetic_data") else "real corpus"
     commit = (meta.get("git_commit") or "unknown")[:10] + (" (dirty)" if meta.get("git_dirty") else "")
+    stale = (meta.get("native_extension") or {}).get("stale_sources")
+    if stale:
+        commit += f" (STALE native extension: built before {len(stale)} Rust source file(s) changed)"
     if meta.get("tokenizer_path"):  # tokka --tokenizer-path: nothing was trained by this run
         parts = [f"{data}: external tokenizer `{Path(meta['tokenizer_path']).name}`, not trained by this run "
                  "(its training data is unknown and was not checked against the evaluation split)"]

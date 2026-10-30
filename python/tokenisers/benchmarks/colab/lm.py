@@ -201,6 +201,12 @@ class ByteBudgetTrainer:
         return history
 
 
+def _check_stride(stride: int, seq_len: int) -> None:
+    if not 1 <= stride <= seq_len:
+        raise ValueError(f"eval stride must be in 1..seq_len ({seq_len}), got {stride}: a larger stride "
+                         "leaves tokens between windows unscored")
+
+
 class BpbEvaluator:
     """Bits per byte: total NLL of the scored tokens in bits / UTF-8 bytes of those tokens."""
 
@@ -227,12 +233,13 @@ class BpbEvaluator:
         context (except near the start). The first token has no context and is excluded from both
         the NLL and the byte count. Bytes come from ``token_bytes`` when given, else the average
         ``utf8_bytes / len(token_ids)``. Fewer than two tokens (nothing to score) is an error, not
-        a BPB of 0.
+        a BPB of 0; so is a stride outside 1..seq_len (it would skip tokens between windows).
         """
         ids = np.asarray(token_ids, dtype=np.int64)
         if len(ids) < 2 or utf8_bytes <= 0:
             raise ValueError(f"validation text too short to score: {len(ids)} tokens, {utf8_bytes} bytes")
-        stride = stride or max(1, seq_len // 2)
+        stride = max(1, seq_len // 2) if stride is None else stride
+        _check_stride(stride, seq_len)
         device = next(model.parameters()).device
         model.eval()
 
@@ -311,6 +318,8 @@ def run_job(job_dir: str, device: Optional[str] = None, log=print) -> Dict[str, 
             short = [d for d in cfg["domains"] if len(arrays[f"val_{d}"]) < 2]
         if short:  # checked before any training: an empty domain would otherwise fail hours later
             raise ValueError(f"{name}: validation domain(s) {short} have fewer than 2 tokens")
+    if tr.get("eval_stride") is not None:  # likewise
+        _check_stride(tr["eval_stride"], tr["seq_len"])
     for name, tcfg in cfg["tokenizers"].items():
         arrays = np.load(job / f"{name}.npz")
         token_bytes = arrays["token_bytes"]

@@ -122,7 +122,7 @@ def main(argv: List[str] | None = None) -> None:
         lm = {"d_model": args.d_model, "n_layers": args.n_layers, "n_heads": args.n_heads,
               "d_ffn": args.d_ffn, "max_seq_len": args.seq_len}
         train_cfg = {"byte_budget": args.byte_budget, "seq_len": args.seq_len, "batch_size": args.batch_size,
-                     "lr": args.lr, "eval_stride": args.seq_len // 2}
+                     "lr": args.lr, "eval_stride": max(1, args.seq_len // 2)}
         write_json(job_dir / "config.json", {"lm": lm, "train": train_cfg, "seeds": args.seeds,
                                              "domains": list(DOMAINS), "tokenizers": tokenizers})
 
@@ -149,7 +149,7 @@ def main(argv: List[str] | None = None) -> None:
         seeds=args.seeds, val_domains=list(DOMAINS), lm_train_docs=len(lm_docs),
         lm_seconds=result["seconds"], morphology=morph_prov,
         variants_extra={DROPOUT_VARIANT: "bpe_frequency tokenizer; LM train ids encoded with BPE-dropout p=0.1, "
-                                         "validation ids deterministic"},
+                                         "validation ids deterministic"} if DROPOUT_VARIANT in tokenizers else {},
     )
     doc = {"meta": meta, "models": result["models"]}
     out = Path(args.output_dir)

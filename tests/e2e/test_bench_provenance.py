@@ -91,3 +91,39 @@ def test_dirty_flag_counts_code_not_results_or_readme(tmp_path, monkeypatch):
     assert common.start_provenance("m", [])["git_dirty"] is False
     files[0].write_text("v2")
     assert common.start_provenance("m", [])["git_dirty"] is True
+
+
+def test_native_extension_is_recorded_and_a_stale_build_is_flagged(tmp_path, monkeypatch, require_tokenisers):
+    """The untracked native extension produces every tokenizer. Results record its hash, and Rust
+    sources modified after it was built (a pull or merge without `maturin develop`) mark it stale,
+    in the JSON and in the leaderboard header, instead of crediting old code to the new commit."""
+    import hashlib
+
+    from tokenisers import _core
+    from tokenisers.benchmarks import common
+    from tokenisers.benchmarks.report import _summary
+
+    so = Path(_core.__file__)
+    repo = tmp_path / "repo"
+    pkg = repo / "python" / "tokenisers" / "benchmarks"
+    pkg.mkdir(parents=True)
+    (pkg / "common.py").write_text("x")
+    src = repo / "crates" / "core" / "lib.rs"
+    src.parent.mkdir(parents=True)
+    src.write_text("fn main() {}")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "init")
+    monkeypatch.setattr(common, "_HERE", pkg)
+
+    built = so.stat().st_mtime
+    os.utime(src, (built + 60, built + 60))  # checked out after the extension was built
+    prov = common.start_provenance("m", [])
+    native = prov["native_extension"]
+    assert native["file"] == so.name and native["sha256"] == hashlib.sha256(so.read_bytes()).hexdigest()
+    assert native["stale_sources"] == ["crates/core/lib.rs"]
+    assert "STALE native extension" in _summary(prov)
+
+    os.utime(src, (built - 60, built - 60))  # rebuilt since
+    prov = common.start_provenance("m", [])
+    assert prov["native_extension"]["stale_sources"] == [] and "STALE" not in _summary(prov)

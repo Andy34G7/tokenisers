@@ -126,7 +126,8 @@ is broken. The run checks `colab version` before it starts a session; upgrade wi
 `uv tool upgrade google-colab-cli`. The job is not one long `colab exec`: the benchmark uploads the
 job, starts it detached on the VM (output in `/content/job.log`) and polls it every
 `--poll-interval` seconds (default 60) with short `colab exec` calls. Polls that hang or lose the
-connection are retried (5 consecutive failures abort). `colab exec` exits 0 even when the remote
+connection are retried, and so are the uploads and the final download of `result.json` (5
+consecutive failures of a step abort the run). `colab exec` exits 0 even when the remote
 code raises, so success is read from the `status.json` the job writes last. A remote exception
 fails the run with the remote traceback; so does a job that dies without a status (log tail
 shown) or runs past `--timeout`. The session is always stopped.

@@ -91,12 +91,13 @@ def main(argv: List[str] | None = None) -> None:
         models = {Path(args.tokenizer_path).stem: _HfTokenizer(args.tokenizer_path)}
         records: Dict[str, Any] = {}
         duplicates: Dict[str, str] = {}
+        morph_prov = None
     else:
         train = ds.texts("train")
         assert_disjoint(train, [d["text"] for d in test_docs], "test")
-        lexicon = {}
-        if "morpheme_bpe" in args.variants:
-            lexicon, _, _ = load_morphology(args, train, DEFAULT_MORPH_LANGS)
+        lexicon, morph_prov = {}, None
+        if "morpheme_bpe" in args.variants:  # morpheme_bpe's lexicon: recorded like intrinsic/colab do
+            lexicon, _, morph_prov = load_morphology(args, train, DEFAULT_MORPH_LANGS)
         print(f"Training {len(args.variants)} tokenizers at V={args.vocab_size} on {len(train)} train docs")
         models, records = train_suite(args.variants, train, args.vocab_size, lexicon)
         duplicates = find_duplicates(models)
@@ -111,6 +112,7 @@ def main(argv: List[str] | None = None) -> None:
         macro_min_docs=args.min_docs_per_lang,
         macro_min_bytes=args.min_bytes_per_lang,
         tokenizer_path=args.tokenizer_path,
+        morphology=morph_prov,
         # an external tokenizer was neither trained here nor at --vocab-size
         **({"requested_vocab_size": None, "train_split": None} if args.tokenizer_path else {}),
     )

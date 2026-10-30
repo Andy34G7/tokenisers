@@ -84,6 +84,29 @@ def test_bpb_matches_full_context_when_window_covers_stream():
     assert res["loss_nats"] * 59 == pytest.approx(ref, rel=1e-5)
 
 
+@pytest.mark.parametrize("stride", [0, 17, 24, 40])
+def test_bpb_rejects_a_stride_that_would_skip_tokens(stride):
+    """A stride beyond seq_len leaves tokens between windows unscored (and used to sum the wrong
+    slice of each window while still counting every token as scored)."""
+    model = lm.ProxyLanguageModel(vocab_size=30, d_model=16, n_layers=1, n_heads=2, d_ffn=32, max_seq_len=16)
+    ids = np.random.default_rng(0).integers(0, 30, 200)
+    with pytest.raises(ValueError, match="eval stride must be in 1..seq_len"):
+        lm.BpbEvaluator().evaluate_validation_bpb(model, ids, 400, seq_len=16, stride=stride)
+    res = lm.BpbEvaluator().evaluate_validation_bpb(model, ids, 400, seq_len=16, stride=16)
+    assert res["scored_tokens"] == 199
+
+
+def test_run_job_rejects_a_bad_eval_stride_before_training(tmp_path, monkeypatch):
+    job = _job(tmp_path, seeds=(0,))
+    cfg = json.loads((job / "config.json").read_text())
+    cfg["train"]["eval_stride"] = 40  # seq_len is 16
+    (job / "config.json").write_text(json.dumps(cfg))
+    monkeypatch.setattr(lm.ByteBudgetTrainer, "train_on_token_stream",
+                        lambda *a, **k: pytest.fail("trained before checking the eval stride"))
+    with pytest.raises(ValueError, match="eval stride"):
+        colab.run_local(job)
+
+
 def _job(tmp_path: Path, seeds=(0, 1), val_code_len=80) -> Path:
     job = tmp_path / "job"
     job.mkdir(parents=True)
@@ -176,7 +199,9 @@ def _fake_colab(tmp_path: Path) -> Path:
     0.7.5 CLI, `exec` exits 0 when the executed code raises (the traceback is only printed).
     FAKE_COLAB_FAIL=<command> makes that command exit 1; FAKE_COLAB_VERSION sets `colab version`;
     FAKE_COLAB_DROP=n: the first n `exec` calls run the code but lose its output and exit 1
-    ("Connection was lost."); FAKE_COLAB_HANG=n: the first n `exec` calls hang before running it."""
+    ("Connection was lost."); FAKE_COLAB_HANG=n: the first n `exec` calls hang before running it;
+    FAKE_COLAB_UPLOAD_DROP=n / FAKE_COLAB_DOWNLOAD_DROP=n: the first n uploads / downloads lose the
+    connection and exit 1 without transferring anything."""
     fake = tmp_path / "colab"
     fake.write_text(f"""#!{sys.executable}
 import json, os, shutil, subprocess, sys, time
@@ -194,6 +219,9 @@ def take(kind):
     n = int(open(path).read()) if os.path.exists(path) else int(os.environ.get("FAKE_COLAB_" + kind.upper(), "0"))
     open(path, "w").write(str(max(0, n - 1)))
     return n > 0
+
+if args[0] in ("upload", "download") and take(args[0] + "_drop"):
+    sys.exit("RuntimeError: Connection was lost.")
 
 if args[0] == "version":
     print("Version: " + os.environ.get("FAKE_COLAB_VERSION", "0.7.5"))
@@ -256,6 +284,31 @@ def test_job_runs_detached_and_survives_dropped_and_hung_polls(tmp_path, monkeyp
     assert _calls(tmp_path).count("exec") >= 4  # 1 hung + 2 dropped + successful polls
     log = (tmp_path / "vm" / "content" / "job.log").read_text()
     assert log.count("tok seed=0") == 1, log  # retried launches did not start a second job
+
+
+def test_finished_job_survives_dropped_uploads_and_downloads(tmp_path, monkeypatch):
+    """A lost connection while downloading result.json used to discard a finished job (the session,
+    with the only copy, is stopped right after). Uploads and the download are retried like polls."""
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    monkeypatch.setenv("FAKE_COLAB_UPLOAD_DROP", "1")
+    monkeypatch.setenv("FAKE_COLAB_DOWNLOAD_DROP", "2")
+    res = colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(
+        _job(tmp_path, seeds=(0,)), poll_interval=0.01)
+    assert res["backend"]["kind"] == "colab" and "tok" in res["models"]
+    calls = _calls(tmp_path)
+    assert calls.count("download") == 3 and calls.count("upload") == 4 and calls[-1] == "stop"
+    log = (tmp_path / "vm" / "content" / "job.log").read_text()
+    assert log.count("tok seed=0") == 1, log  # the job ran once; only the transfer was retried
+
+
+def test_persistent_download_failure_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    monkeypatch.setenv("FAKE_COLAB_FAIL", "download")
+    with pytest.raises(colab.ColabError, match="`colab download` exited with 1.*simulated colab failure"):
+        colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(
+            _job(tmp_path, seeds=(0,)), poll_interval=0.01, max_poll_failures=3)
+    calls = _calls(tmp_path)
+    assert calls.count("download") == 3 and calls[-1] == "stop"
 
 
 def test_poll_failures_and_deadline_are_bounded(tmp_path, monkeypatch):
@@ -335,6 +388,7 @@ def test_cli_records_local_fallback_and_val_split(tmp_path, monkeypatch, cli_arg
     assert "simulated colab failure" in meta["fallback"]["error"]
     assert meta["eval_split"] == "val" and meta["seeds"] == [0, 1]
     assert set(doc["models"]) == {"bpe_frequency", "wp_bpe_base", "bpe_dropout_p0.1"}
+    assert set(meta["variants_extra"]) == {"bpe_dropout_p0.1"}
     md = (tmp_path / "out" / "extrinsic_bpb_leaderboard.md").read_text()
     assert "FALLBACK after Colab failed" in md and "±" in md
     assert _calls(tmp_path)[-1] == "stop"  # the session is released even though exec failed
@@ -343,3 +397,14 @@ def test_cli_records_local_fallback_and_val_split(tmp_path, monkeypatch, cli_arg
     m = doc["models"]["bpe_frequency"]
     assert sum(m["val_domains"][d]["bytes_per_token"] * (m["val_domains"][d]["scored_tokens"] + 1)
                for d in meta["val_domains"]) == pytest.approx(val_bytes)
+
+
+def test_dropout_variant_is_described_only_when_it_ran(tmp_path, cli_args, require_tokenisers):
+    """meta.variants_extra describes bpe_dropout_p0.1; without that model in the results (here
+    --no-dropout-variant) the provenance must not describe it."""
+    from tokenisers.benchmarks.colab.__main__ import main
+
+    main(cli_args + ["--local", "--no-dropout-variant"])
+    doc = json.loads((tmp_path / "out" / "extrinsic_bpb_results.json").read_text())
+    assert set(doc["models"]) == {"bpe_frequency", "wp_bpe_base"}
+    assert doc["meta"]["variants_extra"] == {}
