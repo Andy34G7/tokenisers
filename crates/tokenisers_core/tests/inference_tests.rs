@@ -214,6 +214,29 @@ fn kbest_samples_the_top_k_renormalised() {
 }
 
 #[test]
+fn kbest_draws_each_segment_from_its_own_top_k() {
+    // No token spans whitespace, so segments are independent and k-best runs per segment:
+    // "abc abc" with k = 3 has 3 x 3 outcomes, each weighted by the product of its segments.
+    let mut vocab = sampler_vocab();
+    vocab.push((b" ".to_vec(), 8, -1.0));
+    let trie = CompactTrie::build(&vocab);
+    let sampler = UnigramSampler::new(&trie);
+    let (k, temperature) = (3, 1.5);
+    let mut word = enumerate_segmentations(b"abc", &vocab);
+    word.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    let per_word = tempered(&word[..k], temperature);
+    let mut expected = HashMap::new();
+    for (left, p) in &per_word {
+        for (right, q) in &per_word {
+            expected.insert([left.as_slice(), &[8], right].concat(), p * q);
+        }
+    }
+    let samples: Vec<Vec<u32>> =
+        (0..40_000).map(|seed| sampler.sample_kbest(b"abc abc", k, temperature, Some(seed))).collect();
+    assert_frequencies_match("per-segment k-best", &samples, &expected);
+}
+
+#[test]
 fn sampler_lattice_never_crosses_whitespace_segments() {
     // "a b" with a token spanning the space: encode, FFBS and k-best must all ignore it.
     let vocab = vec![
