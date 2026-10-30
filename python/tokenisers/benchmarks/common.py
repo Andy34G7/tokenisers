@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -28,7 +29,9 @@ from tokenisers.data.pipeline import (
     SigmorphonLoader,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# git runs here. Only when this file is tracked by the enclosing repository is that repository the
+# source checkout of this code; an installed copy (a venv inside some other repository) is not.
+_HERE = Path(__file__).resolve().parent
 
 DEFAULT_VOCAB_SIZE = 16_384
 # 16k is the default; 32k and 64k are the other sizes the suite is meant to be run at.
@@ -314,7 +317,7 @@ def find_duplicates(models: Dict[str, Any]) -> Dict[str, str]:
 
 def _git(*args: str) -> Optional[str]:
     try:
-        out = subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, timeout=10)
+        out = subprocess.run(["git", *args], cwd=_HERE, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip() if out.returncode == 0 else None
@@ -331,12 +334,19 @@ def _cpu_model() -> str:
 
 
 def start_provenance(module: str, argv: Optional[Sequence[str]]) -> Dict[str, Any]:
-    """Command line, commit and dirty flag of the checkout. CLIs call this when they start: a run can
-    take hours, and the tree may change before its results are written."""
-    status = _git("status", "--porcelain", "--untracked-files=no")
+    """Command line, package version, and commit and dirty flag of the source checkout (None for an
+    installed copy, which no commit identifies). CLIs call this when they start: a run can take
+    hours, and the tree may change before its results are written."""
+    in_checkout = _git("ls-files", "--error-unmatch", "--", Path(__file__).name) is not None
+    status = _git("status", "--porcelain", "--untracked-files=no") if in_checkout else None
+    try:
+        version: Optional[str] = importlib.metadata.version("tokenisers")
+    except importlib.metadata.PackageNotFoundError:
+        version = None
     return {
         "command": ["python", "-m", module, *(sys.argv[1:] if argv is None else argv)],
-        "git_commit": _git("rev-parse", "HEAD"),
+        "tokenisers_version": version,
+        "git_commit": _git("rev-parse", "HEAD") if in_checkout else None,
         "git_dirty": None if status is None else bool(status),
     }
 

@@ -8,6 +8,7 @@ byte-identical to another (``meta["duplicates"]``) share one row.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 
@@ -18,10 +19,15 @@ def _mb(n: Any) -> str:
 def _summary(meta: Dict[str, Any]) -> str:
     data = "SYNTHETIC offline corpus" if meta.get("synthetic_data") else "real corpus"
     commit = (meta.get("git_commit") or "unknown")[:10] + (" (dirty)" if meta.get("git_dirty") else "")
-    parts = [
-        f"requested V = {meta.get('requested_vocab_size', '?')}",
-        f"{data}: tokenizers trained on the train split ({_mb(meta.get('train_bytes'))})",
-        f"evaluated on the held-out {meta.get('eval_split', '?')} split ({_mb(meta.get('eval_bytes'))})",
+    if meta.get("tokenizer_path"):  # tokka --tokenizer-path: nothing was trained by this run
+        parts = [f"{data}: external tokenizer `{Path(meta['tokenizer_path']).name}`, not trained by this run "
+                 "(its training data is unknown and was not checked against the evaluation split)"]
+    else:
+        parts = [f"requested V = {meta.get('requested_vocab_size', '?')}",
+                 f"{data}: tokenizers trained on the train split ({_mb(meta.get('train_bytes'))})"]
+    parts += [
+        f"evaluated on the {'' if meta.get('tokenizer_path') else 'held-out '}{meta.get('eval_split', '?')} "
+        f"split ({_mb(meta.get('eval_bytes'))})",
         f"commit `{commit}`",
         f"generated {meta.get('created_utc', '?')}",
     ]
@@ -38,6 +44,7 @@ def _table(
     doc: Dict[str, Any],
     columns: Sequence[Tuple[str, Callable[[Dict[str, Any]], str]]],
     sort_key: Callable[[Dict[str, Any]], float],
+    note: bool = True,
 ) -> List[str]:
     dups = doc["meta"].get("duplicates", {})
     rows = sorted(((n, m) for n, m in doc["models"].items() if n not in dups), key=lambda kv: sort_key(kv[1]))
@@ -47,7 +54,7 @@ def _table(
     ]
     for name, m in rows:
         lines.append(f"| {_label(name, dups)} | " + " | ".join(f(m) for _, f in columns) + " |")
-    if dups:
+    if dups and note:
         lines.append("")
         lines.append("Variants joined with `=` produced byte-identical tokenizers and are one result.")
     return lines
@@ -82,6 +89,11 @@ def render_tokka(doc: Dict[str, Any]) -> str:
     return "\n".join(head + _table(doc, cols, lambda m: -m["macro_avg"]["bytes_per_token"]) + sizes)
 
 
+def _f3(x: Any) -> str:
+    """Three decimals; "n/a" for an undefined score (nothing was scored), never a fake 0.000."""
+    return "n/a" if x is None else f"{x:.3f}"
+
+
 def render_intrinsic(doc: Dict[str, Any]) -> str:
     meta = doc["meta"]
     cols = [
@@ -90,23 +102,31 @@ def render_intrinsic(doc: Dict[str, Any]) -> str:
         ("Fertility (↓)", lambda m: f"{m['fertility']:.3f}"),
         ("Rényi E1", lambda m: f"{m['renyi_e_1_0']:.3f}"),
         ("Rényi E2.5", lambda m: f"{m['renyi_e_2_5']:.3f}"),
-        ("Morph F1 (↑)", lambda m: f"{m['morph_f1']:.3f}"),
-        ("Ident F1 (↑)", lambda m: f"{m['identifier_f1']:.3f}"),
+        ("Morph F1 (↑)", lambda m: _f3(m["morph_f1"])),
+        ("Ident F1 (↑)", lambda m: _f3(m["identifier_f1"])),
         ("Encode MB/s", lambda m: f"{m['encode_mb_per_sec']:.2f}"),
         ("Decode MB/s", lambda m: f"{m['decode_mb_per_sec']:.2f}"),
     ]
     first = next(iter(doc["models"].values()), {})
-    morph = meta.get("morphology", {})
+    morph = meta.get("morphology") or {}
+    words = first.get("morph_words_by_lang", {})
     head = [
         _summary(meta),
-        f"- morph F1: {morph.get('gold_entries', first.get('morph_words', '?'))} gold words "
-        f"({morph.get('gold_source', 'SIGMORPHON 2022 test split')}); identifier F1: "
+        f"- morph F1: per-word boundary F1 on {first.get('morph_words', '?')} gold words "
+        f"({morph.get('gold_source', 'SIGMORPHON 2022 test split')}), averaged per language, then over the "
+        f"{len(words) or '?'} languages unweighted (per language below); identifier F1: "
         f"{first.get('identifiers', '?')} identifiers mined from held-out code; throughput: median of "
         f"{first.get('throughput_repeats', '?')} passes over {_mb(first.get('throughput_bytes'))} "
         f"({first.get('throughput_docs', '?')} documents, one encode call each) on {meta.get('host', {}).get('cpu', '?')}",
         "",
     ]
-    return "\n".join(head + _table(doc, cols, lambda m: -m["renyi_e_2_5"]))
+    lines = head + _table(doc, cols, lambda m: -m["renyi_e_2_5"])
+    if words:
+        by_lang = [(f"{lang} ({n:,} words)", (lambda lang: lambda m: _f3(m["morph_f1_by_lang"][lang]))(lang))
+                   for lang, n in words.items()]
+        by_lang.append(("Word-weighted", lambda m: _f3(m["morph_f1_word_weighted"])))
+        lines += ["", "Morph F1 by language:", "", *_table(doc, by_lang, lambda m: -m["renyi_e_2_5"], note=False)]
+    return "\n".join(lines)
 
 
 def _pm(mean: float, sd: Any) -> str:
