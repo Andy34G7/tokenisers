@@ -4,7 +4,8 @@ UTF-8 byte budget and scored by validation bits per byte (BPB).
 
 The model, trainer, evaluator and job runner live in ``colab/lm.py``, which is imported locally
 and uploaded unchanged to Colab, so local and remote runs share one implementation.
-``ColabOrchestrator`` runs a job directory on a Colab VM through the ``colab`` CLI (>= 0.7.5).
+``ColabOrchestrator`` runs a job directory on a Colab VM through the ``colab`` CLI (>= 0.7.5); the
+job script is ``lm.py`` here and ``benchmarks/throughput.py`` for the throughput benchmark.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 import uuid
 
 from tokenisers.benchmarks.colab.lm import (
@@ -38,8 +39,9 @@ EXEC_TIMEOUT = 300.0
 
 # Run in the Colab kernel on every poll (``colab exec`` exits 0 even when the code raises, so the
 # state is read from the STATUS_MARKER line, never from the exit code). Idempotent: the first call
-# launches ``python lm.py`` detached (own session, output in job.log, pid in job.pid) and returns at
-# once; later calls report "running", or the final status.json that lm.main writes ("ok"/"error"),
+# launches the job script (``python lm.py <dir>``) detached (own session, output in job.log, pid in
+# job.pid) and returns at once; later calls report "running", or the final status.json that the
+# script's ``main`` writes ("ok"/"error"),
 # or "died" when the process is gone without one. A poll lost to a dropped connection is retried.
 CONTROL_SCRIPT = """\
 import json, os, subprocess, sys
@@ -55,7 +57,7 @@ def alive(pid):
 
 if not os.path.exists(pid_path):
     with open(log_path, "ab") as log:
-        p = subprocess.Popen([sys.executable, "-u", os.path.join(d, "lm.py"), d], cwd=d, stdin=subprocess.DEVNULL,
+        p = subprocess.Popen([sys.executable, "-u", os.path.join(d, {script!r}), d], cwd=d, stdin=subprocess.DEVNULL,
                              stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     with open(pid_path, "w") as f:
         f.write(str(p.pid))
@@ -63,7 +65,7 @@ if not os.path.exists(pid_path):
 else:
     with open(pid_path) as f:
         pid = int(f.read())
-    running = alive(pid)  # before reading the status: lm.py writes status.json, then exits
+    running = alive(pid)  # before reading the status: the script writes status.json, then exits
     if os.path.exists(status_path):
         with open(status_path) as f:
             out = json.load(f)
@@ -90,7 +92,7 @@ class ColabSession:
 
 
 class ColabOrchestrator:
-    """Runs proxy-LM jobs on Google Colab via the ``colab`` CLI. ``mock=True`` never calls the CLI."""
+    """Runs benchmark jobs on Google Colab via the ``colab`` CLI. ``mock=True`` never calls the CLI."""
 
     def __init__(self, mock: bool = False, colab_bin: Optional[str] = None) -> None:
         self.mock = mock
@@ -189,11 +191,14 @@ class ColabOrchestrator:
         timeout: float = 6 * 3600,
         poll_interval: float = 60.0,
         max_poll_failures: int = 5,
+        script: Optional[Path] = None,
+        files: Optional[Sequence[Path]] = None,
     ) -> Dict[str, Any]:
         """
-        Checks the CLI version, uploads ``lm.py`` and the job files, starts ``lm.py`` detached on
-        the VM and polls it every ``poll_interval`` s with short ``colab exec`` calls (no exec stays
-        open for the whole job), then downloads result.json and returns it with
+        Checks the CLI version, uploads ``script`` and the job ``files`` (default: ``lm.py`` and the
+        proxy-LM job's config.json and *.npz), starts ``python script <dir>`` detached on the VM
+        (``gpu=None``: a CPU runtime) and polls it every ``poll_interval`` s with short ``colab exec``
+        calls (no exec stays open for the whole job), then downloads result.json and returns it with
         ``backend.kind = "colab"``. Polls, uploads and the download are each retried until
         ``max_poll_failures`` consecutive calls failed. A remote exception, a job that dies or runs
         past ``timeout``, or a CLI step that keeps failing raises ColabError (with the remote
@@ -202,15 +207,19 @@ class ColabOrchestrator:
         job_dir = Path(job_dir)
         if not self.mock:
             self.check_cli_version()
-        name = f"tokenisers-bpb-{uuid.uuid4().hex[:8]}"
-        files: List[Path] = [LM_SOURCE, job_dir / "config.json", *sorted(job_dir.glob("*.npz"))]
+        script = Path(script or LM_SOURCE)
+        name = f"tokenisers-{script.stem}-{uuid.uuid4().hex[:8]}"
+        if files is None:
+            files = [job_dir / "config.json", *sorted(job_dir.glob("*.npz"))]
+        uploads: List[Path] = [script, *map(Path, files)]
         control = job_dir / "control.py"
-        control.write_text(CONTROL_SCRIPT.format(remote_dir=REMOTE_DIR, marker=STATUS_MARKER), encoding="utf-8")
+        control.write_text(CONTROL_SCRIPT.format(remote_dir=REMOTE_DIR, marker=STATUS_MARKER, script=script.name),
+                           encoding="utf-8")
         local_result = job_dir / "result.json"
         local_result.unlink(missing_ok=True)
         with self.managed_session(name, gpu):
             retry = {"attempts": max_poll_failures, "delay": poll_interval}
-            for f in files:
+            for f in uploads:
                 self._colab_retry("upload", "-s", name, str(f), f"{REMOTE_DIR}/{f.name}", timeout=3600, **retry)
             status = self._wait(name, control, timeout, poll_interval, max_poll_failures)
             if status["state"] != "ok":

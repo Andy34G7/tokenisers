@@ -194,7 +194,7 @@ budget and 3 seeds. Tokenizer training and every other step ran locally on an In
 (4.2 GiB) exceeded the 3.0 GiB it then allowed, so they ran inside a hard 4 GiB cgroup limit
 (`systemd-run -p MemoryMax=4G`) instead, above the measured 2.9 GiB peak. Each section's header
 lists the exact arguments, data sizes, backend and commit. Known limitations are listed after
-section 4.
+section 5.
 
 ### 1. Tokka-Bench (natural languages + code, held-out test split)
 <!-- BEGIN GENERATED: tokka -->
@@ -496,6 +496,38 @@ Morph F1 by language:
 <!-- END GENERATED: intrinsic_v65536 -->
 
 </details>
+
+### 5. Throughput Re-measured (Colab CPU and a pinned laptop core)
+
+The MB/s columns of sections 2 and 4 come from the full suite runs on the shared laptop. Here the
+same tokenizers (all 13 variants at the three sizes, retrained with the same code, data and
+parameters) are timed again with the same `IntrinsicEvaluator.benchmark_throughput` on the same
+held-out documents, in two full passes over all tokenizers so the run-to-run spread is measured.
+Each tokenizer is saved, reloaded on the measuring machine and must produce token ids identical
+(sha256) to the original on every document before it is timed.
+
+```bash
+# Train, save and verify all tokenizers once into a job directory, then time them.
+uv run python -m tokenisers.benchmarks.throughput --job-dir /tmp/tp --prepare-only
+uv run python -m tokenisers.benchmarks.throughput --job-dir /tmp/tp --colab   # Colab CPU runtime
+taskset -c 3 uv run python -m tokenisers.benchmarks.throughput --job-dir /tmp/tp  # one laptop core
+```
+
+`--colab` creates a CPU runtime (no accelerator), uploads the saved tokenizers, the documents and
+`git archive HEAD` (so it refuses uncommitted code changes), builds and installs the native
+extension on the VM, and runs the job there detached, polled like the proxy-LM job.
+
+**Colab CPU runtime:**
+
+<!-- BEGIN GENERATED: throughput_colab -->
+_No results committed (`benchmarks/results/throughput/colab_cpu/throughput.json` is missing). Run `uv run python -m tokenisers.benchmarks.throughput --job-dir DIR --colab`, then `uv run python scripts/gen_readme_tables.py`._
+<!-- END GENERATED: throughput_colab -->
+
+**Laptop, pinned to one performance core (re-run):**
+
+<!-- BEGIN GENERATED: throughput_local -->
+_No results committed (`benchmarks/results/throughput/local/throughput.json` is missing). Run `uv run python -m tokenisers.benchmarks.throughput --job-dir DIR`, then `uv run python scripts/gen_readme_tables.py`._
+<!-- END GENERATED: throughput_local -->
 
 ### Known limitations
 

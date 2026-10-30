@@ -8,7 +8,9 @@ byte-identical to another (``meta["duplicates"]``) share one row.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
+import statistics
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 
@@ -166,4 +168,61 @@ def render_colab(doc: Dict[str, Any]) -> str:
     return "\n".join(head + _table(doc, cols, lambda m: m["macro_val_bpb"]))
 
 
-__all__ = ["render_tokka", "render_intrinsic", "render_colab"]
+def _gib(n: Any) -> str:
+    return f"{n / 2**30:.1f} GiB" if isinstance(n, (int, float)) else "?"
+
+
+def render_throughput(doc: Dict[str, Any]) -> str:
+    """Throughput re-measurement (``tokenisers.benchmarks.throughput``): every pass per cell, the
+    run-to-run spread (max/min over the passes) and the load during each pass."""
+    meta = doc["meta"]
+    b = meta.get("backend", {})
+    prep = meta.get("prepared", {})
+    cpus = b.get("affinity") or []
+    if b.get("kind") == "colab":
+        where = (f"Colab CPU runtime (no accelerator requested), session `{b.get('session', '?')}`; "
+                 f"{len(cpus)} vCPUs ({b.get('lscpu', {}).get('Hypervisor vendor', '?')} VM)")
+    else:
+        pin = ", ".join(f"CPU {c['cpu']} (max {c['max_mhz']} MHz, governor {c['governor']}, "
+                        f"SMT sibling(s) {c['thread_siblings']})" for c in cpus)
+        where = (f"local, pinned to {pin}" if len(cpus) == 1 else f"local, {len(cpus)} CPUs")
+    build = b.get("build")
+    built = (f"; extension built on the VM from commit `{(meta.get('git_commit') or '?')[:10]}` "
+             f"({build.get('rustc')}, {build.get('seconds')} s)") if build else ""
+    commit = (meta.get("git_commit") or "unknown")[:10] + (" (dirty)" if meta.get("git_dirty") else "")
+    ds = prep.get("dataset", {})
+    n_tok = sum(len(v) for v in doc["models"].values())
+    passes = meta.get("passes", 0)
+    spread = {}
+    for key in ("encode_mb_per_sec", "decode_mb_per_sec"):
+        ratios = sorted(max(m[key]) / min(m[key]) for v in doc["models"].values() for m in v.values())
+        spread[key] = (statistics.median(ratios), ratios[-1]) if ratios else (math.nan, math.nan)
+    load = "; ".join(f"run {i + 1}: {p['before']['loadavg'][0]:.2f} -> {p['after']['loadavg'][0]:.2f}, "
+                     f"{_gib(p['before']['mem_available'])} -> {_gib(p['after']['mem_available'])} "
+                     f"({p['seconds']:.0f} s)" for i, p in enumerate(meta.get("pass_load", [])))
+    head = [
+        f"- {where}: {b.get('cpu', '?')}, {_gib(b.get('mem_total'))} RAM, Python {b.get('python', '?')}, "
+        f"{b.get('libc', '?')}{built}; commit `{commit}`; generated {meta.get('created_utc', '?')}",
+        f"- {n_tok} tokenizers: the suite's variants at V = {', '.join(map(str, meta.get('vocab_sizes', [])))}, "
+        f"retrained from the {'SYNTHETIC offline' if prep.get('synthetic_data') else 'real'} train split "
+        f"({_mb(prep.get('train_bytes'))}, dataset `{ds.get('root', '?')}`), saved, reloaded on the measuring "
+        "machine and checked there: identical token ids (sha256) on every throughput document",
+        f"- {prep.get('throughput_docs', '?')} documents, {_mb(prep.get('throughput_bytes'))}, one encode/decode "
+        f"call per document; each cell is the median of {meta.get('repeats', '?')} timed passes after "
+        f"{meta.get('warmup', '?')} warm-up (`IntrinsicEvaluator.benchmark_throughput`), measured in {passes} "
+        f"full runs over all {n_tok} tokenizers: run 1 / run 2" + (" / ..." if passes > 2 else ""),
+        f"- run-to-run spread (max/min over the runs, per tokenizer): encode median "
+        f"{spread['encode_mb_per_sec'][0]:.2f}x, max {spread['encode_mb_per_sec'][1]:.2f}x; decode median "
+        f"{spread['decode_mb_per_sec'][0]:.2f}x, max {spread['decode_mb_per_sec'][1]:.2f}x",
+        f"- 1-min load average and MemAvailable before -> after each run: {load}",
+        "",
+        "| Tokenizer | \\|V\\| | Encode MB/s | Decode MB/s |",
+        "| :--- | ---: | ---: | ---: |",
+    ]
+    rows = [f"| `{name}` | {m['vocab_size']} | " + " | ".join(
+        " / ".join(f"{x:.2f}" for x in m[key]) for key in ("encode_mb_per_sec", "decode_mb_per_sec")) + " |"
+        for v in doc["models"].values() for name, m in v.items()]
+    return "\n".join(head + rows)
+
+
+__all__ = ["render_tokka", "render_intrinsic", "render_colab", "render_throughput"]

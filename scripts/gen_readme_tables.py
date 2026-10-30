@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 from typing import List, Optional
 
-from tokenisers.benchmarks.report import render_colab, render_intrinsic, render_tokka
+from tokenisers.benchmarks.report import render_colab, render_intrinsic, render_throughput, render_tokka
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,6 +31,10 @@ for _v in (32768, 65536):
     SECTIONS[f"intrinsic_v{_v}"] = (f"benchmarks/results/v{_v}/intrinsic/intrinsic_leaderboard.json", render_intrinsic,
                                     f"tokenisers.benchmarks.intrinsic --vocab-size {_v} "
                                     f"--output-dir benchmarks/results/v{_v}/intrinsic")
+SECTIONS["throughput_colab"] = ("benchmarks/results/throughput/colab_cpu/throughput.json", render_throughput,
+                                "tokenisers.benchmarks.throughput --job-dir DIR --colab")
+SECTIONS["throughput_local"] = ("benchmarks/results/throughput/local/throughput.json", render_throughput,
+                                "tokenisers.benchmarks.throughput --job-dir DIR")
 
 
 def render_readme(text: str, root: Path = ROOT) -> str:
