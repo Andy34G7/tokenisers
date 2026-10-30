@@ -21,12 +21,14 @@ fn assert_segment_then_byte_level(pre: &serde_json::Value) {
 
 #[test]
 fn test_hf_bpe_export_json_schema() {
-    let corpus = vec![
-        (b"the quick brown fox jumps over the lazy dog".to_vec(), 50),
-        (b"the lazy dog slept while the quick fox ran".to_vec(), 40),
-    ];
+    // Word counts as the Python binding builds them: one `segment_text` segment per word.
+    let corpus: Vec<(Vec<u8>, u64)> = ["the", " ", "quick", "brown", "fox", "lazy", "dog"]
+        .iter()
+        .map(|w| (w.as_bytes().to_vec(), 50))
+        .collect();
     let scorer = BpeScorer::new();
     let model = BottomUpTrainer::new(&scorer, 270).train(&corpus).unwrap();
+    assert!(model.pretokenize);
 
     let hf_json = HfTokenizerJson::from_bpe_model(&model, Some(0.1));
     let json_str = hf_json.to_json_string().expect("Failed to serialize to JSON");
@@ -154,9 +156,22 @@ fn super_bpe_export_encodes_whole_text() {
     // A loader recovers the encoding mode from the file.
     let reparsed: HfTokenizerJson = serde_json::from_str(&exported).unwrap();
     assert!(!reparsed.pretokenize());
-    let plain = BottomUpTrainer::new(&scorer, 270).train(&[(b"ab ab".to_vec(), 3)]).unwrap();
+    let plain = BottomUpTrainer::new(&scorer, 270).train(&[(b"ab".to_vec(), 3)]).unwrap();
     let plain_json = HfTokenizerJson::from_bpe_model(&plain, None).to_json_string().unwrap();
     assert!(serde_json::from_str::<HfTokenizerJson>(&plain_json).unwrap().pretokenize());
+}
+
+#[test]
+fn bpe_trained_on_multi_segment_words_exports_whole_text() {
+    // Training words that span whitespace can teach merges like ("b", " "); pre-splitting would
+    // make them unreachable, so such a model encodes and exports whole text.
+    let scorer = BpeScorer::new();
+    let model = BottomUpTrainer::new(&scorer, 258).train(&[(b"ab ab".to_vec(), 3)]).unwrap();
+    assert!(!model.pretokenize);
+    let json = HfTokenizerJson::from_bpe_model(&model, None).to_json_string().unwrap();
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["pre_tokenizer"]["type"], "ByteLevel");
+    assert_eq!(v["pre_tokenizer"]["use_regex"], false);
 }
 
 #[test]

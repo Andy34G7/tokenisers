@@ -139,11 +139,6 @@ def test_hf_splits_special_tokens_then_applies_bpe(tmp_path):
         assert hf.encode(t, add_special_tokens=False).ids == _split_specials_then_encode(model, t), t
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="needs native special-token splitting in the core encoder (C10, rust-merge branch); "
-    "remove this marker once that is merged",
-)
 def test_native_special_token_encoding_equals_hf(tmp_path):
     model, hf = _special_model(tmp_path)
     for t in SPECIAL_TEXTS:

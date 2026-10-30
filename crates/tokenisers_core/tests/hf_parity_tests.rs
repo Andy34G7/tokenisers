@@ -244,6 +244,8 @@ fn export_keeps_merges_inside_unicode_whitespace_segments() {
     // BPE over the unsplit text would emit token 256 = (AD, E3) straddling U+3000. Native
     // `BottomUpModel::encode` must pre-split the same way when `model.pretokenize` is set.
     assert_eq!(per_segment, s.bytes().map(TokenId::from).collect::<Vec<_>>());
+    assert!(model.pretokenize);
+    assert_eq!(model.encode(s.as_bytes()), per_segment);
     let tok = hf(&HfTokenizerJson::from_bpe_model(&model, None));
     assert_eq!(hf_ids(&tok, s), per_segment);
 }
