@@ -210,7 +210,10 @@ def test_cross_origin_post_rejected(dashboard_server: str) -> None:
     assert status == 200
 
 
-@pytest.mark.parametrize("body", [b"abc", b"[1, 2]", b'"text"', b"\xff\xfe"])
+# The last body nests 30000 arrays (60 KB, under MAX_BODY_BYTES): json.loads raises RecursionError.
+@pytest.mark.parametrize(
+    "body", [b"abc", b"[1, 2]", b'"text"', b"\xff\xfe", pytest.param(b"[" * 30000 + b"]" * 30000, id="deep-nesting")]
+)
 def test_malformed_json_is_400(dashboard_server: str, body: bytes) -> None:
     status, _, payload = _post_json(dashboard_server, body)
     assert status == 400
@@ -278,3 +281,38 @@ def test_tokenizer_cache_is_bounded_lru(monkeypatch) -> None:
         assert cache.get_tokenizers(v) == {"v": v}
     assert list(cache._cache) == [320, 310]
     assert trained == [300, 310, 320, 310]  # 310 was evicted by 320, 300 reused once
+
+
+# (fragment the formula must show, fragment it must not) per scorer, from the Rust scorers.
+FORMULA_FACTS = {
+    "wordpiece_pmi": ([r"(\mathrm{count}(u) + \alpha)", r"\alpha = 1"], []),          # Laplace-smoothed
+    "wp_bpe_base": ([r"{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}"], [r"\alpha", r"\theta"]),
+    "wp_bpe_ft": ([r"{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}", r"\theta = 2"], [r"\alpha"]),  # ratio + cutoff
+    "wp_bpe_scp": ([r"(\mathrm{freq}(uv) - d)_+", r"\sqrt{\mathrm{freq}(u)\,\mathrm{freq}(v)}"], ["P(uv)^2"]),
+    "wp_bpe_npmi": ([r"\mathrm{freq}(uv)^{\alpha}", r"-\ln P(uv)"], [r"\in [-1, +1]"]),
+    "wp_bpe_ppig": ([r"\max(0, \mathrm{PMI}(u, v))", r"(|u| + |v|)^{\eta}"], [r"\mathcal{H}"]),
+    "mdl_bits": ([r"8\,|uv|", r"N \log_2 N"], [r"+ \Delta L"]),
+    "length_penalized": ([r"{(|u| + |v|)^\beta}"], []),
+    "morpheme_bpe": ([r"e^{\lambda M(u, v)}", r"n_{\mathrm{intra}} - n_{\mathrm{cross}}"], [r"1 + \lambda"]),
+}
+
+
+@pytest.mark.parametrize("name", sorted(FORMULA_FACTS))
+def test_formula_matches_implemented_scorer(name: str) -> None:
+    formula = server_mod.ALGORITHM_METADATA[name]["formula"]
+    must, must_not = FORMULA_FACTS[name]
+    for fragment in must:
+        assert fragment in formula, (name, fragment)
+    for fragment in must_not:
+        assert fragment not in formula, (name, fragment)
+
+
+def test_static_page_formulas_are_the_api_formulas() -> None:
+    """index.html's hard-coded formulas must be copies of ALGORITHM_METADATA (one source of truth)."""
+    import re
+
+    html = (server_mod.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    shown = re.findall(r"\$\$(.+?)\$\$", html)
+    assert len(shown) >= 6
+    known = {m["formula"] for m in server_mod.ALGORITHM_METADATA.values()}
+    assert [f for f in shown if f not in known] == []

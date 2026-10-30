@@ -665,34 +665,34 @@
             <li>
               <div class="step-title">WP-BPE Base — uncalibrated PMI <span class="status" style="--sc: var(--bad)">Vulnerable</span></div>
               <div class="formula">$$\mathrm{score}(u, v) = \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$</div>
-              <p class="step-body">If $u$ and $v$ co-occur exactly once, the joint probability is $1/N$ and the denominator $(1/N)^2$, giving score $N$. This singleton bias merges rare noise before frequent morphemes.</p>
+              <p class="step-body">The score is at most $1/\max(\mathrm{freq}(u), \mathrm{freq}(v))$, and a pair seen once whose parts occur nowhere else reaches the maximum, 1. This singleton bias merges rare noise before frequent morphemes.</p>
             </li>
             <li>
               <div class="step-title">WP-BPE FT — frequency-thresholded PMI <span class="status" style="--sc: var(--good)">Calibrated</span></div>
-              <div class="formula">$$\mathrm{score}(u, v) = \begin{cases} \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u)^\alpha \cdot \mathrm{freq}(v)^\alpha} & \text{if } \mathrm{freq}(uv) \ge \theta \\ -\infty & \text{otherwise} \end{cases}$$</div>
-              <p class="step-body">A hard frequency cutoff ($\theta \ge 2$) and alpha-smoothing ($0.75 \le \alpha \le 1.0$) suppress low-support singletons, giving high morphological boundary precision.</p>
+              <div class="formula">$$\mathrm{score}(u, v) = \begin{cases} \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)} & \text{if } \mathrm{freq}(uv) \ge \theta \\ -\infty & \text{otherwise} \end{cases}, \quad \theta = 2$$</div>
+              <p class="step-body">A hard frequency cutoff ($\theta = 2$) keeps singleton pairs out of the merge queue; above it the score is the Base ratio.</p>
             </li>
             <li>
-              <div class="step-title">WP-BPE PIG — pointwise information gain <span class="status" style="--sc: var(--accent)">Best LM quality</span></div>
+              <div class="step-title">WP-BPE PIG — pointwise information gain <span class="status" style="--sc: var(--accent)">Frequency-weighted</span></div>
               <div class="formula">$$\mathrm{score}(u, v) = \mathrm{freq}(uv) \cdot \log_2 \frac{\mathrm{freq}(uv) \cdot N}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)}$$</div>
-              <p class="step-body">Weights PMI by candidate frequency, measuring net bits saved across the corpus. Leads the WP-BPE family on downstream proxy-LM BPB.</p>
+              <p class="step-body">Weights PMI by candidate frequency: the pair's total pointwise information across the corpus.</p>
             </li>
             <li>
               <div class="step-title">Gen 2 — SCP, NPMI and penalised PIG <span class="tag">Gen 2</span></div>
               <div class="sub-formula">
                 <b>Symmetric conditional probability</b>
-                <div class="formula">$$\mathrm{SCP}(u, v) = \frac{P(uv)^2}{P(u)P(v)} = P(u \mid v) \cdot P(v \mid u)$$</div>
-                <p class="step-body">Removes directional affix bias in agglutinative words.</p>
+                <div class="formula">$$\mathrm{score}(u, v) = \frac{(\mathrm{freq}(uv) - d)_+}{\sqrt{\mathrm{freq}(u)\,\mathrm{freq}(v)}}, \quad d = 0.75$$</div>
+                <p class="step-body">Symmetric in $u$ and $v$ and bounded in $[0, 1)$; with $d = 0$ it is $\sqrt{P(u \mid v)\,P(v \mid u)}$. The discount demotes low-count pairs.</p>
               </div>
               <div class="sub-formula">
                 <b>Normalised PMI</b>
-                <div class="formula">$$\mathrm{NPMI}(u, v) = \frac{\log \frac{P(uv)}{P(u)P(v)}}{-\log P(uv)} \in [-1, 1]$$</div>
-                <p class="step-body">Self-normalising in [−1, 1], so no manual frequency tuning.</p>
+                <div class="formula">$$\mathrm{score}(u, v) = \mathrm{freq}(uv)^{\alpha} \cdot \frac{\ln \frac{P(uv)}{P(u)P(v)}}{-\ln P(uv)}, \quad P(x) = \frac{\mathrm{freq}(x)}{N},\ \alpha = 0.5$$</div>
+                <p class="step-body">The NPMI factor is bounded in [−1, 1]; the support weight $\mathrm{freq}(uv)^\alpha$ keeps rare, perfectly associated pairs from winning outright.</p>
               </div>
               <div class="sub-formula">
                 <b>Penalised PIG</b>
-                <div class="formula">$$\mathrm{score}(u,v) = \mathrm{freq}(uv) \cdot \mathrm{PMI}(u,v) \cdot (|u|+|v|)^{-\beta} \cdot \mathcal{H}(u,v)$$</div>
-                <p class="step-body">Information gain combined with a length penalty and Markov transition entropy.</p>
+                <div class="formula">$$\mathrm{score}(u, v) = \frac{\mathrm{freq}(uv) \cdot \max(0, \mathrm{PMI}(u, v))}{(|u| + |v|)^{\eta}}, \quad \mathrm{PMI}(u, v) = \log_2 \frac{\mathrm{freq}(uv) \cdot N}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)},\ \eta = 0.35$$</div>
+                <p class="step-body">Information gain counting only positive association, divided by a merged-length penalty.</p>
               </div>
             </li>
           </ol>

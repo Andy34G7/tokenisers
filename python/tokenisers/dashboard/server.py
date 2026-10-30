@@ -34,7 +34,10 @@ MAX_TEXT_CHARS = 16_384
 CORPUS_TRAIN_BYTES = 100_000   # playground training corpus (train split of the data pipeline)
 DEFAULT_TEXT = "The internationalization of unhappily disproportionate misunderstandings requires robust subword tokenization."
 
-# Metadata for all algorithm architectures and theoretical objectives
+# Metadata for all algorithm architectures and theoretical objectives. Formulas state what the
+# scorers in crates/tokenisers_core/src/scoring and curricula/morpheme.rs compute, with the
+# defaults the playground trains with (README "Implemented Tokenizer Algorithms" table); the
+# formulas on static/index.html are copies of these strings.
 ALGORITHM_METADATA: Dict[str, Dict[str, Any]] = {
     "bpe_frequency": {
         "display_name": "BPE (Frequency)",
@@ -49,12 +52,12 @@ ALGORITHM_METADATA: Dict[str, Dict[str, Any]] = {
     "wordpiece_pmi": {
         "display_name": "WordPiece (PMI)",
         "family": "Information-Theoretic",
-        "description": "Information-theoretic merge objective measuring statistical co-occurrence vs. independent marginals.",
-        "formula": r"\mathrm{score}(u, v) = \frac{\mathrm{count}(uv)}{\mathrm{count}(u) \cdot \mathrm{count}(v)}",
-        "objective": "Pointwise Mutual Information",
+        "description": "WordPiece likelihood score: pair count over the product of Laplace-smoothed marginal counts (alpha = 1), for pairs seen at least twice.",
+        "formula": r"\mathrm{score}(u, v) = \frac{\mathrm{count}(uv)}{(\mathrm{count}(u) + \alpha)(\mathrm{count}(v) + \alpha)}, \quad \alpha = 1,\ \mathrm{count}(uv) \ge 2",
+        "objective": "Smoothed PMI (WordPiece likelihood)",
         "generation": "Baseline",
-        "pros": ["Favors statistically coherent morphemes", "Resistant to purely superficial frequency bias"],
-        "cons": ["Severe singleton instability without frequency thresholds", "Higher vocabulary fragmentation"],
+        "pros": ["Favors statistically coherent morphemes", "Smoothing damps pairs whose parts are rare"],
+        "cons": ["Ranks rare exclusive pairs above frequent ones (no frequency weighting)", "Higher vocabulary fragmentation"],
     },
     "wp_bpe_base": {
         "display_name": "WP-BPE (Base Uncalibrated PMI)",
@@ -64,17 +67,17 @@ ALGORITHM_METADATA: Dict[str, Dict[str, Any]] = {
         "objective": "Uncalibrated PMI",
         "generation": "WP-BPE Gen 1",
         "pros": ["Exposes true statistical dependencies across tokens"],
-        "cons": ["Rare pairs (freq=1) obtain astronomical scores", "Severe corpus overfitting without thresholding"],
+        "cons": ["A pair seen once whose parts occur nowhere else gets the maximum score (1)", "Severe corpus overfitting without thresholding"],
     },
     "wp_bpe_ft": {
         "display_name": "WP-BPE (Frequency-Thresholded)",
         "family": "Information-Theoretic",
-        "description": "Calibrated PMI with minimum frequency cutoffs (threshold theta >= 2) and exponent alpha smoothing.",
-        "formula": r"\mathrm{score}(u, v) = \begin{cases} \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u)^\alpha \cdot \mathrm{freq}(v)^\alpha} & \text{if } \mathrm{freq}(uv) \ge \theta \\ -\infty & \text{otherwise} \end{cases}",
+        "description": "The uncalibrated PMI ratio of WP-BPE Base, restricted to pairs seen at least theta = 2 times.",
+        "formula": r"\mathrm{score}(u, v) = \begin{cases} \frac{\mathrm{freq}(uv)}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)} & \text{if } \mathrm{freq}(uv) \ge \theta \\ -\infty & \text{otherwise} \end{cases}, \quad \theta = 2",
         "objective": "Frequency-Thresholded PMI",
         "generation": "WP-BPE Gen 1",
-        "pros": ["Filters out singleton noise", "Drastically boosts morphological boundary precision", "Stable vocabulary distribution"],
-        "cons": ["Requires tuning threshold theta and exponent alpha", "Slightly lower compression ratio on rare words"],
+        "pros": ["Filters out singleton noise", "Stable vocabulary distribution"],
+        "cons": ["Requires tuning threshold theta", "Slightly lower compression ratio on rare words"],
     },
     "wp_bpe_pig": {
         "display_name": "WP-BPE (Pointwise Information Gain)",
@@ -89,38 +92,38 @@ ALGORITHM_METADATA: Dict[str, Dict[str, Any]] = {
     "wp_bpe_scp": {
         "display_name": "WP-BPE (Symmetric Conditional Probability)",
         "family": "Information-Theoretic (Improved)",
-        "description": "Next-gen metric using Symmetric Conditional Probability to balance directional association P(u|v) and P(v|u).",
-        "formula": r"\mathrm{score}(u, v) = \frac{P(uv)^2}{P(u) \cdot P(v)} = P(u \mid v) \cdot P(v \mid u)",
+        "description": "Geometric-mean calibrated PMI with a Kneser-Ney style discount d = 0.75 on the pair count, for pairs seen at least twice. With d = 0 it is the square root of the symmetric conditional probability P(u|v) P(v|u).",
+        "formula": r"\mathrm{score}(u, v) = \frac{(\mathrm{freq}(uv) - d)_+}{\sqrt{\mathrm{freq}(u)\,\mathrm{freq}(v)}}, \quad d = 0.75",
         "objective": "Symmetric Conditional Probability",
         "generation": "WP-BPE Gen 2 (Improved)",
         "pros": ["Self-bounding cohesion index", "Equalizes prefix-root and root-suffix merge biases", "Robust across agglutinative morphologies"],
-        "cons": ["Quadratic joint probability scaling requires careful float precision"],
+        "cons": ["Discount d is a tuning parameter; pairs with freq(uv) <= d score 0"],
     },
     "wp_bpe_npmi": {
         "display_name": "WP-BPE (Normalized PMI)",
         "family": "Information-Theoretic (Improved)",
-        "description": "Bouma Normalized PMI mapped strictly into [-1, +1], providing unbiased significance regardless of frequency scale.",
-        "formula": r"\mathrm{score}(u, v) = \frac{\log \frac{P(uv)}{P(u)P(v)}}{-\log P(uv)} \in [-1, +1]",
-        "objective": "Normalized PMI",
+        "description": "Bouma normalized PMI (in [-1, +1]) weighted by sub-linear frequency support freq(uv)^alpha (alpha = 0.5), for pairs seen at least twice. Negatively associated pairs keep a negative score: eligible, ranked last.",
+        "formula": r"\mathrm{score}(u, v) = \mathrm{freq}(uv)^{\alpha} \cdot \frac{\ln \frac{P(uv)}{P(u)P(v)}}{-\ln P(uv)}, \quad P(x) = \frac{\mathrm{freq}(x)}{N},\ \alpha = 0.5",
+        "objective": "Frequency-Weighted Normalized PMI",
         "generation": "WP-BPE Gen 2 (Improved)",
-        "pros": ["Eliminates arbitrary frequency threshold tuning theta", "Perfect score +1 occurs if and only if tokens strictly co-occur", "Theoretical maximum robustness"],
-        "cons": ["Log denominator requires eps guard against zero probabilities"],
+        "pros": ["NPMI factor is bounded in [-1, +1] regardless of frequency scale", "NPMI = +1 exactly when u and v only ever occur together"],
+        "cons": ["Log denominator requires eps guard against zero probabilities", "Support exponent alpha trades association against frequency"],
     },
     "wp_bpe_ppig": {
         "display_name": "WP-BPE (Penalized PIG)",
         "family": "Information-Theoretic (Improved)",
-        "description": "Enhanced Pointwise Information Gain with polynomial length regularization and transition entropy weighting.",
-        "formula": r"\mathrm{score}(u, v) = \mathrm{freq}(uv) \cdot \mathrm{PMI}(u, v) \cdot (|u| + |v|)^{-\beta} \cdot \mathcal{H}(u, v)",
+        "description": "Pointwise information gain counting only positive association, divided by a polynomial merged-length penalty (eta = 0.35), for pairs seen at least twice.",
+        "formula": r"\mathrm{score}(u, v) = \frac{\mathrm{freq}(uv) \cdot \max(0, \mathrm{PMI}(u, v))}{(|u| + |v|)^{\eta}}, \quad \mathrm{PMI}(u, v) = \log_2 \frac{\mathrm{freq}(uv) \cdot N}{\mathrm{freq}(u) \cdot \mathrm{freq}(v)},\ \eta = 0.35",
         "objective": "Penalized Information Gain",
         "generation": "WP-BPE Gen 2 (Improved)",
-        "pros": ["Prevents vocabulary bloating with overly long collocations", "Preserves boundary points across high-entropy transitions", "Optimal downstream language model bits-per-byte"],
-        "cons": ["Requires hyperparameter beta selection"],
+        "pros": ["Prevents vocabulary bloating with overly long collocations", "Negatively associated pairs score 0 instead of a negative gain"],
+        "cons": ["Requires length-penalty eta selection"],
     },
     "mdl_bits": {
         "display_name": "MDL (Delta-Bits)",
         "family": "Information-Theoretic",
-        "description": "Minimum Description Length criterion choosing merges that maximize net reduction in two-part code length.",
-        "formula": r"\Delta L = L_{\mathrm{corpus}}(T) - L_{\mathrm{corpus}}(T') + \Delta L_{\mathrm{lexicon}}",
+        "description": "Minimum Description Length: merges maximize the corpus's unigram code length saved minus the new entry's cost (24 bits plus 8 bits per byte).",
+        "formula": r"\Delta L = \big[L(T) - L(T')\big] - (c_{\mathrm{entry}} + 8\,|uv|), \quad L(T) = N \log_2 N - \sum_t c_t \log_2 c_t,\ c_{\mathrm{entry}} = 24",
         "objective": "Minimum Description Length",
         "generation": "Baseline",
         "pros": ["Rigorous MDL foundation", "Resistant to vocabulary bloat", "Guaranteed theoretical compressibility"],
@@ -149,11 +152,11 @@ ALGORITHM_METADATA: Dict[str, Dict[str, Any]] = {
     "morpheme_bpe": {
         "display_name": "Morpheme-Guided BPE",
         "family": "Morphology / Guided",
-        "description": "BPE merge scores dynamically augmented by ground-truth morphological cuts from linguistic lexicons (e.g. Sigmorphon).",
-        "formula": r"\mathrm{score}(u, v) = \mathrm{freq}(uv) \cdot (1 + \lambda \cdot \mathbb{I}_{\mathrm{morpheme\_cut}}(u, v))",
+        "description": "Frequency BPE whose candidate scores are scaled by exp(lambda M): M is the share of the pair's current occurrences in lexicon words whose merged token stays inside one morpheme minus the share that would span a boundary. Pairs with count(uv) exp(lambda M) < 1 are never merged. The playground uses lambda = 2.5 and SIGMORPHON 2022 English train words as the lexicon (offline: a 12-word test fixture).",
+        "formula": r"\mathrm{score}(u, v) = \mathrm{count}(uv) \cdot e^{\lambda M(u, v)}, \quad M = \frac{n_{\mathrm{intra}} - n_{\mathrm{cross}}}{n_{\mathrm{intra}} + n_{\mathrm{cross}}} \in [-1, 1],\ \lambda = 2.5",
         "objective": "Morpheme Boundary Regularization",
         "generation": "Baseline",
-        "pros": ["Highest morphological boundary F1 score", "Linguistically aligned token pieces", "Superior generalization on morphologically rich languages"],
+        "pros": ["Penalizes merges across known morpheme boundaries", "Linguistically aligned token pieces"],
         "cons": ["Requires supervised or semi-supervised morphological dictionary", "Lambda weight hyperparameter tuning"],
     },
     "unigram_lm": {
@@ -534,7 +537,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, f"body exceeds {MAX_BODY_BYTES} bytes")
         try:
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as e:
+        except (UnicodeDecodeError, ValueError, RecursionError) as e:  # RecursionError: nesting too deep
             raise ApiError(HTTPStatus.BAD_REQUEST, f"invalid JSON payload: {e}")
         if not isinstance(payload, dict):
             raise ApiError(HTTPStatus.BAD_REQUEST, "JSON payload must be an object")

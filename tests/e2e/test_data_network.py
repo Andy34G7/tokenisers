@@ -36,7 +36,11 @@ def test_real_dataset_sources_split_and_provenance(tmp_path):
         assert "codeparrot/github-code-clean" in sources
     for lang in pl.FINEWEB2_LANGUAGES:
         assert ds.texts("test", lang=lang), f"no held-out {lang} text"
-    assert ds.texts("test", domain="code")
+    # Every code language, rare ones included (rust is ~0.3% of github-code-clean), gets its own
+    # budget and held-out documents, whether starcoder or the mixed fallback supplied the code.
+    for lang in pl.CODE_LANGUAGES:
+        for split in pl.SPLITS:
+            assert ds.texts(split, domain="code", lang=lang), f"no {lang} code in {split}"
 
 
 @pytest.mark.parametrize("lang", ["eng", "hun", "mon"])
