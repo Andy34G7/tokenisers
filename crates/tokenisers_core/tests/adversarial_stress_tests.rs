@@ -488,6 +488,7 @@ fn test_scorers_extreme_and_boundary_values() {
     let mdl = MdlScorer::new(24.0, 2);
     let ctx_zero = PairContext {
         freq_uv: 1,
+        merges_uv: 1,
         freq_u: 1,
         freq_v: 1,
         total_tokens: 0,
@@ -501,6 +502,7 @@ fn test_scorers_extreme_and_boundary_values() {
     let wp = WordPieceScorer::new(1.0, 5);
     let ctx_low_freq = PairContext {
         freq_uv: 3, // < min_frequency 5
+        merges_uv: 3,
         freq_u: 10,
         freq_v: 10,
         total_tokens: 100,
@@ -515,6 +517,7 @@ fn test_scorers_extreme_and_boundary_values() {
     let lp_low = LengthPenalizedScorer::new(-10.0, 1);
     let ctx_norm = PairContext {
         freq_uv: 10,
+        merges_uv: 10,
         freq_u: 20,
         freq_v: 20,
         total_tokens: 100,

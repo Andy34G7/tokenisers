@@ -119,6 +119,7 @@ fn pieces(model: &BottomUpModel, word: &str) -> Vec<String> {
 fn ctx(freq_uv: u64) -> PairContext {
     PairContext {
         freq_uv,
+        merges_uv: freq_uv,
         freq_u: 100,
         freq_v: 100,
         total_tokens: 1000,

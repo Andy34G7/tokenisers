@@ -3,9 +3,11 @@ use super::{PairContext, PairScorer, ScoreDeps};
 
 /// Minimum Description Length (MDL / Delta-Bits) two-part code scorer.
 ///
-/// Corpus cost is the unigram code length N*log2(N) - sum_t c_t*log2(c_t). Merging (u, v) with
-/// count c gives N' = N - c, c_u' = c_u - c, c_v' = c_v - c (c_u' = c_u - 2c when u == v) and
-/// c_uv' = c. Score = (corpus bits before - after) - (entry_overhead_bits + 8 * |uv|).
+/// Corpus cost is the unigram code length N*log2(N) - sum_t c_t*log2(c_t). Merging (u, v)
+/// replaces c = `merges_uv` non-overlapping occurrences (fewer than its `freq_uv` windows for a
+/// self-pair in runs of three or more), giving N' = N - c, c_u' = c_u - c, c_v' = c_v - c
+/// (c_u' = c_u - 2c when u == v) and c_uv' = c. Score = (corpus bits before - after) -
+/// (entry_overhead_bits + 8 * |uv|).
 /// A merge that does not shorten the total description (score <= 0) is ineligible, so training
 /// stops there (MDL stopping): `vocab_size` is an upper bound, and a larger entry cost stops it
 /// earlier. Among eligible pairs the entry cost is a constant offset and never changes the order.
@@ -60,7 +62,7 @@ impl MdlScorer {
     /// Total description length saved by merging `pair` (corpus bits saved minus the new entry's
     /// cost); negative when the merge does not pay for itself. `score` is this value when positive.
     pub fn delta_bits(&self, pair: Pair, ctx: &PairContext) -> f64 {
-        let c_uv = ctx.freq_uv as f64;
+        let c_uv = ctx.merges_uv as f64;
         let delta_n = Self::x_log2_x_drop(ctx.total_tokens as f64, c_uv);
         let delta_marginals = if pair.0 == pair.1 {
             Self::x_log2_x_drop(ctx.freq_u as f64, 2.0 * c_uv)

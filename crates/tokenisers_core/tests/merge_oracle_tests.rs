@@ -4,7 +4,7 @@ mod common;
 
 use std::collections::{BTreeMap, HashMap};
 
-use common::{apply_leftmost, random_corpus, reference_encode, reference_train, Merges};
+use common::{apply_leftmost, merges_in, random_corpus, reference_encode, reference_train, Merges};
 use tokenisers_core::curricula::morpheme::{MorphemeGuidedScorer, MorphemeLexicon};
 use tokenisers_core::curricula::super_bpe::{SuperBpeConfig, SuperBpeTrainer};
 use tokenisers_core::engine::bottom_up::{BottomUpModel, BottomUpTrainer};
@@ -306,8 +306,10 @@ fn reference_super_bpe(
             .iter()
             .filter(|&(_, &c)| c >= min_frequency.max(1))
             .filter_map(|(&pair, &count)| {
+                let merges = if pair.0 == pair.1 { units.iter().flatten().map(|seq| merges_in(seq, pair)).sum() } else { count };
                 let ctx = PairContext {
                     freq_uv: count,
+                    merges_uv: merges,
                     freq_u: tokens[&pair.0],
                     freq_v: tokens[&pair.1],
                     total_tokens: total,

@@ -11,6 +11,7 @@ use tokenisers_core::scoring::{
 fn dummy_context(freq_uv: u64, freq_u: u64, freq_v: u64, total_tokens: u64, len_u: usize, len_v: usize) -> PairContext {
     PairContext {
         freq_uv,
+        merges_uv: freq_uv,
         freq_u,
         freq_v,
         total_tokens,
@@ -176,13 +177,34 @@ fn test_mdl_matches_recount_including_self_pairs() {
             continue;
         }
         let count = |t: u32| seq.iter().filter(|&&x| x == t).count() as u64;
-        let ctx = dummy_context(m, count(u), count(v), seq.len() as u64, 1, 1);
+        // What the engine supplies: every (u, v) window, and the merges separately (fewer for a
+        // self-pair in a run of three or more).
+        let windows = seq.windows(2).filter(|w| (w[0], w[1]) == (u, v)).count() as u64;
+        let ctx = PairContext { merges_uv: m, ..dummy_context(windows, count(u), count(v), seq.len() as u64, 1, 1) };
         let recount = unigram_bits(&seq) - unigram_bits(&merged) - (24.0 + 16.0);
         let got = scorer.delta_bits(Pair::new(u, v), &ctx);
         assert!((got - recount).abs() < 1e-9 * (1.0 + recount.abs()), "{u}/{v} on {seq:?}: {got} vs {recount}");
         let score = scorer.score(Pair::new(u, v), &ctx);
         assert_eq!(score, if got > 0.0 { got } else { f64::NEG_INFINITY });
     }
+}
+
+#[test]
+fn test_mdl_prices_self_pair_runs_by_merges_not_windows() {
+    // Review round 2: the engine handed MDL the overlapping window count of (a, a). ["aaa"] * 1000
+    // has 2000 windows but merging gives 1000 "aa" + 1000 "a": the corpus grows from 0 to 2000
+    // bits, so with a free entry the merge still costs 2016 bits and must not be learned.
+    let free = MdlScorer::new(0.0, 1);
+    let ctx = PairContext { merges_uv: 1000, ..dummy_context(2000, 3000, 3000, 3000, 1, 1) };
+    assert!((free.delta_bits(Pair::new(97, 97), &ctx) + 2016.0).abs() < 1e-6);
+    let model = BottomUpTrainer::new(&free, 260).train(&[(b"aaa".to_vec(), 1000)]).unwrap();
+    assert!(model.merges.is_empty(), "learned {:?}", model.merges);
+
+    // Ranking: on a recount (a, a) saves 39 bits and (a, b) 315, but 200 windows of (a, a) scored
+    // as 200 merges gave it 690 and made it the first merge.
+    let corpus = [(b"aaa".to_vec(), 100u64), (b"ab".to_vec(), 100), (b"c".to_vec(), 3000)];
+    let model = BottomUpTrainer::new(&free, 257).train(&corpus).unwrap();
+    assert_eq!(model.merges, vec![(97, 98, 256)]);
 }
 
 #[test]
