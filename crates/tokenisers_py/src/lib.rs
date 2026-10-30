@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::path::Path;
 
@@ -14,8 +14,8 @@ use tokenisers_core::index::Pair;
 use tokenisers_core::inference::byte_entropy::{ByteEntropyConfig, ByteEntropyPatcher};
 use tokenisers_core::inference::unigram_sample::UnigramSampler;
 use tokenisers_core::scoring::{
-    BpeScorer, LengthPenalizedScorer, MdlScorer, WordPieceScorer, WpBpeBaseScorer, WpBpeFtScorer,
-    WpBpeNpmiScorer, WpBpePigScorer, WpBpePpigScorer, WpBpeScpScorer,
+    BpeScorer, LengthPenalizedScorer, MdlScorer, PairScorer, WordPieceScorer, WpBpeBaseScorer,
+    WpBpeFtScorer, WpBpeNpmiScorer, WpBpePigScorer, WpBpePpigScorer, WpBpeScpScorer,
 };
 use tokenisers_core::vocab::{TokenId, Vocabulary, BASE_VOCAB_SIZE};
 
@@ -35,14 +35,63 @@ fn extract_word_counts(corpus: &[String]) -> Result<Vec<(Vec<u8>, u64)>, &'stati
             }
         }
     }
-    let word_counts: Vec<(Vec<u8>, u64)> = word_counts_map.into_iter().collect();
+    let mut word_counts: Vec<(Vec<u8>, u64)> = word_counts_map.into_iter().collect();
     if word_counts.is_empty() {
         return Err("Corpus contains only empty documents");
     }
+    // AHashMap iteration order is seeded per process: sort so training input is reproducible.
+    word_counts.sort_unstable();
     Ok(word_counts)
 }
 
-#[pyclass]
+fn value_err(e: impl ToString) -> PyErr {
+    PyValueError::new_err(e.to_string())
+}
+
+/// The string a token is known by in `get_vocab`/`id_to_token`/`token_to_id`: a special token's
+/// raw content, otherwise the GPT-2 byte-level printable form of its bytes. These are the keys the
+/// HF export writes, and they are unique per id (raw latin-1/UTF-8 strings are not).
+fn token_string(vocab: &Vocabulary, id: TokenId) -> Option<String> {
+    let bytes = vocab.get_bytes(id)?;
+    Some(match vocab.special_tokens().iter().find(|s| s.id == id) {
+        Some(special) => special.content.clone(),
+        None => vocab.bytes_to_printable(bytes),
+    })
+}
+
+fn token_id(vocab: &Vocabulary, token: &str) -> Option<TokenId> {
+    if let Some(special) = vocab.special_tokens().iter().find(|s| s.content == token) {
+        return Some(special.id);
+    }
+    vocab
+        .printable_to_bytes(token)
+        .ok()
+        .and_then(|bytes| vocab.get_id(&bytes))
+}
+
+fn vocab_map(vocab: &Vocabulary) -> HashMap<String, u32> {
+    (0..vocab.len() as TokenId)
+        .filter_map(|id| token_string(vocab, id).map(|s| (s, id)))
+        .collect()
+}
+
+fn hf_json_path(path: &str) -> std::path::PathBuf {
+    let p = Path::new(path);
+    if p.is_dir() || p.extension().is_none() {
+        p.join("tokenizer.json")
+    } else {
+        p.to_path_buf()
+    }
+}
+
+fn read_hf_json(path: &str) -> PyResult<HfTokenizerJson> {
+    let file = File::open(hf_json_path(path))
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to open {path}: {e}")))?;
+    serde_json::from_reader(file)
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to parse {path}: {e}")))
+}
+
+#[pyclass(frozen)]
 #[derive(Clone)]
 pub struct PyBpeModel {
     pub model: BottomUpModel,
@@ -50,67 +99,65 @@ pub struct PyBpeModel {
 
 #[pymethods]
 impl PyBpeModel {
+    pub fn vocab_size(&self) -> usize {
+        self.model.vocab.len()
+    }
+
+    /// `{token string: id}` with exactly `vocab_size()` entries (see `token_string`).
+    pub fn get_vocab(&self) -> HashMap<String, u32> {
+        vocab_map(&self.model.vocab)
+    }
+
+    pub fn token_to_id(&self, token: &str) -> Option<u32> {
+        token_id(&self.model.vocab, token)
+    }
+
+    pub fn id_to_token(&self, id: u32) -> Option<String> {
+        token_string(&self.model.vocab, id)
+    }
+
+    pub fn id_to_bytes(&self, id: u32) -> Option<Vec<u8>> {
+        self.model.vocab.get_bytes(id).map(|b| b.to_vec())
+    }
+
+    /// Raw bytes of the ids; `ValueError` on an unknown id.
+    pub fn decode_bytes(&self, py: Python<'_>, ids: Vec<u32>) -> PyResult<Vec<u8>> {
+        py.allow_threads(|| self.model.vocab.decode(&ids)).map_err(value_err)
+    }
+
+    /// UTF-8 text of the ids, invalid sequences replaced by U+FFFD.
+    pub fn decode(&self, py: Python<'_>, ids: Vec<u32>) -> PyResult<String> {
+        let bytes = self.decode_bytes(py, ids)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
     #[pyo3(signature = (text, dropout=None, seed=None))]
     pub fn encode(
         &self,
+        py: Python<'_>,
         text: &str,
         dropout: Option<f32>,
         seed: Option<u64>,
     ) -> PyResult<Vec<u32>> {
-        if text.is_empty() {
-            return Ok(Vec::new());
-        }
-        if let Some(p) = dropout {
-            if !(0.0..=1.0).contains(&p) || p.is_nan() {
-                return Err(PyValueError::new_err(
-                    "dropout probability must be between 0.0 and 1.0",
-                ));
-            }
-            if p > 0.0 {
-                return Ok(self.model.encode_with_dropout(text.as_bytes(), p, seed));
-            }
-        }
-        Ok(self.model.encode(text.as_bytes()))
+        self.encode_bytes(py, text.as_bytes(), dropout, seed)
     }
 
+    /// BPE (with BPE-dropout probability `dropout`, HF semantics) of raw bytes. Releases the GIL.
     #[pyo3(signature = (bytes, dropout=None, seed=None))]
     pub fn encode_bytes(
         &self,
+        py: Python<'_>,
         bytes: &[u8],
         dropout: Option<f32>,
         seed: Option<u64>,
     ) -> PyResult<Vec<u32>> {
-        if bytes.is_empty() {
-            return Ok(Vec::new());
+        let p = dropout.unwrap_or(0.0);
+        if !(0.0..=1.0).contains(&p) {
+            return Err(PyValueError::new_err(
+                "dropout probability must be between 0.0 and 1.0",
+            ));
         }
-        if let Some(p) = dropout {
-            if !(0.0..=1.0).contains(&p) || p.is_nan() {
-                return Err(PyValueError::new_err(
-                    "dropout probability must be between 0.0 and 1.0",
-                ));
-            }
-            if p > 0.0 {
-                return Ok(self.model.encode_with_dropout(bytes, p, seed));
-            }
-        }
-        Ok(self.model.encode(bytes))
-    }
-
-    pub fn decode(&self, ids: Vec<u32>) -> PyResult<String> {
-        if ids.is_empty() {
-            return Ok(String::new());
-        }
-        let raw_bytes = self
-            .model
-            .decode(&ids)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        match String::from_utf8(raw_bytes.clone()) {
-            Ok(s) => Ok(s),
-            Err(_) => {
-                let s: String = raw_bytes.iter().map(|&b| b as char).collect();
-                Ok(s)
-            }
-        }
+        Ok(py.allow_threads(|| self.model.encode_with_dropout(bytes, p, seed)))
     }
 
     pub fn export_hf_json(&self, path: &str) -> PyResult<()> {
@@ -120,106 +167,89 @@ impl PyBpeModel {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    pub fn vocab_size(&self) -> usize {
-        self.model.vocab.len()
-    }
-
-    pub fn get_vocab(&self) -> HashMap<String, u32> {
-        let mut map = HashMap::with_capacity(self.model.vocab.len());
-        for (id, bytes) in self.model.vocab.id_to_bytes_map().iter().enumerate() {
-            let s: String = match std::str::from_utf8(bytes) {
-                Ok(valid) => valid.to_string(),
-                Err(_) => bytes.iter().map(|&b| b as char).collect(),
-            };
-            map.insert(s, id as u32);
-        }
-        map
-    }
-
-    pub fn token_to_id(&self, token: &str) -> Option<u32> {
-        self.model.vocab.get_id(token.as_bytes()).or_else(|| {
-            let b: Vec<u8> = token.chars().map(|c| c as u8).collect();
-            self.model.vocab.get_id(&b)
-        })
-    }
-
-    pub fn id_to_token(&self, id: u32) -> Option<String> {
-        self.model.vocab.get_bytes(id).map(|bytes| {
-            match std::str::from_utf8(bytes) {
-                Ok(valid) => valid.to_string(),
-                Err(_) => bytes.iter().map(|&b| b as char).collect(),
-            }
-        })
-    }
-
-    pub fn id_to_bytes(&self, id: u32) -> Option<Vec<u8>> {
-        self.model.vocab.get_bytes(id).map(|b| b.to_vec())
-    }
-
+    /// Loads a byte-level BPE tokenizer.json (as `export_hf_json` writes it). Ids are taken from
+    /// the file: ids 0..=255 must be the 256 single bytes, the rest contiguous; special tokens come
+    /// from `added_tokens`. Anything else raises `ValueError`.
     #[staticmethod]
     pub fn from_hf_json(path: &str) -> PyResult<Self> {
-        let file_path = if Path::new(path).is_dir() || Path::new(path).extension().is_none() {
-            Path::new(path).join("tokenizer.json")
-        } else {
-            Path::new(path).to_path_buf()
-        };
-        let file = File::open(&file_path)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to open {path}: {e}")))?;
-        let json: HfTokenizerJson = serde_json::from_reader(file)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to parse {path}: {e}")))?;
+        let json = read_hf_json(path)?;
         let pretokenize = json.pretokenize();
+        let HfModelConfig::BPE { vocab, merges, .. } = json.model else {
+            return Err(PyValueError::new_err("tokenizer.json is not a BPE model"));
+        };
 
-        match json.model {
-            HfModelConfig::BPE { vocab, merges, .. } => {
-                let mut sorted_tokens: Vec<(u32, String)> =
-                    vocab.into_iter().map(|(k, v)| (v, k)).collect();
-                sorted_tokens.sort_by_key(|&(id, _)| id);
-
-                let mut model_vocab = Vocabulary::new_byte_level();
-                for (id, s) in sorted_tokens {
-                    if id >= 256 {
-                        let bytes = model_vocab
-                            .printable_to_bytes(&s)
-                            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-                        model_vocab.add_token(bytes);
-                    }
+        let specials: HashMap<u32, String> = json
+            .added_tokens
+            .into_iter()
+            .map(|t| (t.id, t.content))
+            .collect();
+        let mut keys: BTreeMap<u32, String> = BTreeMap::new();
+        for (key, id) in vocab {
+            // A special token may also keep its byte-level key (export keeps it when merges
+            // produce it); any other id must have exactly one key.
+            if let Some(old) = keys.insert(id, key) {
+                if !specials.contains_key(&id) {
+                    return Err(value_err(format!("tokenizer.json maps both {old:?} and another token to id {id}")));
                 }
-
-                let mut merges_vec = Vec::with_capacity(merges.len());
-                for m in merges {
-                    let parts: Vec<&str> = m.split(' ').collect();
-                    if parts.len() == 2 {
-                        let bytes_u = model_vocab
-                            .printable_to_bytes(parts[0])
-                            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-                        let bytes_v = model_vocab
-                            .printable_to_bytes(parts[1])
-                            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
-                        if let (Some(u), Some(v)) = (
-                            model_vocab.get_id(&bytes_u),
-                            model_vocab.get_id(&bytes_v),
-                        ) {
-                            let mut merged_bytes = bytes_u;
-                            merged_bytes.extend_from_slice(&bytes_v);
-                            let merged = model_vocab.add_token(merged_bytes);
-                            merges_vec.push((u, v, merged));
-                        }
-                    }
-                }
-
-                let mut model = BottomUpModel::new(model_vocab, merges_vec);
-                model.pretokenize = pretokenize;
-                Ok(Self { model })
             }
-            _ => Err(PyValueError::new_err(
-                "Exported tokenizer.json is not a BPE model",
-            )),
         }
+        let n = keys.keys().chain(specials.keys()).max().map_or(0, |&m| m as usize + 1);
+
+        let mut model_vocab = Vocabulary::new_byte_level();
+        for id in 0..n as u32 {
+            let got = if let Some(content) = specials.get(&id) {
+                model_vocab.add_special_token(content).map_err(value_err)?
+            } else {
+                let key = keys
+                    .get(&id)
+                    .ok_or_else(|| value_err(format!("tokenizer.json has no token with id {id}")))?;
+                let bytes = model_vocab.printable_to_bytes(key).map_err(value_err)?;
+                if id < BASE_VOCAB_SIZE as u32 {
+                    if bytes != [id as u8] {
+                        return Err(value_err(format!(
+                            "not a byte-level vocabulary: id {id} is {key:?}, expected byte {id}"
+                        )));
+                    }
+                    id
+                } else {
+                    model_vocab.add_token(bytes)
+                }
+            };
+            if got != id {
+                return Err(value_err(format!(
+                    "token with id {id} duplicates the bytes of id {got}"
+                )));
+            }
+        }
+
+        let mut merges_vec = Vec::with_capacity(merges.len());
+        for m in &merges {
+            let (u, v) = m
+                .split_once(' ')
+                .ok_or_else(|| value_err(format!("malformed merge {m:?}")))?;
+            let lookup = |s: &str| -> PyResult<(TokenId, Vec<u8>)> {
+                let bytes = model_vocab.printable_to_bytes(s).map_err(value_err)?;
+                let id = model_vocab
+                    .get_id(&bytes)
+                    .ok_or_else(|| value_err(format!("merge {m:?}: {s:?} is not in the vocabulary")))?;
+                Ok((id, bytes))
+            };
+            let (u_id, mut merged) = lookup(u)?;
+            let (v_id, v_bytes) = lookup(v)?;
+            merged.extend_from_slice(&v_bytes);
+            let w = model_vocab
+                .get_id(&merged)
+                .ok_or_else(|| value_err(format!("merge {m:?}: result is not in the vocabulary")))?;
+            merges_vec.push((u_id, v_id, w));
+        }
+
+        let mut model = BottomUpModel::new(model_vocab, merges_vec);
+        model.pretokenize = pretokenize;
+        Ok(Self { model })
     }
 }
 
-#[pyclass]
+#[pyclass(frozen)]
 #[derive(Clone)]
 pub struct PyUnigramModel {
     pub model: UnigramModel,
@@ -227,70 +257,84 @@ pub struct PyUnigramModel {
 
 #[pymethods]
 impl PyUnigramModel {
+    pub fn vocab_size(&self) -> usize {
+        self.model.vocab.len()
+    }
+
+    /// `{token string: id}` with exactly `vocab_size()` entries (see `token_string`).
+    pub fn get_vocab(&self) -> HashMap<String, u32> {
+        vocab_map(&self.model.vocab)
+    }
+
+    pub fn token_to_id(&self, token: &str) -> Option<u32> {
+        token_id(&self.model.vocab, token)
+    }
+
+    pub fn id_to_token(&self, id: u32) -> Option<String> {
+        token_string(&self.model.vocab, id)
+    }
+
+    pub fn id_to_bytes(&self, id: u32) -> Option<Vec<u8>> {
+        self.model.vocab.get_bytes(id).map(|b| b.to_vec())
+    }
+
+    /// Raw bytes of the ids; `ValueError` on an unknown id.
+    pub fn decode_bytes(&self, py: Python<'_>, ids: Vec<u32>) -> PyResult<Vec<u8>> {
+        py.allow_threads(|| self.model.vocab.decode(&ids)).map_err(value_err)
+    }
+
+    /// UTF-8 text of the ids, invalid sequences replaced by U+FFFD.
+    pub fn decode(&self, py: Python<'_>, ids: Vec<u32>) -> PyResult<String> {
+        let bytes = self.decode_bytes(py, ids)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
     #[pyo3(signature = (text, temperature=None, nbest_size=None, sample=None, seed=None))]
     pub fn encode(
         &self,
+        py: Python<'_>,
         text: &str,
         temperature: Option<f64>,
-        nbest_size: Option<usize>,
+        nbest_size: Option<i64>,
         sample: Option<bool>,
         seed: Option<u64>,
     ) -> PyResult<Vec<u32>> {
-        if text.is_empty() {
-            return Ok(Vec::new());
-        }
-        if let Some(t) = temperature {
-            if t < 0.0 || t.is_nan() {
-                return Err(PyValueError::new_err(
-                    "temperature must be non-negative",
-                ));
-            }
-        }
-
-        let is_sampling = sample.unwrap_or(false)
-            || (temperature.is_some() && temperature != Some(0.0))
-            || (nbest_size.is_some() && nbest_size.unwrap() > 1);
-
-        if !is_sampling || temperature == Some(0.0) {
-            return Ok(self.model.encode(text.as_bytes()));
-        }
-
-        let temp = temperature.unwrap_or(1.0);
-        if temp < 0.01 {
-            return Ok(self.model.encode(text.as_bytes()));
-        }
-
-        // Calibrated temperature scaling for lattice posterior sampling (subword regularization).
-        // Since unigram log-probabilities span substantial ranges across whole words vs base bytes,
-        // scaling the user temperature aligns user-space T in [0.1, 1.0] with posterior lattice entropy.
-        let scaled_temp = temp * 25.0;
-        let sampler = UnigramSampler::new(&self.model.trie);
-        if let Some(k) = nbest_size {
-            if k > 1 {
-                return Ok(sampler.sample_kbest(text.as_bytes(), k, scaled_temp, seed));
-            } else {
-                return Ok(self.model.encode(text.as_bytes()));
-            }
-        }
-
-        Ok(sampler.sample_ffbs(text.as_bytes(), scaled_temp, seed))
+        self.encode_bytes(py, text.as_bytes(), temperature, nbest_size, sample, seed)
     }
 
-    pub fn decode(&self, ids: Vec<u32>) -> PyResult<String> {
-        if ids.is_empty() {
-            return Ok(String::new());
+    /// Viterbi, or a sample (subword regularization) when `sample` is true. `sample` defaults to
+    /// true when `temperature` is given or `nbest_size` is > 1 or < 0. A sample is drawn with
+    /// probability proportional to P(s)^(1/temperature) (temperature 1 = exact posterior,
+    /// SentencePiece alpha = 1/temperature, temperature 0 = Viterbi) over all segmentations
+    /// (`nbest_size` None or < 0, FFBS) or over the `nbest_size` best ones; `nbest_size` 0 or 1
+    /// is Viterbi (SentencePiece convention). Releases the GIL.
+    #[pyo3(signature = (bytes, temperature=None, nbest_size=None, sample=None, seed=None))]
+    pub fn encode_bytes(
+        &self,
+        py: Python<'_>,
+        bytes: &[u8],
+        temperature: Option<f64>,
+        nbest_size: Option<i64>,
+        sample: Option<bool>,
+        seed: Option<u64>,
+    ) -> PyResult<Vec<u32>> {
+        let temp = temperature.unwrap_or(1.0);
+        if temp.is_nan() || temp < 0.0 {
+            return Err(PyValueError::new_err("temperature must be non-negative"));
         }
-        let raw_bytes = self
-            .model
-            .decode(&ids)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        match String::from_utf8(raw_bytes.clone()) {
-            Ok(s) => Ok(s),
-            Err(_) => {
-                let s: String = raw_bytes.iter().map(|&b| b as char).collect();
-                Ok(s)
+        let sample = sample.unwrap_or_else(|| {
+            temperature.is_some() || nbest_size.is_some_and(|k| !(0..=1).contains(&k))
+        });
+        let model = &self.model;
+        Ok(py.allow_threads(|| {
+            let sampler = UnigramSampler::new(&model.trie);
+            match nbest_size {
+                _ if !sample || temp == 0.0 => model.encode(bytes),
+                Some(0 | 1) => model.encode(bytes),
+                Some(k) if k > 1 => sampler.sample_kbest(bytes, k as usize, temp, seed),
+                _ => sampler.sample_ffbs(bytes, temp, seed),
             }
-        }
+        }))
     }
 
     pub fn export_hf_json(&self, path: &str) -> PyResult<()> {
@@ -300,30 +344,13 @@ impl PyUnigramModel {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    pub fn vocab_size(&self) -> usize {
-        self.model.vocab.len()
-    }
-
-    pub fn get_vocab(&self) -> HashMap<String, u32> {
-        let mut map = HashMap::with_capacity(self.model.vocab.len());
-        for (id, bytes) in self.model.vocab.id_to_bytes_map().iter().enumerate() {
-            let s: String = match std::str::from_utf8(bytes) {
-                Ok(valid) => valid.to_string(),
-                Err(_) => bytes.iter().map(|&b| b as char).collect(),
-            };
-            map.insert(s, id as u32);
-        }
-        map
-    }
-
     pub fn get_log_probs(&self) -> HashMap<String, f64> {
-        let mut map = HashMap::with_capacity(self.model.vocab.len());
-        let mut max_lp = f64::NEG_INFINITY;
-        for &lp in &self.model.log_probs {
-            if lp > max_lp {
-                max_lp = lp;
-            }
-        }
+        let max_lp = self
+            .model
+            .log_probs
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
         let sum_exp: f64 = self
             .model
             .log_probs
@@ -331,56 +358,53 @@ impl PyUnigramModel {
             .map(|&lp| (lp - max_lp).exp())
             .sum();
         let log_sum_exp = max_lp + sum_exp.ln();
-
-        for (id, bytes) in self.model.vocab.id_to_bytes_map().iter().enumerate() {
-            let s: String = match std::str::from_utf8(bytes) {
-                Ok(valid) => valid.to_string(),
-                Err(_) => bytes.iter().map(|&b| b as char).collect(),
-            };
-            let lp = if id < self.model.log_probs.len() {
-                self.model.log_probs[id]
-            } else {
-                -15.0
-            };
-            let normalized_lp = lp - log_sum_exp;
-            map.insert(s, normalized_lp);
-        }
-        map
+        (0..self.model.vocab.len() as TokenId)
+            .filter_map(|id| {
+                let lp = self.model.log_probs.get(id as usize)?;
+                Some((token_string(&self.model.vocab, id)?, lp - log_sum_exp))
+            })
+            .collect()
     }
 
+    /// Loads a byte-level Unigram tokenizer.json (as `export_hf_json` writes it). Entry `i` of
+    /// the vocab list gets id `i`: the first 256 must be the single bytes 0..=255, the rest
+    /// distinct multi-byte tokens. Anything else (or added tokens) raises `ValueError`.
     #[staticmethod]
     pub fn from_hf_json(path: &str) -> PyResult<Self> {
-        let file_path = if Path::new(path).is_dir() || Path::new(path).extension().is_none() {
-            Path::new(path).join("tokenizer.json")
-        } else {
-            Path::new(path).to_path_buf()
+        let json = read_hf_json(path)?;
+        let HfModelConfig::Unigram { vocab, .. } = json.model else {
+            return Err(PyValueError::new_err("tokenizer.json is not a Unigram model"));
         };
-        let file = File::open(&file_path)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to open {path}: {e}")))?;
-        let json: HfTokenizerJson = serde_json::from_reader(file)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to parse {path}: {e}")))?;
-
-        match json.model {
-            HfModelConfig::Unigram { vocab, .. } => {
-                let mut model_vocab = Vocabulary::new_byte_level();
-                let mut log_probs = Vec::with_capacity(vocab.len());
-                for (s, score) in vocab {
-                    let bytes = model_vocab
-                        .printable_to_bytes(&s)
-                        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-                    if bytes.len() > 1 {
-                        model_vocab.add_token(bytes);
-                    }
-                    log_probs.push(score);
-                }
-                Ok(Self {
-                    model: UnigramModel::new(model_vocab, log_probs),
-                })
-            }
-            _ => Err(PyValueError::new_err(
-                "Exported tokenizer.json is not a Unigram model",
-            )),
+        if !json.added_tokens.is_empty() {
+            return Err(value_err("Unigram models with added/special tokens are not supported"));
         }
+        if vocab.len() < BASE_VOCAB_SIZE {
+            return Err(value_err("not a byte-level vocabulary: fewer than 256 tokens"));
+        }
+        let mut model_vocab = Vocabulary::new_byte_level();
+        let mut log_probs = Vec::with_capacity(vocab.len());
+        for (id, (key, score)) in vocab.into_iter().enumerate() {
+            let bytes = model_vocab.printable_to_bytes(&key).map_err(value_err)?;
+            let got = if id < BASE_VOCAB_SIZE {
+                if bytes != [id as u8] {
+                    return Err(value_err(format!(
+                        "not a byte-level vocabulary: id {id} is {key:?}, expected byte {id}"
+                    )));
+                }
+                id
+            } else {
+                model_vocab.add_token(bytes) as usize
+            };
+            if got != id {
+                return Err(value_err(format!(
+                    "token with id {id} duplicates the bytes of id {got}"
+                )));
+            }
+            log_probs.push(score);
+        }
+        Ok(Self {
+            model: UnigramModel::new(model_vocab, log_probs),
+        })
     }
 }
 
@@ -401,9 +425,25 @@ impl PyByteEntropyPatcher {
         max_len: usize,
         smoothing_alpha: f64,
     ) -> PyResult<Self> {
-        if entropy_threshold <= 0.0 || entropy_threshold.is_nan() {
+        if entropy_threshold.is_nan() || entropy_threshold <= 0.0 {
             return Err(PyValueError::new_err(
                 "entropy_threshold must be strictly positive",
+            ));
+        }
+        // Training stores up to context_order + 1 contexts per corpus byte.
+        if context_order > 8 {
+            return Err(PyValueError::new_err(format!(
+                "context_order must be at most 8, got {context_order}"
+            )));
+        }
+        if min_len == 0 || max_len < min_len {
+            return Err(PyValueError::new_err(format!(
+                "need 1 <= min_len <= max_len, got min_len={min_len}, max_len={max_len}"
+            )));
+        }
+        if !smoothing_alpha.is_finite() || smoothing_alpha < 0.0 {
+            return Err(PyValueError::new_err(
+                "smoothing_alpha must be a finite non-negative number",
             ));
         }
         let config = ByteEntropyConfig {
@@ -417,158 +457,194 @@ impl PyByteEntropyPatcher {
         Ok(Self { patcher })
     }
 
-    pub fn segment_stream(&self, bytes: &[u8]) -> Vec<Vec<u8>> {
-        self.patcher.segment_stream(bytes)
+    pub fn segment_stream(&self, py: Python<'_>, bytes: &[u8]) -> Vec<Vec<u8>> {
+        py.allow_threads(|| self.patcher.segment_stream(bytes))
     }
 
     pub fn train_transitions(&mut self, corpus_bytes: &[u8]) {
         self.patcher.train_transitions(corpus_bytes);
     }
+
+    pub fn is_trained(&self) -> bool {
+        self.patcher.is_trained()
+    }
+
+    /// Sparse next-byte counts `[(context, [(byte, count), ...]), ...]`, sorted by context.
+    pub fn transitions(&self) -> Vec<(Vec<u8>, Vec<(u8, u32)>)> {
+        let mut out: Vec<(Vec<u8>, Vec<(u8, u32)>)> = self
+            .patcher
+            .transition_table
+            .iter()
+            .map(|(ctx, counts)| {
+                let mut nonzero: Vec<(u8, u32)> =
+                    counts.iter().copied().filter(|&(_, c)| c > 0).collect();
+                nonzero.sort_unstable();
+                (ctx.clone(), nonzero)
+            })
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    /// Inverse of `transitions`: adds the given counts to the table.
+    pub fn load_transitions(&mut self, entries: Vec<(Vec<u8>, Vec<(u8, u32)>)>) {
+        for (ctx, nonzero) in entries {
+            let counts = self.patcher.transition_table.entry(ctx).or_default();
+            for (b, c) in nonzero {
+                match counts.iter_mut().find(|(byte, _)| *byte == b) {
+                    Some((_, total)) => *total += c,
+                    None => counts.push((b, c)),
+                }
+            }
+        }
+    }
 }
 
+/// GPT-2 byte-level printable form of raw bytes (the token strings of `get_vocab`).
+#[pyfunction]
+pub fn bytes_to_printable(data: &[u8]) -> String {
+    byte_vocab().bytes_to_printable(data)
+}
+
+/// Inverse of `bytes_to_printable`; `ValueError` for a char outside the GPT-2 byte map.
+#[pyfunction]
+pub fn printable_to_bytes(text: &str) -> PyResult<Vec<u8>> {
+    byte_vocab().printable_to_bytes(text).map_err(value_err)
+}
+
+fn byte_vocab() -> &'static Vocabulary {
+    static VOCAB: std::sync::OnceLock<Vocabulary> = std::sync::OnceLock::new();
+    VOCAB.get_or_init(Vocabulary::new_byte_level)
+}
+
+/// Rejects non-finite values, and negative ones unless `allow_negative` (the scorers would
+/// otherwise clamp them to 0 silently).
+fn check_param(name: &str, value: Option<f64>, allow_negative: bool) -> PyResult<()> {
+    match value {
+        Some(v) if !v.is_finite() || (v < 0.0 && !allow_negative) => Err(PyValueError::new_err(
+            format!("{name} must be a finite{} number, got {v}", if allow_negative { "" } else { " non-negative" }),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Trains a byte-level BPE model. `vocab_size` counts every token, special tokens included; it
+/// is an upper bound (training stops early when no eligible pair is left). `None` parameters take
+/// the scorer's default; a parameter the scorer does not use raises `ValueError`.
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (corpus, vocab_size, scorer_type="frequency", min_frequency=0, alpha=1.0, beta=1.0, penalty=0.0, special_tokens=None))]
+#[pyo3(signature = (corpus, vocab_size, scorer_type="frequency", min_frequency=None, alpha=None, beta=None, penalty=None, special_tokens=None))]
 pub fn train_bpe(
     py: Python<'_>,
     corpus: Vec<String>,
     vocab_size: usize,
     scorer_type: &str,
-    min_frequency: u64,
-    alpha: f64,
-    beta: f64,
-    penalty: f64,
+    min_frequency: Option<u64>,
+    alpha: Option<f64>,
+    beta: Option<f64>,
+    penalty: Option<f64>,
     special_tokens: Option<Vec<String>>,
 ) -> PyResult<PyBpeModel> {
-    if vocab_size < BASE_VOCAB_SIZE {
+    check_param("alpha", alpha, false)?;
+    check_param("beta", beta, true)?;
+    check_param("penalty", penalty, false)?;
+    let specials = special_tokens.unwrap_or_default();
+    let merge_target = vocab_size.saturating_sub(specials.len());
+    if merge_target < BASE_VOCAB_SIZE {
         return Err(PyValueError::new_err(format!(
-            "vocab_size must be at least {BASE_VOCAB_SIZE}"
+            "vocab_size must be at least {BASE_VOCAB_SIZE} + the number of special tokens ({})",
+            specials.len()
         )));
     }
-    if beta.is_nan() {
-        return Err(PyValueError::new_err("beta must be a valid float"));
-    }
-    let scorer_norm = scorer_type.to_lowercase();
-    match scorer_norm.as_str() {
-        "frequency" | "bpe" | "wordpiece" | "pmi" | "mdl" | "length_penalized"
-        | "wp-bpe-base" | "wp_bpe_base"
-        | "wp-bpe-ft" | "wp_bpe_ft"
-        | "wp-bpe-pig" | "wp_bpe_pig"
-        | "wp-bpe-scp" | "wp_bpe_scp"
-        | "wp-bpe-npmi" | "wp_bpe_npmi"
-        | "wp-bpe-ppig" | "wp_bpe_ppig" => {}
-        unknown => {
+
+    let scorer_norm = scorer_type.to_lowercase().replace('-', "_");
+    // (default min_frequency, uses alpha, uses beta, uses penalty); defaults are the scorers' own.
+    let (default_min, uses_alpha, uses_beta, uses_penalty) = match scorer_norm.as_str() {
+        "frequency" | "bpe" | "wp_bpe_base" => (1, false, false, false),
+        "wp_bpe_pig" => (WpBpePigScorer::default().min_frequency, false, false, false),
+        "wordpiece" | "pmi" => (WordPieceScorer::default().min_frequency, true, false, false),
+        "mdl" => (MdlScorer::default().min_frequency, false, false, true),
+        "length_penalized" => (LengthPenalizedScorer::default().min_frequency, false, true, false),
+        "wp_bpe_ft" => (WpBpeFtScorer::default().min_frequency, false, false, false),
+        "wp_bpe_scp" => (WpBpeScpScorer::default().min_freq, true, false, false),
+        "wp_bpe_npmi" => (WpBpeNpmiScorer::default().min_freq, true, false, false),
+        "wp_bpe_ppig" => (WpBpePpigScorer::default().min_freq, false, false, true),
+        _ => {
             return Err(PyValueError::new_err(format!(
-                "Unknown scorer type: {unknown}"
+                "Unknown scorer type: {scorer_type}"
+            )));
+        }
+    };
+    for (name, given, used) in [
+        ("alpha", alpha.is_some(), uses_alpha),
+        ("beta", beta.is_some(), uses_beta),
+        ("penalty", penalty.is_some(), uses_penalty),
+    ] {
+        if given && !used {
+            return Err(PyValueError::new_err(format!(
+                "scorer {scorer_type:?} does not take {name}"
             )));
         }
     }
+    let min_freq = min_frequency.unwrap_or(default_min).max(1);
+    if scorer_norm == "wp_bpe_ft" && min_freq < 2 {
+        return Err(PyValueError::new_err(
+            "wp_bpe_ft is defined by min_frequency >= 2 (use wp_bpe_base for no cutoff)",
+        ));
+    }
 
-    let min_freq = min_frequency.max(1);
-
-    let model = py.allow_threads(|| -> Result<BottomUpModel, String> {
-        let word_counts = extract_word_counts(&corpus).map_err(|e| e.to_string())?;
-
-        let mut model = match scorer_norm.as_str() {
-            "frequency" | "bpe" => {
-                let scorer = BpeScorer::new();
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq)
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "wordpiece" | "pmi" => {
-                let scorer = WordPieceScorer::new(alpha, min_freq);
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq)
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "mdl" => {
-                let entry_cost = if penalty > 0.0 { penalty } else { 24.0 };
-                let scorer = MdlScorer::new(entry_cost, min_freq);
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq)
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "length_penalized" => {
-                let scorer = LengthPenalizedScorer::new(beta, min_freq);
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq)
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "wp-bpe-base" | "wp_bpe_base" => {
-                let scorer = WpBpeBaseScorer::new();
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(1)
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "wp-bpe-ft" | "wp_bpe_ft" => {
-                let scorer = WpBpeFtScorer::new(min_freq.max(2));
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq.max(2))
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "wp-bpe-pig" | "wp_bpe_pig" => {
-                let scorer = WpBpePigScorer::new(min_freq);
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq)
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "wp-bpe-scp" | "wp_bpe_scp" => {
-                let discount = if alpha != 1.0 { alpha } else { 0.75 };
-                let scorer = WpBpeScpScorer::new(min_freq.max(2), discount);
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq.max(2))
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "wp-bpe-npmi" | "wp_bpe_npmi" => {
-                let alpha_val = if alpha != 1.0 { alpha } else { 0.5 };
-                let scorer = WpBpeNpmiScorer::new(min_freq.max(2), alpha_val);
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq.max(2))
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            "wp-bpe-ppig" | "wp_bpe_ppig" => {
-                let len_penalty = if penalty > 0.0 { penalty } else { 0.35 };
-                let scorer = WpBpePpigScorer::new(min_freq.max(2), len_penalty);
-                BottomUpTrainer::new(&scorer, vocab_size)
-                    .with_min_frequency(min_freq.max(2))
-                    .train(&word_counts)
-                    .map_err(|e| e.to_string())?
-            }
-            _ => unreachable!(),
-        };
-
-        if let Some(specials) = &special_tokens {
-            for special in specials {
+    let model = py
+        .allow_threads(|| -> Result<BottomUpModel, String> {
+            let word_counts = extract_word_counts(&corpus).map_err(|e| e.to_string())?;
+            let scorer: Box<dyn PairScorer> = match scorer_norm.as_str() {
+                "frequency" | "bpe" => Box::new(BpeScorer::new()),
+                "wordpiece" | "pmi" => Box::new(WordPieceScorer::new(
+                    alpha.unwrap_or(WordPieceScorer::default().alpha),
+                    min_freq,
+                )),
+                "mdl" => Box::new(MdlScorer::new(
+                    penalty.unwrap_or(MdlScorer::default().entry_overhead_bits),
+                    min_freq,
+                )),
+                "length_penalized" => Box::new(LengthPenalizedScorer::new(
+                    beta.unwrap_or(LengthPenalizedScorer::default().beta),
+                    min_freq,
+                )),
+                "wp_bpe_base" => Box::new(WpBpeBaseScorer::new()),
+                "wp_bpe_ft" => Box::new(WpBpeFtScorer::new(min_freq)),
+                "wp_bpe_pig" => Box::new(WpBpePigScorer::new(min_freq)),
+                "wp_bpe_scp" => Box::new(WpBpeScpScorer::new(
+                    min_freq,
+                    alpha.unwrap_or(WpBpeScpScorer::default().discount),
+                )),
+                "wp_bpe_npmi" => Box::new(WpBpeNpmiScorer::new(
+                    min_freq,
+                    alpha.unwrap_or(WpBpeNpmiScorer::default().alpha),
+                )),
+                "wp_bpe_ppig" => Box::new(WpBpePpigScorer::new(
+                    min_freq,
+                    penalty.unwrap_or(WpBpePpigScorer::default().length_penalty),
+                )),
+                _ => unreachable!(),
+            };
+            let mut model = BottomUpTrainer::new(scorer.as_ref(), merge_target)
+                .with_min_frequency(min_freq)
+                .train(&word_counts)
+                .map_err(|e| e.to_string())?;
+            for special in &specials {
                 model
                     .vocab
                     .add_special_token(special)
                     .map_err(|e| e.to_string())?;
             }
-        }
-
-        let mut pad_idx = 0;
-        while model.vocab.len() < vocab_size {
-            let token_str = format!("<unused_{pad_idx}>");
-            model.vocab.add_token(token_str.into_bytes());
-            pad_idx += 1;
-        }
-
-        Ok(model)
-    }).map_err(PyValueError::new_err)?;
+            Ok(model)
+        })
+        .map_err(PyValueError::new_err)?;
 
     Ok(PyBpeModel { model })
 }
 
+/// Trains a Unigram LM; `vocab_size` is an upper bound (the seed set may be smaller).
 #[pyfunction]
 #[pyo3(signature = (corpus, vocab_size, num_iterations=10, shrinking_factor=0.75))]
 pub fn train_unigram(
@@ -634,6 +710,7 @@ pub fn train_super_bpe(
 
     Ok(PyBpeModel { model })
 }
+
 
 #[pyfunction]
 #[pyo3(signature = (corpus, vocab_size, morpheme_lexicon, lambda_weight=1.0, scorer="frequency"))]
@@ -747,5 +824,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(train_unigram, m)?)?;
     m.add_function(wrap_pyfunction!(train_super_bpe, m)?)?;
     m.add_function(wrap_pyfunction!(train_morpheme_guided, m)?)?;
+    m.add_function(wrap_pyfunction!(bytes_to_printable, m)?)?;
+    m.add_function(wrap_pyfunction!(printable_to_bytes, m)?)?;
     Ok(())
 }

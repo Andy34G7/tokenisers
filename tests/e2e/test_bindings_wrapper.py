@@ -1,0 +1,89 @@
+"""DynamicResearchTokenizer (transformers ``PreTrainedTokenizer`` adapter): ids equal the native
+tokenizer's, token strings are real byte-level tokens, and the HF base behaviour (batching,
+padding, tensors, pairs) is not overridden into something else."""
+
+import warnings
+
+import numpy as np
+import pytest
+
+import tokenisers
+
+CORPUS = ["Hello\tworld 9 the quick brown fox jumps over the lazy dog " * 3, "Héllo wörld 日本語 🚀"]
+TEXTS = ["Hello\tworld 9", "Héllo wörld 日本語 🚀", "the quick  brown\n", "x"]
+
+
+@pytest.fixture(scope="module", params=["bpe", "unigram"])
+def pair(request):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # tiny corpus: vocab may stop short of 300
+        cls = tokenisers.BpeTokenizer if request.param == "bpe" else tokenisers.UnigramTokenizer
+        tok = cls.train(CORPUS, 300)
+    return tok, tokenisers.DynamicResearchTokenizer(tok)
+
+
+def test_ids_and_tokens_are_the_native_ones(pair):
+    """P15: _tokenize returned str(id), so "\\t" (id 9) became the digit "9" (id 57) and
+    convert_tokens_to_string gave '72 306 ...'; wrapping a UnigramTokenizer raised AttributeError."""
+    tok, wrapper = pair
+    for text in TEXTS:
+        ids = tok.encode(text)
+        assert wrapper(text)["input_ids"] == ids
+        tokens = wrapper.tokenize(text)
+        assert tokens == [tok.id_to_token(i) for i in ids]
+        assert wrapper.convert_tokens_to_ids(tokens) == ids
+        assert wrapper.convert_tokens_to_string(tokens) == text
+        assert wrapper.decode(ids) == text
+    assert wrapper("\t")["input_ids"] == [9]
+
+
+def test_hf_base_behaviour_batching_padding_tensors_pairs(pair):
+    """P16: batch_decode returned one joined string; padding_side, return_tensors and text_pair
+    were ignored."""
+    tok, wrapper = pair
+    a, b = tok.encode("ab cd"), tok.encode("the quick brown")
+    assert wrapper.batch_decode([a, b]) == ["ab cd", "the quick brown"]
+
+    pad = wrapper.pad_token_id
+    wrapper.padding_side = "left"
+    try:
+        out = wrapper(["ab cd", "the quick brown"], padding=True)
+    finally:
+        wrapper.padding_side = "right"
+    n = len(b) - len(a)
+    assert out["input_ids"] == [[pad] * n + a, b]
+    assert out["attention_mask"] == [[0] * n + [1] * len(a), [1] * len(b)]
+    right = wrapper(["ab cd", "the quick brown"], padding=True)
+    assert right["input_ids"][0] == a + [pad] * n
+
+    arr = wrapper(["ab cd", "the quick brown"], padding=True, return_tensors="np")["input_ids"]
+    assert isinstance(arr, np.ndarray) and arr.shape == (2, len(b))
+
+    assert wrapper("ab cd", "the quick brown")["input_ids"] == a + b
+    # GPT-2 convention (no post-processor in the exported tokenizer.json): nothing is added
+    assert wrapper("ab cd", add_special_tokens=True)["input_ids"] == a
+
+
+def test_special_tokens_in_text_use_reserved_ids(pair):
+    """P2: wrapper specials sit above the model vocab and are split out of the text."""
+    tok, wrapper = pair
+    ids = wrapper("x</s>y<pad>")["input_ids"]
+    assert ids == tok.encode("x") + [wrapper.eos_token_id] + tok.encode("y") + [wrapper.pad_token_id]
+    assert min(wrapper.all_special_ids) >= tok.vocab_size
+    assert wrapper.decode(ids, skip_special_tokens=True) == "xy"
+
+
+def test_from_pretrained_reloads_the_underlying_model(pair, tmp_path):
+    """P14: from_pretrained gave _underlying=None: input_ids == [] and len == 0, no error."""
+    tok, wrapper = pair
+    wrapper.save_pretrained(str(tmp_path))
+    reloaded = tokenisers.DynamicResearchTokenizer.from_pretrained(str(tmp_path))
+    assert type(reloaded._underlying) is type(tok)
+    assert len(reloaded) == len(wrapper) > tok.vocab_size
+    for text in TEXTS + ["a</s>b"]:
+        assert reloaded(text)["input_ids"] == wrapper(text)["input_ids"]
+
+
+def test_needs_a_model():
+    with pytest.raises(ValueError):
+        tokenisers.DynamicResearchTokenizer()

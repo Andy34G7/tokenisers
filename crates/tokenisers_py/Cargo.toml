@@ -16,4 +16,4 @@ tokenisers_core = { path = "../tokenisers_core" }
 pyo3 = { workspace = true }
 log = { workspace = true }
 ahash = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] }  # exact log-prob reload
