@@ -82,8 +82,11 @@ uv run python -m tokenisers.dashboard --port 8765
 
 ### 3. Prepare Standardized Corpus
 ```bash
-# Offline deterministic smoke corpus (or add --stream-remote for live HuggingFace streaming)
-uv run python -m tokenisers.data --preset smoke --force-offline
+# Real corpus: FineWeb-Edu + FineWeb-2 (10 languages) + code, de-duplicated, disjoint train/val/test,
+# provenance in manifest.json (default ~50 MB train; StarCoder needs HF_TOKEN, else an ungated fallback is recorded)
+uv run python -m tokenisers.data --preset small --sigmorphon eng fra hun
+# Synthetic offline test corpus (labelled synthetic everywhere)
+uv run python -m tokenisers.data --preset smoke --offline
 ```
 
 ### 4. Run Benchmarks

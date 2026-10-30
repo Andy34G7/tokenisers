@@ -41,7 +41,7 @@ def main() -> None:
 
     pipeline = DataPipeline(force_offline=True)
     corpus = pipeline.sample_preset("smoke", max_bytes=120_000)
-    morph_samples = SigmorphonLoader().load_builtin_samples()
+    morph_samples = SigmorphonLoader().load_offline_fixture()
     lexicon = {item["word"]: item["segments"] for item in morph_samples}
     v_size = args.vocab_size
     v_switch = max(260, int(v_size * 0.75))

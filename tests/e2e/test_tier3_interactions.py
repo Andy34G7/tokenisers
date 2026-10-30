@@ -119,7 +119,7 @@ def test_tier3_length_penalized_with_bpe_dropout(require_tokenisers, sample_engl
 def test_tier3_byte_entropy_with_data_pipeline(require_tokenisers):
     """T3.9: Byte-entropy dynamic patching (F10) runs directly on streaming pipeline batches (F14)."""
     tokenisers = require_tokenisers
-    pipeline = tokenisers.data.DataPipeline()
+    pipeline = tokenisers.data.DataPipeline(force_offline=True)
     docs = pipeline.sample_preset("smoke", max_bytes=20_000)
     tok = tokenisers.ByteEntropyTokenizer(entropy_threshold=3.5, min_patch_len=1, max_patch_len=16)
     for doc in docs[:3]:
@@ -183,7 +183,7 @@ def test_tier3_hf_wrapper_with_dynamic_dropout_and_sampling(require_tokenisers, 
 def test_tier3_data_pipeline_streaming_into_all_four_scorers(require_tokenisers):
     """T3.15: Streaming data pipeline batches (F14) feed cleanly into all 4 bottom-up scorers (F1-F4)."""
     tokenisers = require_tokenisers
-    pipeline = tokenisers.data.DataPipeline()
+    pipeline = tokenisers.data.DataPipeline(force_offline=True)
     docs = pipeline.sample_preset("smoke", max_bytes=30_000)
     for scorer in ["frequency", "wordpiece", "mdl", "length_penalized"]:
         tok = tokenisers.BpeTokenizer.train(corpus=docs, vocab_size=270, scorer=scorer)

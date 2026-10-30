@@ -23,7 +23,7 @@ def main() -> None:
     pipeline = DataPipeline(force_offline=True)
     corpus = pipeline.sample_preset("smoke", max_bytes=120_000)
     eval_text = "\n".join(corpus[:80])
-    gold_annotations = SigmorphonLoader().load_builtin_samples()
+    gold_annotations = SigmorphonLoader().load_offline_fixture()
     lexicon = {item["word"]: item["segments"] for item in gold_annotations}
 
     v_size = args.vocab_size

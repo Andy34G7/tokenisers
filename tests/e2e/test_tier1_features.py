@@ -773,40 +773,42 @@ def test_tier1_f13_lossless_mathematical_symbols(require_tokenisers):
 def test_tier1_f14_data_pipeline_sample_preset_smoke(require_tokenisers):
     """F14.1: Data pipeline samples minimal smoke preset with valid documents."""
     tokenisers = require_tokenisers
-    pipeline = tokenisers.data.DataPipeline()
+    pipeline = tokenisers.data.DataPipeline(force_offline=True)
     docs = pipeline.sample_preset("smoke", max_bytes=100_000)
     assert len(docs) > 0
     total_bytes = sum(len(d.encode("utf-8")) for d in docs)
-    assert total_bytes >= 50_000
+    assert total_bytes >= 100_000
 
 
 def test_tier1_f14_data_pipeline_deterministic_split(require_tokenisers):
     """F14.2: Deterministic document splitter assigns identical docs to the same split."""
     tokenisers = require_tokenisers
-    splitter = tokenisers.data.DeterministicSplitter(train_ratio=0.9)
+    splitter = tokenisers.data.DeterministicSplitter(val_fraction=0.05, test_fraction=0.05)
     doc = "This is a fixed deterministic document for split testing."
     split1 = splitter.assign_split(doc)
     split2 = splitter.assign_split(doc)
     assert split1 == split2
-    assert split1 in ("train", "val")
+    assert split1 in ("train", "val", "test")
 
 
-def test_tier1_f14_data_pipeline_domain_distribution(require_tokenisers):
+def test_tier1_f14_data_pipeline_domain_distribution(require_tokenisers, tmp_path):
     """F14.3: Stratified sampler yields documents across English, Multilingual, and Code domains."""
     tokenisers = require_tokenisers
-    pipeline = tokenisers.data.DataPipeline()
-    dataset_mix = pipeline.get_dataset_mix("smoke")
-    domains = {item["domain"] for item in dataset_mix}
-    assert {"english", "multilingual", "code"}.issubset(domains)
+    pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path, force_offline=True)
+    ds = pipeline.prepare(train_bytes=20_000)
+    for split in ("train", "val", "test"):
+        domains = {doc["domain"] for doc in ds.docs(split)}
+        assert {"english", "multilingual", "code"}.issubset(domains)
 
 
 def test_tier1_f14_data_pipeline_disk_caching(require_tokenisers, tmp_path):
     """F14.4: Cached corpus can be reloaded without network calls."""
     tokenisers = require_tokenisers
-    pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path)
-    path = pipeline.prepare_corpus(preset="smoke", max_bytes=50_000)
-    assert Path(path).exists()
-    assert Path(path).stat().st_size > 0
+    pipeline = tokenisers.data.DataPipeline(cache_dir=tmp_path, force_offline=True)
+    first = pipeline.prepare(train_bytes=50_000)
+    assert first.path("train").exists() and first.path("train").stat().st_size > 0
+    again = tokenisers.data.DataPipeline(cache_dir=tmp_path, force_offline=True).prepare(train_bytes=50_000)
+    assert again.root == first.root and again.manifest == first.manifest
 
 
 def test_tier1_f14_data_pipeline_offline_fallback(require_tokenisers):
