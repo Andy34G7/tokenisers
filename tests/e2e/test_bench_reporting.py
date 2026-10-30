@@ -43,7 +43,7 @@ def test_generator_renders_json_and_detects_stale_readme(repo_root, tmp_path):
     (tmp_path / "benchmarks/results/tokka/tokka_matrix.json").write_text(json.dumps(
         {"meta": _meta(), "models": {"wordpiece_pmi": row, "wp_bpe_ft": row}}))
     readme = "x\n" + "".join(f"<!-- BEGIN GENERATED: {s} -->\nold\n<!-- END GENERATED: {s} -->\n"
-                             for s in ("tokka", "intrinsic", "colab"))
+                             for s in gen.SECTIONS)
     out = gen.render_readme(readme, tmp_path)
     assert "| `wordpiece_pmi` = `wp_bpe_ft` | 300 | 3.250 | 3.500 | 1.500 | 20.00 | 250 |" in out
     assert out.count("`wp_bpe_ft`") == 1  # one row for the duplicate pair
