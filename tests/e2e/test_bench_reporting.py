@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
+import warnings
 
 import pytest
 
@@ -64,6 +66,31 @@ def test_find_duplicates_detects_identical_tokenizers(require_tokenisers):
         "u": tk.UnigramTokenizer.train(corpus, vocab_size=266),
     }
     assert common.find_duplicates(models) == {"b": "a"}
+
+
+def test_result_files_record_every_training_parameter(require_tokenisers):
+    """meta.variants (variant_config) holds every parameter training takes: none is left to a
+    library default, except scorer parameters the variant's scorer rejects. The recorded BPE values
+    are the scorer defaults, so making them explicit changed no tokenizer."""
+    from tokenisers import models
+
+    corpus = ["the cat sat on the mat with the hat, a bat ate a gnat " * 5, "zyx qwv jk"]
+    not_params = {"corpus", "vocab_size", "v_final", "morpheme_lexicon", "special_tokens"}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # training may stop short of vocab_size on this corpus
+        for name in common.VARIANTS:
+            cfg = common.variant_config(name, 290)
+            cls = getattr(models, cfg.pop("class"))
+            extra = {"morpheme_lexicon": {}} if name == "morpheme_bpe" else {}
+            left = set(inspect.signature(cls.train).parameters) - set(cfg) - not_params
+            assert left <= {"alpha", "beta", "penalty"}, (name, left)
+            for p in left:
+                with pytest.raises(ValueError, match="does not (take|apply)"):
+                    cls.train(corpus, vocab_size=290, **cfg, **extra, **{p: 0.5})
+            if name in common._BPE_SCORERS:
+                default = models.BpeTokenizer.train(corpus, vocab_size=290, scorer=cfg["scorer"])
+                trained = common.train_variant(name, corpus, 290, {})
+                assert common.tokenizer_fingerprint(trained) == common.tokenizer_fingerprint(default), name
 
 
 def test_leaderboards_state_data_and_backend():

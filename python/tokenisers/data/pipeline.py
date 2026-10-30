@@ -1,7 +1,8 @@
 """
 Data pipeline: real tokenizer-training corpora with a deterministic, exact-hash
-de-duplicated, disjoint train/val/test split, plus SIGMORPHON 2022 morpheme
-segmentation gold data.
+de-duplicated, document-disjoint train/val/test split, plus SIGMORPHON 2022
+morpheme segmentation gold data. Only exact duplicate documents are removed:
+near-duplicates and boilerplate lines shared across documents (and splits) stay.
 
 Real sources are read as parquet straight from pinned Hugging Face dataset
 revisions (huggingface_hub picks HF_TOKEN up from the environment):

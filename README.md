@@ -60,6 +60,16 @@ A high-performance **Rust (`PyO3` / `maturin`) + Python** research and benchmark
 | **Stochastic / Dynamic** | `unigram_sampling` | **Subword Regularization**: Forward-Filtering Backward-Sampling (FFBS) & $k$-best Viterbi lattice sampling |
 | **Stochastic / Dynamic** | `byte_entropy` | **Byte-Entropy Dynamic Patching**: places patch boundaries where Markov byte transition entropy exceeds threshold $\tau$ |
 
+A pair seen fewer than `min_frequency` times is never merged: 2 for `wordpiece_pmi`, `wp_bpe_ft`,
+`wp_bpe_scp`, `wp_bpe_npmi`, `wp_bpe_ppig` and `mdl_bits`, 1 for the other merge variants. Other
+defaults: $\alpha = 1$ (`wordpiece_pmi`), $d = 0.75$ (`wp_bpe_scp`), $\alpha = 0.5$
+(`wp_bpe_npmi`), $\eta = 0.35$ (`wp_bpe_ppig`), 24 bits per vocabulary entry (`mdl_bits`),
+$\beta = 0.5$ (`length_penalized`), and for `unigram_lm` 10 EM iterations per pruning round with
+shrinking factor 0.75. The benchmark suite trains with these values and $\lambda = 2$ for
+`morpheme_bpe`; each result file records every training parameter under `meta.variants` (files
+written before this was added, including the committed results from `603a983`, list only the scorer
+and non-default values; that commit used the defaults above).
+
 ---
 
 ## Quickstart & CLI Usage
@@ -85,8 +95,9 @@ uv run python -m tokenisers.dashboard --port 8765
 
 ### 3. Prepare Standardized Corpus
 ```bash
-# Real corpus: FineWeb-Edu + FineWeb-2 (10 languages) + code, de-duplicated, disjoint train/val/test,
-# provenance in manifest.json (default 50 MiB train; StarCoder needs a Hugging Face token, see Data access)
+# Real corpus: FineWeb-Edu + FineWeb-2 (10 languages) + code, exact duplicates removed,
+# document-disjoint train/val/test, provenance in manifest.json (default 50 MiB train;
+# StarCoder needs a Hugging Face token, see Data access)
 uv run python -m tokenisers.data --preset small --sigmorphon eng fra hun rus spa
 # Synthetic offline test corpus (labelled synthetic everywhere)
 uv run python -m tokenisers.data --preset smoke --offline
@@ -108,7 +119,10 @@ All three tiers read the prepared dataset (step 3): tokenizers train on its **tr
 tokka and the intrinsic suite evaluate on the held-out **test** split. The proxy LM trains on
 documents of the same **train** split the tokenizers were trained on (shuffled, each used at most
 once; *not* held out from tokenizer training) and is scored on the held-out **val** split.
-Disjointness of train and evaluation documents is asserted at runtime. The default vocabulary is
+Disjointness of train and evaluation documents is asserted at runtime. It holds at document level
+only: de-duplication drops exact (SHA-256) duplicate documents, not near-duplicates or shared
+boilerplate. In the default dataset 7 of 666 test and 5 of 687 val documents share a line of at
+least 200 characters with a train document. The default vocabulary is
 16,384 (`--vocab-size 32768` / `65536` for the larger sizes). Every result JSON carries a `meta`
 block with the dataset manifest, requested and actual vocabulary sizes, per-variant training
 parameters and warnings, seeds, hardware/backend and git commit. Variants that produce
@@ -153,10 +167,11 @@ split: `super_bpe` 2.9 GiB, the largest plain BPE variant (`wp_bpe_pig`) 1.25 Gi
 for `super_bpe` and 60 for every other variant, at least 20% above every measurement
 (`MEASURED_TRAIN_PEAKS` in `tests/e2e/test_bench_reporting.py`): ~4.2 GiB for the 50 MiB default
 with `super_bpe`, ~3.5 GiB without it. Before preparing the dataset they
-exit if that exceeds the memory the process may use: a cgroup / `systemd-run -p MemoryMax=` limit
-in full, otherwise `MemAvailable` minus a reserve of max(2 GiB, 15% of RAM) for the rest of the
-machine. Lower `--train-bytes`, drop the variant from `--variants`, or run under an explicit
-`MemoryMax=` scope.
+exit if that exceeds the memory the process may use: `MemAvailable` minus a reserve of max(2 GiB,
+15% of RAM) for the rest of the machine, or the free part of a cgroup / `systemd-run -p MemoryMax=`
+limit if that is smaller. The reserve applies inside a cgroup too, so a `MemoryMax=` scope never
+raises the allowance. Lower `--train-bytes` or drop the variant from `--variants`; or, if a
+`MemoryMax=` scope is the safety net, pass `--skip-memory-check` inside it.
 
 ---
 
@@ -507,6 +522,7 @@ Morph F1 by language:
   `morpheme_bpe` is trained with a lexicon from the SIGMORPHON train split (gold test words
   removed), i.e. with supervision the other variants do not get.
 - **Throughput.** Single-process encode/decode on a shared laptop CPU, median of 5 passes. Two runs
-  of the V = 65,536 intrinsic suite differed by up to ~1.5x in MB/s (the first overlapped a busier
-  desktop and the start of another benchmark job; the committed numbers are from the second, and
-  all other metrics were identical). Compare MB/s within one table, not across tables.
+  of the V = 65,536 intrinsic suite differed by up to 1.7x in MB/s (1.55x encode, 1.71x decode;
+  the first overlapped a busier desktop and the start of another benchmark job; the committed
+  numbers are from the second, and all other metrics were identical). Compare MB/s within one
+  table, not across tables.

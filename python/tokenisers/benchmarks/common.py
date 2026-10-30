@@ -58,18 +58,22 @@ VARIANTS: Tuple[str, ...] = (
     "unigram_lm",
 )
 
-# Scorer name and explicit parameters of every BpeTokenizer.train variant; None = scorer default.
+# Scorer name and every parameter of each BpeTokenizer.train variant. Nothing is left to a library
+# default, so the training record in each result file (meta.variants) is exactly what ran. The
+# values are the scorers' defaults (README formula table). min_frequency: pairs seen fewer times
+# are never merged; alpha is the scp discount d and the npmi support exponent; penalty is the ppig
+# length exponent eta and the mdl cost in bits per vocabulary entry.
 _BPE_SCORERS: Dict[str, Tuple[str, Dict[str, Any]]] = {
-    "bpe_frequency": ("frequency", {}),
-    "wordpiece_pmi": ("wordpiece", {}),
-    "wp_bpe_base": ("wp-bpe-base", {}),
-    "wp_bpe_ft": ("wp-bpe-ft", {}),
-    "wp_bpe_pig": ("wp-bpe-pig", {}),
-    "wp_bpe_scp": ("wp-bpe-scp", {}),
-    "wp_bpe_npmi": ("wp-bpe-npmi", {}),
-    "wp_bpe_ppig": ("wp-bpe-ppig", {}),
-    "mdl_bits": ("mdl", {}),
-    "length_penalized": ("length_penalized", {"beta": 0.5}),
+    "bpe_frequency": ("frequency", {"min_frequency": 1}),
+    "wordpiece_pmi": ("wordpiece", {"min_frequency": 2, "alpha": 1.0}),
+    "wp_bpe_base": ("wp-bpe-base", {"min_frequency": 1}),
+    "wp_bpe_ft": ("wp-bpe-ft", {"min_frequency": 2}),
+    "wp_bpe_pig": ("wp-bpe-pig", {"min_frequency": 1}),
+    "wp_bpe_scp": ("wp-bpe-scp", {"min_frequency": 2, "alpha": 0.75}),
+    "wp_bpe_npmi": ("wp-bpe-npmi", {"min_frequency": 2, "alpha": 0.5}),
+    "wp_bpe_ppig": ("wp-bpe-ppig", {"min_frequency": 2, "penalty": 0.35}),
+    "mdl_bits": ("mdl", {"min_frequency": 2, "penalty": 24.0}),
+    "length_penalized": ("length_penalized", {"min_frequency": 1, "beta": 0.5}),
 }
 
 
@@ -126,7 +130,8 @@ def usable_system_memory(meminfo: str) -> Optional[int]:
 
 def available_memory() -> Optional[int]:
     """Bytes this process may allocate: min(usable_system_memory, the free part of every cgroup v2
-    memory.max above it). A cgroup limit (e.g. systemd-run -p MemoryMax=) is used in full."""
+    memory.max above it). The desktop reserve applies inside a cgroup too: a limit such as
+    systemd-run -p MemoryMax= can lower the allowance, never raise it."""
     avail: Optional[int] = None
     try:
         avail = usable_system_memory(Path("/proc/meminfo").read_text())
@@ -231,34 +236,30 @@ def load_morphology(
 # ----------------------------------------------------------------------------
 
 def variant_config(name: str, vocab_size: int) -> Dict[str, Any]:
-    """Class and training parameters of a suite variant (recorded in every result file)."""
+    """Class and every training parameter of a suite variant besides corpus and vocab_size (the
+    morpheme lexicon is in meta.morphology), recorded in every result file."""
     if name in _BPE_SCORERS:
         scorer, params = _BPE_SCORERS[name]
         return {"class": "BpeTokenizer", "scorer": scorer, **params}
     if name == "super_bpe":
         return {"class": "SuperBpeTokenizer", "v_switch": 256 + (max(vocab_size, 256) - 256) * 9 // 10}
     if name == "morpheme_bpe":
-        return {"class": "MorphemeBpeTokenizer", "scorer": "frequency", "lambda_weight": MORPHEME_LAMBDA}
+        return {"class": "MorphemeBpeTokenizer", "scorer": "frequency", "min_frequency": 1,
+                "lambda_weight": MORPHEME_LAMBDA}
     if name == "unigram_lm":
-        return {"class": "UnigramTokenizer"}
+        return {"class": "UnigramTokenizer", "num_iterations": 10, "shrinking_factor": 0.75}
     raise ValueError(f"unknown variant {name!r}")
 
 
 def train_variant(name: str, corpus: List[str], vocab_size: int, lexicon: Dict[str, List[str]]) -> Any:
-    from tokenisers.models import BpeTokenizer, MorphemeBpeTokenizer, SuperBpeTokenizer, UnigramTokenizer
+    """Trains ``name`` with exactly the parameters ``variant_config`` records."""
+    from tokenisers import models
 
-    if name in _BPE_SCORERS:
-        scorer, params = _BPE_SCORERS[name]
-        return BpeTokenizer.train(corpus=corpus, vocab_size=vocab_size, scorer=scorer, **params)
-    if name == "super_bpe":
-        return SuperBpeTokenizer.train(corpus=corpus, vocab_size=vocab_size)
+    params = variant_config(name, vocab_size)
+    cls = getattr(models, params.pop("class"))
     if name == "morpheme_bpe":
-        return MorphemeBpeTokenizer.train(
-            corpus=corpus, vocab_size=vocab_size, morpheme_lexicon=lexicon, lambda_weight=MORPHEME_LAMBDA
-        )
-    if name == "unigram_lm":
-        return UnigramTokenizer.train(corpus=corpus, vocab_size=vocab_size)
-    raise ValueError(f"unknown variant {name!r}")
+        params["morpheme_lexicon"] = lexicon
+    return cls.train(corpus=corpus, vocab_size=vocab_size, **params)
 
 
 def train_suite(

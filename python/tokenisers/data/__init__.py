@@ -1,5 +1,5 @@
 """
-Data pipeline: real corpora with a deterministic, de-duplicated, disjoint
+Data pipeline: real corpora with a deterministic, exact-duplicate-free, document-disjoint
 train/val/test split (see tokenisers.data.pipeline), SIGMORPHON 2022 gold
 segmentations, and a synthetic generator for offline tests.
 """
