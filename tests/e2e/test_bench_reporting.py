@@ -91,9 +91,43 @@ def test_memory_preflight_refuses_runs_that_would_not_fit(monkeypatch):
     common.check_memory(["bpe_frequency", "unigram_lm"], 4 * mb)  # ~1.3 GiB: fine
     with pytest.raises(SystemExit, match="unigram_lm"):
         common.check_memory(["bpe_frequency", "unigram_lm"], 50 * mb)  # ~9 GiB
-    common.check_memory(["bpe_frequency"], 50 * mb)  # BPE alone: ~2.8 GiB
+    common.check_memory(["bpe_frequency"], 35 * mb)  # BPE alone: ~2.6 GiB
     monkeypatch.setattr(common, "available_memory", lambda: None)  # unknown platform: no check
     common.check_memory(["unigram_lm"], 10**12)
+
+
+def test_memory_estimate_covers_the_largest_vocabulary():
+    """Measured at V=65536 on 4 MB of the real corpus (peak RSS growth per training byte): super_bpe
+    100, wp_bpe_npmi/mdl_bits 47, unigram_lm 139. The estimate must cover these with a margin, since
+    65536 is a supported size."""
+    measured = {"super_bpe": 100, "wp_bpe_npmi": 47, "mdl_bits": 47, "unigram_lm": 139, "bpe_frequency": 38}
+    for variant, per_byte in measured.items():
+        assert common.estimate_train_memory([variant], 10**8) - common.BASE_MEMORY >= 1.2 * per_byte * 10**8, variant
+
+
+def test_system_memory_keeps_a_reserve_for_the_desktop():
+    """Outside a cgroup limit the benchmark may not plan on all of MemAvailable."""
+    gib = 2**30
+    meminfo = f"MemTotal: {15 * gib // 1024} kB\nMemFree: 1 kB\nMemAvailable: {int(9.5 * gib) // 1024} kB\n"
+    usable = common.usable_system_memory(meminfo)
+    assert usable == int(9.5 * gib) - int(0.15 * 15 * gib)  # 15% of 15 GiB > the 2 GiB floor
+    assert common.usable_system_memory(f"MemTotal: {4 * gib // 1024} kB\nMemAvailable: {3 * gib // 1024} kB\n") == gib
+    assert common.usable_system_memory("MemTotal: 1 kB\n") is None
+    # the reviewer's scenario: a ~9.1 GiB unigram_lm estimate on a 15 GiB desktop with 9.5 GiB available
+    assert common.estimate_train_memory(["unigram_lm"], 50 * 2**20) > usable
+
+
+def test_memory_preflight_runs_before_the_dataset_is_prepared(monkeypatch, tmp_path):
+    """A run that cannot fit stops before downloading/preparing its dataset."""
+    from tokenisers.benchmarks.colab import __main__ as colab_cli
+    from tokenisers.benchmarks.intrinsic import __main__ as intrinsic_cli
+    from tokenisers.benchmarks.tokka import __main__ as tokka_cli
+
+    monkeypatch.setattr(common, "available_memory", lambda: 2**30)
+    for cli in (tokka_cli, intrinsic_cli, colab_cli):
+        monkeypatch.setattr(cli, "load_dataset", lambda args: pytest.fail("dataset prepared before the check"))
+        with pytest.raises(SystemExit, match="needs ~"):
+            cli.main(["--offline", "--cache-dir", str(tmp_path), "--train-bytes", str(50 * 2**20)])
 
 
 def test_assert_disjoint():

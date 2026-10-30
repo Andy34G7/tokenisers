@@ -84,7 +84,7 @@ def test_bpb_matches_full_context_when_window_covers_stream():
     assert res["loss_nats"] * 59 == pytest.approx(ref, rel=1e-5)
 
 
-def _job(tmp_path: Path, seeds=(0, 1)) -> Path:
+def _job(tmp_path: Path, seeds=(0, 1), val_code_len=80) -> Path:
     job = tmp_path / "job"
     job.mkdir(parents=True)
     rng = np.random.default_rng(0)
@@ -93,7 +93,7 @@ def _job(tmp_path: Path, seeds=(0, 1)) -> Path:
            "seeds": list(seeds), "domains": ["english", "code"], "tokenizers": {"tok": {"vocab_size": 40}}}
     (job / "config.json").write_text(json.dumps(cfg))
     np.savez(job / "tok.npz", train=rng.integers(0, 40, 2000).astype(np.uint16),
-             val_english=rng.integers(0, 40, 100).astype(np.uint16), val_code=rng.integers(0, 40, 80).astype(np.uint16),
+             val_english=rng.integers(0, 40, 100).astype(np.uint16), val_code=rng.integers(0, 40, val_code_len).astype(np.uint16),
              token_bytes=np.full(40, 2, dtype=np.int32))
     return job
 
@@ -112,13 +112,42 @@ def test_run_job_reports_mean_and_sd_over_seeds(tmp_path):
 
 
 def test_lm_train_docs_never_cycle():
-    """B12: the LM consumes unseen train text once; a budget larger than the split is an error."""
+    """B12: the LM uses each train-split document at most once; a budget larger than the split is an error."""
     from tokenisers.benchmarks.colab.__main__ import _lm_train_docs
 
     docs = ["x" * 100] * 50
     assert sum(len(d) for d in _lm_train_docs(docs, 1000, 0)) >= 1100
     with pytest.raises(SystemExit, match="byte-budget"):
         _lm_train_docs(docs, 10_000, 0)
+
+
+@pytest.mark.parametrize("n_tokens", [0, 1])
+def test_empty_validation_domain_is_an_error_not_bpb_zero(tmp_path, n_tokens):
+    """A domain with nothing to score must not enter the macro average as BPB 0. run_job refuses it
+    before training; the evaluator refuses it too."""
+    job = _job(tmp_path, seeds=(0,), val_code_len=n_tokens)
+    with pytest.raises(ValueError, match=r"\['code'\] have fewer than 2 tokens"):
+        colab.run_local(job)
+    assert not (job / "result.json").exists()
+    model = lm.ProxyLanguageModel(vocab_size=40, d_model=16, n_layers=1, n_heads=2, d_ffn=32)
+    with pytest.raises(ValueError, match="too short to score"):
+        lm.BpbEvaluator().evaluate_validation_bpb(model, np.zeros(n_tokens, dtype=np.int64), 2 * n_tokens)
+
+
+def test_single_seed_has_no_standard_deviation(tmp_path):
+    """With one seed the sd is undefined: stored as null and rendered without '± 0.000'."""
+    from tokenisers.benchmarks.report import render_colab
+
+    res = colab.run_local(_job(tmp_path, seeds=(0,)))
+    m = res["models"]["tok"]
+    assert m["macro_val_bpb_sd"] is None and m["val_domains"]["english"]["bpb_sd"] is None
+    assert res["architecture"] == lm.ARCHITECTURE and "no positional encoding" in lm.ARCHITECTURE
+    meta = {"seeds": [0], "val_domains": ["english", "code"], "duplicates": {}, "backend": res["backend"],
+            "lm_architecture": res["architecture"]}
+    md = render_colab({"meta": meta, "models": res["models"]})
+    assert "±" not in md.split("| :--- |")[1] and "(single seed: no sd)" in md
+    assert f"**{m['macro_val_bpb']:.3f}**" in md
+    assert "no positional encoding" in md
 
 
 def test_one_implementation_runs_locally_and_remotely(tmp_path, monkeypatch):

@@ -3,7 +3,7 @@
 A high-performance **Rust (`PyO3` / `maturin`) + Python** research and benchmarking platform for designing, modifying, and evaluating subword and dynamic tokenization algorithms across:
 1. **Tokka-Bench** (multilingual natural languages + programming languages)
 2. **Extended Intrinsic Diagnostics** (Rényi efficiency $E_\alpha$, Morphological Boundary F1, Identifier Boundary F1, Vocabulary Utilization, and Systems Throughput in MB/s)
-3. **Extrinsic Proxy-LM Evaluation** (Controlled Llama/GPT-style Transformer trained under a fixed UTF-8 byte budget, evaluated via **Validation Bits-Per-Byte [BPB]** across English, Multilingual, and Code splits locally or on Google Colab GPUs via `colab-cli`).
+3. **Extrinsic Proxy-LM Evaluation** (a small causal Transformer trained under a fixed UTF-8 byte budget, evaluated via **Validation Bits-Per-Byte [BPB]** across English, Multilingual, and Code splits locally or on Google Colab GPUs via `colab-cli`). The proxy LM is *not* a Llama/GPT block: it uses PyTorch `TransformerEncoderLayer`s (pre-LayerNorm, ReLU FFN, biases) with a causal mask, tied input/output embeddings and **no positional encoding of any kind** (NoPE: token order reaches the model only through the causal mask). Keep that in mind when comparing its BPB numbers with results from RoPE/SwiGLU models.
 
 ---
 
@@ -91,15 +91,19 @@ uv run python -m tokenisers.data --preset smoke --offline
 
 ### 4. Run Benchmarks
 All three tiers read the prepared dataset (step 3): tokenizers train on its **train** split only;
-tokka and the intrinsic suite evaluate on the held-out **test** split, the proxy LM trains on unseen
-train text and is scored on the **val** split. Disjointness is asserted at runtime. The default vocabulary is
+tokka and the intrinsic suite evaluate on the held-out **test** split. The proxy LM trains on
+documents of the same **train** split the tokenizers were trained on (shuffled, each used at most
+once; *not* held out from tokenizer training) and is scored on the held-out **val** split.
+Disjointness of train and evaluation documents is asserted at runtime. The default vocabulary is
 16,384 (`--vocab-size 32768` / `65536` for the larger sizes). Every result JSON carries a `meta`
 block with the dataset manifest, requested and actual vocabulary sizes, per-variant training
 parameters and warnings, seeds, hardware/backend and git commit. Variants that produce
 byte-identical tokenizers are detected and reported as one result.
 
 ```bash
-# Tier 1: Tokka-Bench metrics (vendored tokka-bench definitions) per language of the test split
+# Tier 1: Tokka-Bench metrics (vendored tokka-bench definitions) per language of the test split.
+# The macro average only includes languages with >= 3 held-out documents and >= 10 KB
+# (--min-docs-per-lang / --min-bytes-per-lang); the others are reported and listed with their sizes.
 uv run python -m tokenisers.benchmarks.tokka
 
 # Tier 2: Rényi efficiency, utilisation, SIGMORPHON 2022 morph F1 (test split gold; morpheme_bpe
@@ -117,11 +121,15 @@ uv run python scripts/gen_readme_tables.py
 
 `--offline` runs everything on the synthetic test corpus (labelled synthetic in the output).
 
-**Memory.** Training memory grows linearly with the train split: about 175 bytes per text byte
-for `unigram_lm`, 90 for `super_bpe` and at most 45 for the BPE variants (measured at 1–4 MB,
-V=16k). A 50 MB train split therefore needs ~9 GiB for `unigram_lm`. The CLIs estimate this before
-training and exit if it exceeds the memory available to the process (including a cgroup /
-`systemd-run -p MemoryMax=` limit); lower `--train-bytes` or drop the variant from `--variants`.
+**Memory.** Peak training memory grows linearly with the train split and, for the merge-based
+variants, with the vocabulary size (measured on 4 MB of the real corpus at V=16k and 64k:
+`unigram_lm` 139 bytes per text byte at both sizes, `super_bpe` 78 at 16k and 100 at 64k, the
+other BPE variants at most 45). The CLIs budget 175 / 125 / 60 bytes per byte (~25% margin) plus
+600 MB, so a 50 MB train split needs ~9 GiB for `unigram_lm`. Before preparing the dataset they
+exit if that exceeds the memory the process may use: a cgroup / `systemd-run -p MemoryMax=` limit
+in full, otherwise `MemAvailable` minus a reserve of max(2 GiB, 15% of RAM) for the rest of the
+machine. Lower `--train-bytes`, drop the variant from `--variants`, or run under an explicit
+`MemoryMax=` scope.
 
 ---
 

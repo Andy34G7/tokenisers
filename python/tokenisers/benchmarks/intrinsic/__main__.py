@@ -45,12 +45,12 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--throughput-repeats", type=int, default=5)
     args = parser.parse_args(argv)
 
+    if not args.skip_memory_check:  # before downloading/preparing anything
+        check_memory(args.variants, args.train_bytes)
     ds = load_dataset(args)
     train = ds.texts("train")
     test = ds.texts("test")
     assert_disjoint(train, test, "test")
-    if not args.skip_memory_check:
-        check_memory(args.variants, ds.manifest["splits"]["train"]["text_bytes"])
     lexicon, gold, morph_prov = load_morphology(args, train, args.morph_langs)
     identifiers = mine_identifiers(ds.texts("test", domain="code"), args.max_identifiers)
 

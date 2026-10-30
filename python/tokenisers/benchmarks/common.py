@@ -95,21 +95,36 @@ def load_dataset(args: argparse.Namespace) -> PreparedDataset:
     return pipeline.prepare(train_bytes=args.train_bytes, seed=args.data_seed)
 
 
-# Peak resident memory of training one variant, in bytes per byte of training text. Measured on
-# the real corpus at 1-4 MB and V=16384 (it grows linearly with the text and barely with V), plus
-# ~25% margin. Variants train one after another, so the run's peak is the largest variant's.
-TRAIN_MEMORY_PER_BYTE: Dict[str, int] = {"unigram_lm": 175, "super_bpe": 90}
-DEFAULT_TRAIN_MEMORY_PER_BYTE = 45
+# Peak resident memory of training one variant, in bytes per byte of training text: the largest
+# value measured on 4 MB of the real corpus at V=16384 and V=65536 (unigram_lm 139, super_bpe 100,
+# BPE variants <= 45), plus ~25% margin. It grows linearly with the text and, for the merge-based
+# variants, with V (super_bpe 78 -> 100 B/B from 16k to 64k). Variants train one after another, so
+# the run's peak is the largest variant's.
+TRAIN_MEMORY_PER_BYTE: Dict[str, int] = {"unigram_lm": 175, "super_bpe": 125}
+DEFAULT_TRAIN_MEMORY_PER_BYTE = 60
 BASE_MEMORY = 600 * 2**20  # interpreter, torch, corpus copies, SIGMORPHON gold
 
 
+def usable_system_memory(meminfo: str) -> Optional[int]:
+    """MemAvailable minus a reserve for the rest of the machine (desktop session, other jobs):
+    max(2 GiB, 15% of MemTotal). A benchmark may not take all free memory of a shared machine."""
+    kb = {}
+    for line in meminfo.splitlines():
+        key, _, rest = line.partition(":")
+        if key in ("MemTotal", "MemAvailable"):
+            kb[key] = int(rest.split()[0]) * 1024
+    if "MemAvailable" not in kb:
+        return None
+    reserve = max(2 * 2**30, int(0.15 * kb.get("MemTotal", 0)))
+    return max(0, kb["MemAvailable"] - reserve)
+
+
 def available_memory() -> Optional[int]:
-    """Bytes this process can still allocate: min(MemAvailable, every cgroup v2 limit above it)."""
+    """Bytes this process may allocate: min(usable_system_memory, the free part of every cgroup v2
+    memory.max above it). A cgroup limit (e.g. systemd-run -p MemoryMax=) is used in full."""
     avail: Optional[int] = None
     try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                avail = int(line.split()[1]) * 1024
+        avail = usable_system_memory(Path("/proc/meminfo").read_text())
         rel = next(l[3:] for l in Path("/proc/self/cgroup").read_text().splitlines() if l.startswith("0::"))
         cg = Path("/sys/fs/cgroup") / rel.strip().lstrip("/")
         for d in [cg, *cg.parents]:
@@ -355,6 +370,7 @@ __all__ = [
     "add_common_args",
     "assert_disjoint",
     "available_memory",
+    "usable_system_memory",
     "check_memory",
     "estimate_train_memory",
     "find_duplicates",
