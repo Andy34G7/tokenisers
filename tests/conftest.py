@@ -9,6 +9,16 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_data_cache(tmp_path_factory):
+    """Datasets that tests build without an explicit cache_dir (DataPipeline, SigmorphonLoader, the
+    dashboard's TokenizerCache, CLI subprocesses) go to a per-session temp dir, never the user's
+    ~/.cache/tokenisers/data, which concurrent runs would otherwise share and rewrite."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TOKENISERS_CACHE_DIR", str(tmp_path_factory.mktemp("tokenisers-cache")))
+        yield
+
+
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
     """Return repository root path."""
