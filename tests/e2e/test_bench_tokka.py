@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -95,7 +99,8 @@ def test_cli_trains_on_train_split_and_evaluates_on_test_split(require_tokeniser
     monkeypatch.setattr(cli, "train_suite", spy)
     out = tmp_path / "out"
     cli.main(["--offline", "--cache-dir", str(tmp_path / "cache"), "--train-bytes", "30000", "--vocab-size", "280",
-              "--variants", "bpe_frequency", "unigram_lm", "--output-dir", str(out)])
+              "--variants", "bpe_frequency", "unigram_lm", "--output-dir", str(out),
+              "--min-docs-per-lang", "1", "--min-bytes-per-lang", "0"])
 
     ds = DataPipeline(cache_dir=tmp_path / "cache", force_offline=True).prepare(train_bytes=30000)
     assert seen["corpus"] == ds.texts("train")
@@ -124,3 +129,58 @@ def test_default_vocab_size_is_16k(capsys):
         with pytest.raises(SystemExit):
             cli.main(["--help"])
         assert "default 16384" in capsys.readouterr().out
+
+
+def test_packaged_tokka_metrics_are_the_vendored_files(repo_root):
+    """The copy shipped in the package is byte-identical to vendor/tokka-bench."""
+    from tokenisers.benchmarks.tokka import _tokka_bench
+
+    pkg = Path(_tokka_bench.__file__).parent
+    for name in ("metrics.py", "unicode_utils.py"):
+        vendored = repo_root / "vendor" / "tokka-bench" / "src" / "tokka_bench" / name
+        assert (pkg / name).read_bytes() == vendored.read_bytes(), name
+
+
+def test_tokka_works_outside_a_source_checkout(tmp_path, require_tokenisers):
+    """An installed copy of the package (no vendor/ directory above it) imports and runs the tokka suite."""
+    import tokenisers
+
+    site = tmp_path / "site"
+    shutil.copytree(Path(tokenisers.__file__).parent, site / "tokenisers",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    code = (
+        "import tokenisers, tokenisers.benchmarks.tokka as t\n"
+        f"assert tokenisers.__file__.startswith({str(site)!r}), tokenisers.__file__\n"
+        "tok = tokenisers.BpeTokenizer.train(['one two one two'] * 4, vocab_size=260)\n"
+        "print(t.TokkaBenchRunner().evaluate_tokenizer(tok, 'one two', lang_code='en')['total_units'])\n"
+    )
+    env = {**os.environ, "PYTHONPATH": str(site)}
+    out = subprocess.run([sys.executable, "-c", code], cwd=site, env=env, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "2"
+
+
+def test_macro_average_leaves_out_languages_with_too_little_held_out_text(require_tokenisers, tmp_path, capsys):
+    """A language with one short held-out document is reported but does not get a full macro weight;
+    the leaderboard shows every language's held-out docs and bytes."""
+    from tokenisers.benchmarks.tokka import __main__ as cli
+
+    args = ["--offline", "--cache-dir", str(tmp_path / "cache"), "--train-bytes", "30000", "--vocab-size", "280",
+            "--variants", "bpe_frequency", "--output-dir", str(tmp_path / "out")]
+    # the synthetic test split has 2 English documents and 1 of every other language
+    with pytest.raises(SystemExit, match="No language has >= 3 held-out documents"):
+        cli.main(args)
+    capsys.readouterr()
+    cli.main(args + ["--min-docs-per-lang", "2", "--min-bytes-per-lang", "0"])
+    assert "warning: de has only 1 held-out docs" in capsys.readouterr().err
+    doc = json.loads((tmp_path / "out" / "tokka_matrix.json").read_text())
+    row, meta = doc["models"]["bpe_frequency"], doc["meta"]
+    assert meta["macro_languages"] == ["en"] and meta["language_docs"]["en"] == 2
+    assert row["macro_avg"]["bytes_per_token"] == pytest.approx(row["en"]["bytes_per_token"])
+    langs = [k for k in meta["language_bytes"]]
+    assert row["micro_avg"]["bytes_per_token"] == pytest.approx(
+        sum(row[k]["total_bytes"] for k in langs) / sum(row[k]["total_tokens"] for k in langs))
+    md = (tmp_path / "out" / "tokka_leaderboard.md").read_text()
+    assert "macro = unweighted mean over the 1 languages with >= 2 held-out documents" in md
+    assert f"| de | 1 | {meta['language_bytes']['de']:,} | no |" in md
+    assert f"| en | 2 | {meta['language_bytes']['en']:,} | yes |" in md

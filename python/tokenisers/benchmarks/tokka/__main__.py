@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from pathlib import Path
+import sys
 from typing import Any, Dict, List
 
 from tokenisers.benchmarks.common import (
@@ -12,6 +14,7 @@ from tokenisers.benchmarks.common import (
     assert_disjoint,
     check_memory,
     find_duplicates,
+    start_provenance,
     load_dataset,
     load_morphology,
     run_metadata,
@@ -21,6 +24,10 @@ from tokenisers.benchmarks.tokka import TokkaBenchRunner, short_lang
 
 # tokka-bench samples ~2 MB per language; longer held-out text is truncated (UTF-8 safe).
 MAX_BYTES_PER_LANG = 2 * 1024 * 1024
+# A language enters the macro average only with at least this much held-out text: one short
+# document says little about a language, yet macro weights every language equally.
+MIN_DOCS_PER_LANG = 3
+MIN_BYTES_PER_LANG = 10_000
 
 
 class _HfTokenizer:
@@ -54,11 +61,30 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--tokenizer-path", default=None,
                         help="Evaluate this HF tokenizer.json instead of training the suite")
     parser.add_argument("--max-bytes-per-lang", type=int, default=MAX_BYTES_PER_LANG)
+    parser.add_argument("--min-docs-per-lang", type=int, default=MIN_DOCS_PER_LANG,
+                        help="Held-out documents a language needs to enter the macro average")
+    parser.add_argument("--min-bytes-per-lang", type=int, default=MIN_BYTES_PER_LANG,
+                        help="Held-out UTF-8 bytes a language needs to enter the macro average")
     args = parser.parse_args(argv)
+    start = start_provenance(__package__, argv)  # before the tree can change during a long run
 
+    if not args.tokenizer_path and not args.skip_memory_check:  # before downloading/preparing anything
+        check_memory(args.variants, args.train_bytes)
     ds = load_dataset(args)
     test_docs = ds.docs("test")
     texts = language_texts(test_docs, args.max_bytes_per_lang)
+    docs_per_lang = Counter(short_lang(d["lang"]) for d in test_docs)
+    bytes_per_lang = {lang: len(t.encode("utf-8")) for lang, t in texts.items()}
+    macro_langs = [lang for lang in texts
+                   if docs_per_lang[lang] >= args.min_docs_per_lang and bytes_per_lang[lang] >= args.min_bytes_per_lang]
+    for lang in texts:
+        if lang not in macro_langs:
+            print(f"warning: {lang} has only {docs_per_lang[lang]} held-out docs / {bytes_per_lang[lang]:,} bytes; "
+                  "reported, but left out of the macro average", file=sys.stderr)
+    if not macro_langs:
+        raise SystemExit(f"No language has >= {args.min_docs_per_lang} held-out documents and >= "
+                         f"{args.min_bytes_per_lang:,} bytes: prepare a larger dataset (--train-bytes) or lower "
+                         "--min-docs-per-lang / --min-bytes-per-lang")
     runner = TokkaBenchRunner()
 
     if args.tokenizer_path:
@@ -68,8 +94,6 @@ def main(argv: List[str] | None = None) -> None:
     else:
         train = ds.texts("train")
         assert_disjoint(train, [d["text"] for d in test_docs], "test")
-        if not args.skip_memory_check:
-            check_memory(args.variants, ds.manifest["splits"]["train"]["text_bytes"])
         lexicon = {}
         if "morpheme_bpe" in args.variants:
             lexicon, _, _ = load_morphology(args, train, DEFAULT_MORPH_LANGS)
@@ -79,12 +103,16 @@ def main(argv: List[str] | None = None) -> None:
         models = {n: t for n, t in models.items() if n not in duplicates}
 
     meta = run_metadata(
-        args, ds, "tokka", "test", records, duplicates,
+        args, ds, "tokka", "test", records, duplicates, start=start,
         tokka_bench="vendor/tokka-bench (tokka_bench.metrics.calculate_word_metrics)",
-        language_bytes={lang: len(t.encode("utf-8")) for lang, t in texts.items()},
+        language_bytes=bytes_per_lang,
+        language_docs={lang: docs_per_lang[lang] for lang in texts},
+        macro_languages=macro_langs,
+        macro_min_docs=args.min_docs_per_lang,
+        macro_min_bytes=args.min_bytes_per_lang,
         tokenizer_path=args.tokenizer_path,
     )
-    runner.evaluate_matrix(models, texts, output_dir=args.output_dir, meta=meta)
+    runner.evaluate_matrix(models, texts, output_dir=args.output_dir, meta=meta, macro_langs=macro_langs)
     print((Path(args.output_dir) / "tokka_leaderboard.md").read_text(encoding="utf-8"))
 
 

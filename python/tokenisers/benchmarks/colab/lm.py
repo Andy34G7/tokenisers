@@ -30,12 +30,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 INIT_STD = 0.02
+# Recorded with every result: this is not a Llama/GPT block (no positional encoding, ReLU, not SwiGLU).
+ARCHITECTURE = (
+    "pre-LayerNorm causal Transformer (torch TransformerEncoderLayer: ReLU FFN, biases), no positional "
+    "encoding of any kind (NoPE: order comes only from the causal mask), tied input/output embeddings"
+)
 
 
 class ProxyLanguageModel(nn.Module):
     """
-    Small pre-LayerNorm causal Transformer with tied input/output embeddings. Every weight matrix
-    (embeddings included) starts at N(0, INIT_STD), biases at 0, so the initial loss is ~ln V.
+    Small pre-LayerNorm causal Transformer with tied input/output embeddings and no positional
+    encoding (see ``ARCHITECTURE``). Every weight matrix (embeddings included) starts at
+    N(0, INIT_STD), biases at 0, so the initial loss is ~ln V.
     """
 
     def __init__(
@@ -219,11 +225,12 @@ class BpbEvaluator:
         token after the first is scored exactly once with at least ``seq_len - stride`` tokens of
         context (except near the start). The first token has no context and is excluded from both
         the NLL and the byte count. Bytes come from ``token_bytes`` when given, else the average
-        ``utf8_bytes / len(token_ids)``.
+        ``utf8_bytes / len(token_ids)``. Fewer than two tokens (nothing to score) is an error, not
+        a BPB of 0.
         """
         ids = np.asarray(token_ids, dtype=np.int64)
         if len(ids) < 2 or utf8_bytes <= 0:
-            return {"loss_nats": 0.0, "bytes_per_token": 0.0, "bpb": 0.0, "scored_tokens": 0}
+            raise ValueError(f"validation text too short to score: {len(ids)} tokens, {utf8_bytes} bytes")
         stride = stride or max(1, seq_len // 2)
         device = next(model.parameters()).device
         model.eval()
@@ -266,7 +273,8 @@ class BpbEvaluator:
 
 
 def _mean_sd(xs: Sequence[float]) -> tuple:
-    return (statistics.fmean(xs), statistics.stdev(xs) if len(xs) > 1 else 0.0)
+    """(mean, sample sd); the sd is None (undefined) for a single seed."""
+    return (statistics.fmean(xs), statistics.stdev(xs) if len(xs) > 1 else None)
 
 
 def backend_info(device: str) -> Dict[str, Any]:
@@ -297,6 +305,11 @@ def run_job(job_dir: str, device: Optional[str] = None, log=print) -> Dict[str, 
     tr = cfg["train"]
     models: Dict[str, Any] = {}
     t_start = time.time()
+    for name in cfg["tokenizers"]:
+        with np.load(job / f"{name}.npz") as arrays:
+            short = [d for d in cfg["domains"] if len(arrays[f"val_{d}"]) < 2]
+        if short:  # checked before any training: an empty domain would otherwise fail hours later
+            raise ValueError(f"{name}: validation domain(s) {short} have fewer than 2 tokens")
     for name, tcfg in cfg["tokenizers"].items():
         arrays = np.load(job / f"{name}.npz")
         token_bytes = arrays["token_bytes"]
@@ -347,7 +360,8 @@ def run_job(job_dir: str, device: Optional[str] = None, log=print) -> Dict[str, 
             "macro_val_bpb_by_seed": dict(zip(map(str, cfg["seeds"]), macro)),
             "curve": runs[0]["curve"],
         }
-    result = {"backend": backend_info(device), "seconds": round(time.time() - t_start, 1), "models": models}
+    result = {"backend": backend_info(device), "architecture": ARCHITECTURE,
+              "seconds": round(time.time() - t_start, 1), "models": models}
     (job / "result.json").write_text(json.dumps(result, indent=2))
     return result
 

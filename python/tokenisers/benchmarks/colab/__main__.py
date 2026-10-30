@@ -19,6 +19,7 @@ from tokenisers.benchmarks.common import (
     assert_disjoint,
     check_memory,
     find_duplicates,
+    start_provenance,
     load_dataset,
     load_morphology,
     run_metadata,
@@ -43,7 +44,9 @@ def _token_bytes(tok: Any) -> np.ndarray:
 
 
 def _lm_train_docs(train: List[str], byte_budget: int, seed: int) -> List[str]:
-    """Shuffled train documents covering ``byte_budget`` bytes plus 10% (one pass, no repetition)."""
+    """Shuffled train-split documents covering ``byte_budget`` bytes plus 10%, each used once (no
+    repetition). They come from the split the tokenizers were trained on, i.e. they are not held out
+    from tokenizer training; only the val split is held out."""
     docs = list(train)
     random.Random(seed).shuffle(docs)
     out: List[str] = []
@@ -65,7 +68,8 @@ def main(argv: List[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Extrinsic proxy-LM bits-per-byte benchmark")
     add_common_args(parser, "benchmarks/results/colab")
     parser.add_argument("--byte-budget", type=int, default=10_000_000,
-                        help="UTF-8 train bytes each proxy LM consumes (one pass over unseen train text)")
+                        help="UTF-8 bytes each proxy LM trains on: train-split documents (the tokenizers' "
+                             "training text), each used at most once")
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2], help="LM seeds (mean ± sd reported)")
     parser.add_argument("--seq-len", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -83,13 +87,14 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--no-dropout-variant", action="store_true",
                         help=f"Skip {DROPOUT_VARIANT} (bpe_frequency trained on BPE-dropout encodings)")
     args = parser.parse_args(argv)
+    start = start_provenance(__package__, argv)  # before the tree can change during a long run
 
+    if not args.skip_memory_check:  # before downloading/preparing anything
+        check_memory(args.variants, args.train_bytes)
     ds = load_dataset(args)
     train = ds.texts("train")
     val = {d: ds.texts("val", domain=d) for d in DOMAINS}
     assert_disjoint(train, [t for texts in val.values() for t in texts], "validation")
-    if not args.skip_memory_check:
-        check_memory(args.variants, ds.manifest["splits"]["train"]["text_bytes"])
     lm_docs = _lm_train_docs(train, args.byte_budget, args.data_seed)
 
     lexicon, _, morph_prov = load_morphology(args, train, DEFAULT_MORPH_LANGS) if "morpheme_bpe" in args.variants \
@@ -135,8 +140,9 @@ def main(argv: List[str] | None = None) -> None:
         shutil.rmtree(job_dir, ignore_errors=True)
 
     meta = run_metadata(
-        args, ds, "proxy_lm_bpb", "val", records, duplicates,
-        backend=result["backend"], fallback=fallback, lm=lm, train=train_cfg, byte_budget=args.byte_budget,
+        args, ds, "proxy_lm_bpb", "val", records, duplicates, start=start,
+        backend=result["backend"], fallback=fallback, lm=lm, lm_architecture=result["architecture"],
+        train=train_cfg, byte_budget=args.byte_budget,
         seeds=args.seeds, val_domains=list(DOMAINS), lm_train_docs=len(lm_docs),
         lm_seconds=result["seconds"], morphology=morph_prov,
         variants_extra={DROPOUT_VARIANT: "bpe_frequency tokenizer; LM train ids encoded with BPE-dropout p=0.1, "

@@ -95,21 +95,36 @@ def load_dataset(args: argparse.Namespace) -> PreparedDataset:
     return pipeline.prepare(train_bytes=args.train_bytes, seed=args.data_seed)
 
 
-# Peak resident memory of training one variant, in bytes per byte of training text. Measured on
-# the real corpus at 1-4 MB and V=16384 (it grows linearly with the text and barely with V), plus
-# ~25% margin. Variants train one after another, so the run's peak is the largest variant's.
-TRAIN_MEMORY_PER_BYTE: Dict[str, int] = {"unigram_lm": 175, "super_bpe": 90}
-DEFAULT_TRAIN_MEMORY_PER_BYTE = 45
+# Peak resident memory of training one variant, in bytes per byte of training text: the largest
+# value measured on 4 MB of the real corpus at V=16384 and V=65536 (unigram_lm 139, super_bpe 100,
+# BPE variants <= 45), plus ~25% margin. It grows linearly with the text and, for the merge-based
+# variants, with V (super_bpe 78 -> 100 B/B from 16k to 64k). Variants train one after another, so
+# the run's peak is the largest variant's.
+TRAIN_MEMORY_PER_BYTE: Dict[str, int] = {"unigram_lm": 175, "super_bpe": 125}
+DEFAULT_TRAIN_MEMORY_PER_BYTE = 60
 BASE_MEMORY = 600 * 2**20  # interpreter, torch, corpus copies, SIGMORPHON gold
 
 
+def usable_system_memory(meminfo: str) -> Optional[int]:
+    """MemAvailable minus a reserve for the rest of the machine (desktop session, other jobs):
+    max(2 GiB, 15% of MemTotal). A benchmark may not take all free memory of a shared machine."""
+    kb = {}
+    for line in meminfo.splitlines():
+        key, _, rest = line.partition(":")
+        if key in ("MemTotal", "MemAvailable"):
+            kb[key] = int(rest.split()[0]) * 1024
+    if "MemAvailable" not in kb:
+        return None
+    reserve = max(2 * 2**30, int(0.15 * kb.get("MemTotal", 0)))
+    return max(0, kb["MemAvailable"] - reserve)
+
+
 def available_memory() -> Optional[int]:
-    """Bytes this process can still allocate: min(MemAvailable, every cgroup v2 limit above it)."""
+    """Bytes this process may allocate: min(usable_system_memory, the free part of every cgroup v2
+    memory.max above it). A cgroup limit (e.g. systemd-run -p MemoryMax=) is used in full."""
     avail: Optional[int] = None
     try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                avail = int(line.split()[1]) * 1024
+        avail = usable_system_memory(Path("/proc/meminfo").read_text())
         rel = next(l[3:] for l in Path("/proc/self/cgroup").read_text().splitlines() if l.startswith("0::"))
         cg = Path("/sys/fs/cgroup") / rel.strip().lstrip("/")
         for d in [cg, *cg.parents]:
@@ -129,12 +144,22 @@ def estimate_train_memory(variants: Sequence[str], train_bytes: int) -> int:
     return BASE_MEMORY + per_byte * train_bytes
 
 
+def own_rss() -> int:
+    """Resident memory of this process now (already counted as used by ``available_memory``)."""
+    try:
+        return int(Path("/proc/self/statm").read_text().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
 def check_memory(variants: Sequence[str], train_bytes: int) -> None:
     """Exit before training if the estimated peak exceeds the memory this process may use, instead
-    of letting the kernel OOM-kill it (or the desktop session) halfway through."""
+    of letting the kernel OOM-kill it (or the desktop session) halfway through. The estimate is the
+    process's total peak; what the process already holds (interpreter, torch) is part of it and is
+    not available memory any more, so only the difference must fit."""
     need = estimate_train_memory(variants, train_bytes)
     avail = available_memory()
-    if avail is not None and need > avail:
+    if avail is not None and need - own_rss() > avail:
         worst = max(variants, key=lambda v: TRAIN_MEMORY_PER_BYTE.get(v, DEFAULT_TRAIN_MEMORY_PER_BYTE))
         raise SystemExit(
             f"Training {worst} on {train_bytes / 1e6:.0f} MB needs ~{need / 2**30:.1f} GiB but only "
@@ -305,6 +330,17 @@ def _cpu_model() -> str:
     return platform.processor() or platform.machine()
 
 
+def start_provenance(module: str, argv: Optional[Sequence[str]]) -> Dict[str, Any]:
+    """Command line, commit and dirty flag of the checkout. CLIs call this when they start: a run can
+    take hours, and the tree may change before its results are written."""
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    return {
+        "command": ["python", "-m", module, *(sys.argv[1:] if argv is None else argv)],
+        "git_commit": _git("rev-parse", "HEAD"),
+        "git_dirty": None if status is None else bool(status),
+    }
+
+
 def run_metadata(
     args: argparse.Namespace,
     dataset: PreparedDataset,
@@ -312,16 +348,16 @@ def run_metadata(
     eval_split: str,
     train_records: Dict[str, Dict[str, Any]],
     duplicates: Dict[str, str],
+    *,
+    start: Dict[str, Any],
     **extra: Any,
 ) -> Dict[str, Any]:
-    status = _git("status", "--porcelain", "--untracked-files=no")
+    """``start`` is ``start_provenance()`` taken when the run started."""
     manifest = dataset.manifest
     return {
         "benchmark": benchmark,
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "command": [Path(sys.argv[0]).name, *sys.argv[1:]],
-        "git_commit": _git("rev-parse", "HEAD"),
-        "git_dirty": None if status is None else bool(status),
+        **start,
         "host": {
             "platform": platform.platform(),
             "cpu": _cpu_model(),
@@ -355,9 +391,11 @@ __all__ = [
     "add_common_args",
     "assert_disjoint",
     "available_memory",
+    "usable_system_memory",
     "check_memory",
     "estimate_train_memory",
     "find_duplicates",
+    "start_provenance",
     "load_dataset",
     "load_morphology",
     "run_metadata",

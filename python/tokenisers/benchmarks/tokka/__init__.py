@@ -1,10 +1,10 @@
 """
 Tokka-Bench metrics for multilingual and programming-language text.
 
-Word-level metrics come from the vendored tokka-bench code (vendor/tokka-bench,
-``tokka_bench.metrics.calculate_word_metrics``); bytes/token, total and unique tokens are computed
-exactly as its ``fast_benchmark._compute_language_metrics_from_ids`` does (a test checks both
-against the vendored functions). Definitions, per language:
+Word-level metrics come from the vendored tokka-bench code (vendor/tokka-bench, shipped verbatim
+in this package as ``_tokka_bench``: ``metrics.calculate_word_metrics``); bytes/token, total and
+unique tokens are computed exactly as its ``fast_benchmark._compute_language_metrics_from_ids``
+does (a test checks both against the vendored functions). Definitions, per language:
 
 - bytes_per_token = UTF-8 bytes / tokens of the whole text
 - subword_fertility = tokens of the whole text / units (whitespace words; characters for
@@ -21,13 +21,9 @@ import csv
 import json
 from pathlib import Path
 import re
-import sys
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-_VENDOR_SRC = Path(__file__).resolve().parents[4] / "vendor" / "tokka-bench" / "src"
-if str(_VENDOR_SRC) not in sys.path:
-    sys.path.append(str(_VENDOR_SRC))
-from tokka_bench.metrics import _segment_units, calculate_word_metrics  # noqa: E402
+from tokenisers.benchmarks.tokka._tokka_bench.metrics import _segment_units, calculate_word_metrics
 
 CJK_CHAR_RE = re.compile(r"[一-鿿぀-ヿ가-힯]")
 
@@ -154,15 +150,17 @@ class TokkaBenchRunner:
         domain_texts: Dict[str, str],
         output_dir: Optional[str | Path] = None,
         meta: Optional[Dict[str, Any]] = None,
+        macro_langs: Optional[List[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
         Evaluates every tokenizer on every language text (keys: language codes accepted by
         ``language_info``). Per model: one entry per language, ``macro_avg`` (unweighted mean over
-        languages), ``micro_avg`` (bytes/token and fertility from totals summed over languages,
-        i.e. token-weighted), ``unique_tokens`` = size of the union of ids used across languages,
-        and ``vocab_size``. With ``output_dir``, writes tokka_matrix.json ({"meta", "models"}),
-        tokka_leaderboard.csv and tokka_leaderboard.md.
+        ``macro_langs``, default all languages), ``micro_avg`` (bytes/token and fertility from
+        totals summed over all languages, i.e. token-weighted), ``unique_tokens`` = size of the
+        union of ids used across languages, and ``vocab_size``. With ``output_dir``, writes
+        tokka_matrix.json ({"meta", "models"}), tokka_leaderboard.csv and tokka_leaderboard.md.
         """
+        macro_langs = list(domain_texts) if macro_langs is None else macro_langs
         matrix: Dict[str, Dict[str, Any]] = {}
         for model_name, tok in models.items():
             row: Dict[str, Any] = {}
@@ -171,9 +169,9 @@ class TokkaBenchRunner:
                 row[lang], ids = language_metrics(tok, text, language_info(lang))
                 union |= ids
             langs = [row[lang] for lang in domain_texts]
-            n = max(1, len(langs))
             tokens = sum(r["total_tokens"] for r in langs)
-            row["macro_avg"] = {k: sum(r[k] for r in langs) / n for k in ("bytes_per_token", *_WORD_KEYS)}
+            row["macro_avg"] = {k: sum(row[lang][k] for lang in macro_langs) / len(macro_langs)
+                                for k in ("bytes_per_token", *_WORD_KEYS)}
             row["micro_avg"] = {
                 "bytes_per_token": sum(r["total_bytes"] for r in langs) / max(1, tokens),
                 "subword_fertility": tokens / max(1, sum(r["total_units"] for r in langs)),

@@ -25,7 +25,8 @@ def _summary(meta: Dict[str, Any]) -> str:
         f"commit `{commit}`",
         f"generated {meta.get('created_utc', '?')}",
     ]
-    return "- " + "; ".join(parts)
+    args = " ".join(meta.get("command", [])[3:])
+    return "- " + "; ".join(parts) + f"\n- arguments: {f'`{args}`' if args else '(defaults)'}"
 
 
 def _label(name: str, duplicates: Dict[str, str]) -> str:
@@ -64,13 +65,21 @@ def render_tokka(doc: Dict[str, Any]) -> str:
         ("Macro continued-token % (↓)", lambda m: f"{m['macro_avg']['continued_word_rate']:.2f}"),
         ("Unique tokens used", lambda m: str(m["unique_tokens"])),
     ]
+    macro = meta.get("macro_languages", langs)
+    rule = (f" with >= {meta['macro_min_docs']} held-out documents and >= {meta['macro_min_bytes']:,} bytes"
+            if "macro_min_docs" in meta else "")
     head = [
         _summary(meta),
-        f"- languages ({len(langs)}): {', '.join(langs)}; macro = unweighted mean over languages, "
-        "micro = totals summed over languages; unique tokens = union over languages",
+        f"- macro = unweighted mean over the {len(macro)} languages{rule} ({', '.join(macro)}); "
+        f"micro = totals summed over all {len(langs)} languages (token-weighted); unique tokens = union over languages",
         "",
     ]
-    return "\n".join(head + _table(doc, cols, lambda m: -m["macro_avg"]["bytes_per_token"]))
+    sizes = ["", "Held-out text per language:", "",
+             "| Language | Docs | Bytes | In macro |", "| :--- | ---: | ---: | :---: |"]
+    for lang in langs:
+        sizes.append(f"| {lang} | {meta.get('language_docs', {}).get(lang, '?')} | "
+                     f"{meta.get('language_bytes', {}).get(lang, 0):,} | {'yes' if lang in macro else 'no'} |")
+    return "\n".join(head + _table(doc, cols, lambda m: -m["macro_avg"]["bytes_per_token"]) + sizes)
 
 
 def render_intrinsic(doc: Dict[str, Any]) -> str:
@@ -100,8 +109,9 @@ def render_intrinsic(doc: Dict[str, Any]) -> str:
     return "\n".join(head + _table(doc, cols, lambda m: -m["renyi_e_2_5"]))
 
 
-def _pm(mean: float, sd: float) -> str:
-    return f"{mean:.3f} ± {sd:.3f}"
+def _pm(mean: float, sd: Any) -> str:
+    """mean ± sd; just the mean when sd is undefined (a single seed)."""
+    return f"{mean:.3f}" if sd is None else f"{mean:.3f} ± {sd:.3f}"
 
 
 def render_colab(doc: Dict[str, Any]) -> str:
@@ -119,11 +129,15 @@ def render_colab(doc: Dict[str, Any]) -> str:
     cols += [(f"{d} BPB (↓)", (lambda d: lambda m: _pm(m["val_domains"][d]["bpb"], m["val_domains"][d]["bpb_sd"]))(d))
              for d in domains]
     cols.append(("Macro BPB (↓)", lambda m: f"**{_pm(m['macro_val_bpb'], m['macro_val_bpb_sd'])}**"))
+    seeds = meta.get("seeds") or []
     head = [
         _summary(meta),
         f"- backend: {where}" + (f" — FALLBACK after Colab failed: {fb.get('error', '')}" if fb else ""),
-        f"- proxy LM ({', '.join(f'{k}={v}' for k, v in meta.get('lm', {}).items())}); fixed budget {meta.get('byte_budget', 0):,} train bytes per "
-        f"tokenizer; seeds {meta.get('seeds')} (mean ± sd)",
+        f"- proxy LM: {meta.get('lm_architecture', 'architecture not recorded')}; "
+        f"{', '.join(f'{k}={v}' for k, v in meta.get('lm', {}).items())}",
+        f"- fixed budget {meta.get('byte_budget', 0):,} UTF-8 bytes of LM training text per tokenizer, drawn "
+        "from the same train split the tokenizers were trained on (each document used once); seeds "
+        f"{seeds} " + ("(mean ± sample sd)" if len(seeds) > 1 else "(single seed: no sd)"),
         "",
     ]
     return "\n".join(head + _table(doc, cols, lambda m: m["macro_val_bpb"]))

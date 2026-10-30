@@ -12,6 +12,7 @@ from tokenisers.benchmarks.common import (
     assert_disjoint,
     check_memory,
     find_duplicates,
+    start_provenance,
     load_dataset,
     load_morphology,
     run_metadata,
@@ -44,13 +45,14 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--max-identifiers", type=int, default=2000)
     parser.add_argument("--throughput-repeats", type=int, default=5)
     args = parser.parse_args(argv)
+    start = start_provenance(__package__, argv)  # before the tree can change during a long run
 
+    if not args.skip_memory_check:  # before downloading/preparing anything
+        check_memory(args.variants, args.train_bytes)
     ds = load_dataset(args)
     train = ds.texts("train")
     test = ds.texts("test")
     assert_disjoint(train, test, "test")
-    if not args.skip_memory_check:
-        check_memory(args.variants, ds.manifest["splits"]["train"]["text_bytes"])
     lexicon, gold, morph_prov = load_morphology(args, train, args.morph_langs)
     identifiers = mine_identifiers(ds.texts("test", domain="code"), args.max_identifiers)
 
@@ -60,7 +62,7 @@ def main(argv: List[str] | None = None) -> None:
     models = {n: t for n, t in models.items() if n not in duplicates}
 
     meta = run_metadata(
-        args, ds, "intrinsic", "test", records, duplicates,
+        args, ds, "intrinsic", "test", records, duplicates, start=start,
         morphology=morph_prov,
         identifier_source=f"{len(identifiers)} most frequent multi-part identifiers of the test split's code",
     )
