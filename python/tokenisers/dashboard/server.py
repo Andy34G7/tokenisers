@@ -569,19 +569,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             token_details: List[Dict[str, Any]] = []
             tokens: List[str] = []
             for tid in token_ids:
-                try:
-                    if hasattr(tok, "id_to_bytes"):
-                        b_val = tok.id_to_bytes(tid)
-                        piece = b_val.decode("utf-8", errors="replace") if b_val else f"<{tid}>"
-                    else:
-                        piece = tok.decode([tid])
-                except Exception:
-                    try:
-                        piece = tok.decode([tid])
-                    except Exception:
-                        piece = f"<{tid}>"
+                # byte_len counts the token's own bytes: a partial-UTF-8 token is 1 byte even
+                # though its display piece is U+FFFD (3 bytes), so byte_lens sum to raw_bytes.
+                b_val = tok.id_to_bytes(tid) or b""
+                piece = b_val.decode("utf-8", errors="replace") if b_val else f"<{tid}>"
                 tokens.append(piece)
-                token_details.append({"id": tid, "piece": piece, "byte_len": len(piece.encode("utf-8"))})
+                token_details.append({"id": tid, "piece": piece, "byte_len": len(b_val)})
 
             num_tokens = len(token_ids)
             results.append(
