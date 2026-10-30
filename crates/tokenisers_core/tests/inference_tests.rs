@@ -237,6 +237,28 @@ fn kbest_draws_each_segment_from_its_own_top_k() {
 }
 
 #[test]
+fn ffbs_samples_the_product_of_per_segment_posteriors() {
+    // FFBS runs per segment: "abc abc" must still be drawn from the exact joint posterior, the
+    // product of the two words' tempered posteriors (the space has a single segmentation).
+    let mut vocab = sampler_vocab();
+    vocab.push((b" ".to_vec(), 8, -1.0));
+    let trie = CompactTrie::build(&vocab);
+    let sampler = UnigramSampler::new(&trie);
+    let temperature = 1.5;
+    let per_word = tempered(&enumerate_segmentations(b"abc", &vocab), temperature);
+    let mut expected = HashMap::new();
+    for (left, p) in &per_word {
+        for (right, q) in &per_word {
+            expected.insert([left.as_slice(), &[8], right].concat(), p * q);
+        }
+    }
+    let samples: Vec<Vec<u32>> =
+        (0..40_000).map(|seed| sampler.sample_ffbs(b"abc abc", temperature, Some(seed))).collect();
+    assert_frequencies_match("per-segment FFBS", &samples, &expected);
+    assert!(sampler.sample_ffbs(b"", 1.0, Some(1)).is_empty());
+}
+
+#[test]
 fn sampler_lattice_never_crosses_whitespace_segments() {
     // "a b" with a token spanning the space: encode, FFBS and k-best must all ignore it.
     let vocab = vec![

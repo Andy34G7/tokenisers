@@ -75,12 +75,25 @@ impl<'a> UnigramSampler<'a> {
 
     /// Forward-Filtering Backward-Sampling: an exact sample from `P(s)^(1/temperature)`
     /// (normalised over all segmentations). `seed = None` draws a fresh random seed.
+    ///
+    /// The lattice never spans a `segment_bytes` boundary, so `P(s)` factorises over segments
+    /// and sampling each segment on its own draws from exactly the same distribution. Memory is
+    /// that of the longest segment (~180 bytes per byte), not of the whole document.
     pub fn sample_ffbs(&self, bytes: &[u8], temperature: f64, seed: Option<u64>) -> Vec<TokenId> {
-        let n = bytes.len();
-        if n == 0 {
-            return Vec::new();
+        let mut rng = Rng::new();
+        if let Some(s) = seed {
+            rng.seed(s);
         }
+        let mut tokens = Vec::with_capacity(bytes.len());
+        for seg in SuperBpeTrainer::segment_bytes(bytes) {
+            tokens.extend(self.sample_ffbs_segment(seg, temperature, &mut rng));
+        }
+        tokens
+    }
 
+    /// FFBS over one segment (`bytes` must not span a `segment_bytes` boundary).
+    fn sample_ffbs_segment(&self, bytes: &[u8], temperature: f64, rng: &mut Rng) -> Vec<TokenId> {
+        let n = bytes.len();
         let incoming = self.build_incoming_lattice(bytes);
         let inv_temp = 1.0 / temperature.max(1e-4);
 
@@ -99,11 +112,6 @@ impl<'a> UnigramSampler<'a> {
         }
 
         // Backward Sampling Pass
-        let mut rng = Rng::new();
-        if let Some(s) = seed {
-            rng.seed(s);
-        }
-
         let mut curr_pos = n;
         let mut tokens = Vec::new();
 

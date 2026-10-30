@@ -400,8 +400,28 @@ pub struct UnigramModel {
     pub trie: CompactTrie,
 }
 
+/// `x` rounded to 12 decimal places: a value every JSON reader parses back to exactly `x`.
+///
+/// `serde_json` writes the shortest round-trip decimal, but Hugging Face `tokenizers` is built
+/// without serde_json's `float_roundtrip` feature and reads `d1..dn` with `k` decimals as
+/// `(d1..dn as f64) / 10^k`, which is 1 ULP off for ~14% of 17-digit log-probs. Viterbi ties
+/// between permutations of the same tokens ("~~|~" vs "~|~~") are decided by such ULPs, so HF
+/// and native ids would differ. With at most 12 decimals and |x| < 9000 (every finite
+/// log-probability of an f64 is > -745) the digits fit in 2^53 and 10^k is exact, so that one
+/// division is correctly rounded too.
+pub fn json_exact(x: f64) -> f64 {
+    if x.is_finite() {
+        format!("{x:.12}").parse().unwrap_or(x)
+    } else {
+        x
+    }
+}
+
 impl UnigramModel {
+    /// Scores are stored as [`json_exact`] values, so the exported tokenizer.json makes Hugging
+    /// Face run Viterbi on bit-identical scores (see there).
     pub fn new(vocab: Vocabulary, log_probs: Vec<f64>) -> Self {
+        let log_probs: Vec<f64> = log_probs.into_iter().map(json_exact).collect();
         let indexed_vocab: Vec<(Vec<u8>, TokenId, f64)> = vocab
             .id_to_bytes_map()
             .iter()
