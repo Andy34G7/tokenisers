@@ -1,17 +1,24 @@
 """
 Extended Intrinsic Tokenizer Evaluation Suite.
+
+Rényi efficiency, vocabulary utilisation, morphological and identifier boundary F1, number
+fertility and throughput. Boundary offsets always come from the raw bytes of each token
+(``id_to_bytes``), so every tokenizer is scored the same way.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 import csv
 import json
 import math
 from pathlib import Path
 import re
+import statistics
 import time
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Union
 
+# Fallback when no held-out code is given. The CLI mines identifiers from the test split instead.
 DEFAULT_CODE_IDENTIFIERS: List[str] = [
     "getUserProfile",
     "get_user_profile",
@@ -20,41 +27,72 @@ DEFAULT_CODE_IDENTIFIERS: List[str] = [
     "max_retries_count",
 ]
 
+IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_PART_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+[0-9]*|[A-Z]+[0-9]*|[0-9]+")
+
 
 def extract_identifier_cuts(ident: str) -> Set[int]:
     """
-    Extracts ground-truth word boundary cuts for a programming code identifier.
+    Gold boundaries of a code identifier, as byte offsets.
 
-    Handles camelCase, PascalCase, snake_case, screaming snake case, and version numbers.
-    Returns cut positions as byte/character offsets from the start of the identifier.
+    Rule: the identifier is split into parts at ``_``/``-`` runs, lower->Upper humps
+    (``getUser`` -> get|User) and acronym ends (``HTTPServer`` -> HTTP|Server); digits stay with
+    the word they follow (``int64``, ``calculate_loss_v2`` -> calculate|loss|v2). A boundary is the
+    start offset of every part except the first. Delimiter runs belong to no part: a predicted cut
+    anywhere from the start to the end of an inner run counts as the boundary at the run's end, and
+    cuts next to leading/trailing runs are ignored (see ``canonical_identifier_cuts``), so splitting
+    ``_`` off as its own token is neither rewarded nor penalised.
     """
-    raw_parts = re.split(r"(_+|-+)", ident)
-    segments: List[str] = []
-    for p in raw_parts:
-        if not p:
-            continue
-        if p.startswith("_") or p.startswith("-"):
-            segments.append(p)
-        else:
-            sub = re.findall(r"[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z]?[a-z]+[0-9]*|[0-9]+", p)
-            if sub and "".join(sub) == p:
-                segments.extend(sub)
-            else:
-                segments.append(p)
+    starts = [m.start() for m in _PART_RE.finditer(ident)][1:]
+    return {len(ident[:s].encode("utf-8")) for s in starts}
 
+
+def canonical_identifier_cuts(ident: str, cuts: Iterable[int]) -> Set[int]:
+    """Map every cut inside or at either edge of a delimiter run to the run's end; drop cuts at
+    0/len and next to a leading or trailing run (offsets are bytes; delimiters are ASCII)."""
+    n = len(ident.encode("utf-8"))
+    runs = [(len(ident[: m.start()].encode("utf-8")), len(ident[: m.end()].encode("utf-8")))
+            for m in re.finditer(r"[_\-]+", ident)]
+    out: Set[int] = set()
+    for c in cuts:
+        for start, end in runs:
+            if start <= c <= end:
+                c = 0 if start == 0 else end
+                break
+        if 0 < c < n:
+            out.add(c)
+    return out
+
+
+def mine_identifiers(code_texts: Sequence[str], max_items: int = 2000) -> List[str]:
+    """The ``max_items`` most frequent identifiers with at least one gold boundary (ties: alphabetical)."""
+    counts = Counter(m.group() for text in code_texts for m in IDENTIFIER_RE.finditer(text))
+    multi = [ident for ident in counts if extract_identifier_cuts(ident) and len(ident) <= 64]
+    multi.sort(key=lambda s: (-counts[s], s))
+    return multi[:max_items]
+
+
+def token_cuts(tokenizer: Any, token_ids: Sequence[int]) -> Set[int]:
+    """Byte offsets between consecutive tokens, from each token's raw bytes."""
+    if not hasattr(tokenizer, "id_to_bytes"):
+        raise TypeError(f"{type(tokenizer).__name__} has no id_to_bytes; byte offsets are unavailable")
     cuts: Set[int] = set()
     offset = 0
-    for seg in segments[:-1]:
-        offset += len(seg.encode("utf-8"))
+    for tid in token_ids[:-1]:
+        b = tokenizer.id_to_bytes(tid)
+        if b is None:
+            raise ValueError(f"id_to_bytes({tid}) returned None")
+        offset += len(b)
         cuts.add(offset)
     return cuts
-
 
 
 class IntrinsicEvaluator:
     """Evaluates intrinsic properties: Rényi efficiency, morphological F1, utilization, throughput."""
 
     def compute_renyi_from_counts(self, counts: List[int], alpha: float = 1.0) -> float:
+        """H_alpha(p) / log2|V| with |V| = len(counts). No clamping: 0 <= E <= 1 and E is
+        non-increasing in alpha mathematically, so a violation beyond float noise is a bug."""
         total = sum(counts)
         num_items = len(counts)
         if num_items <= 1 or total == 0:
@@ -62,39 +100,25 @@ class IntrinsicEvaluator:
 
         probs = [c / total for c in counts if c > 0]
         log_v = math.log2(num_items)
-        if log_v <= 0.0:
-            return 0.0
-
         if abs(alpha - 1.0) < 1e-6:
-            h = -sum(p * math.log2(p) for p in probs)
-            return max(0.0, min(1.0, h / log_v))
+            return -sum(p * math.log2(p) for p in probs) / log_v
+        h_alpha = math.log2(sum(p ** alpha for p in probs)) / (1.0 - alpha)
+        return h_alpha / log_v
 
-        sum_p_alpha = sum(p ** alpha for p in probs)
-        if sum_p_alpha <= 0.0:
-            return 0.0
-        h_alpha = (1.0 / (1.0 - alpha)) * math.log2(sum_p_alpha)
-        return max(0.0, min(1.0, h_alpha / log_v))
+    def _counts(self, tokenizer: Any, text_sample: str) -> List[int]:
+        counts = [0] * tokenizer.vocab_size
+        for tid in tokenizer.encode(text_sample):
+            counts[tid] += 1
+        return counts
 
     def compute_renyi_efficiency(self, tokenizer: Any, text_sample: str) -> Dict[str, float]:
-        tokens = tokenizer.encode(text_sample)
-        vocab_size = getattr(tokenizer, "vocab_size", 256)
-        counts = [0] * vocab_size
-        for tid in tokens:
-            if tid < vocab_size:
-                counts[tid] += 1
-
-        e1 = self.compute_renyi_from_counts(counts, alpha=1.0)
-        e2 = self.compute_renyi_from_counts(counts, alpha=2.0)
-        e25 = self.compute_renyi_from_counts(counts, alpha=2.5)
-
-        # Enforce mathematical monotonic inequality: e25 <= e2 <= e1
-        e2 = min(e1, e2)
-        e25 = min(e2, e25)
-
+        """Rényi efficiency of the unigram token distribution on ``text_sample``; |V| is the
+        tokenizer's actual vocabulary size."""
+        counts = self._counts(tokenizer, text_sample)
         return {
-            "e_1_0": e1,
-            "e_2_0": e2,
-            "e_2_5": e25,
+            "e_1_0": self.compute_renyi_from_counts(counts, alpha=1.0),
+            "e_2_0": self.compute_renyi_from_counts(counts, alpha=2.0),
+            "e_2_5": self.compute_renyi_from_counts(counts, alpha=2.5),
         }
 
     def compute_utilization_metrics(self, counts: List[int]) -> Dict[str, float]:
@@ -109,8 +133,7 @@ class IntrinsicEvaluator:
         if s == 0 or n == 0:
             gini = 0.0
         else:
-            cum = sum((2 * (i + 1) - n - 1) * val for i, val in enumerate(sorted_counts))
-            gini = max(0.0, min(1.0, cum / (n * s)))
+            gini = sum((2 * (i + 1) - n - 1) * val for i, val in enumerate(sorted_counts)) / (n * s)
 
         return {
             "active_fraction": active_frac,
@@ -119,13 +142,7 @@ class IntrinsicEvaluator:
         }
 
     def compute_vocab_utilization(self, tokenizer: Any, text_sample: str) -> Dict[str, float]:
-        tokens = tokenizer.encode(text_sample)
-        vocab_size = getattr(tokenizer, "vocab_size", 256)
-        counts = [0] * vocab_size
-        for tid in tokens:
-            if tid < vocab_size:
-                counts[tid] += 1
-        return self.compute_utilization_metrics(counts)
+        return self.compute_utilization_metrics(self._counts(tokenizer, text_sample))
 
     def evaluate_cut_f1(self, pred_cuts: Set[int], gold_cuts: Set[int]) -> Dict[str, float]:
         if not pred_cuts and not gold_cuts:
@@ -136,52 +153,38 @@ class IntrinsicEvaluator:
         f1 = (2.0 * p * r) / (p + r) if (p + r) > 0.0 else 0.0
         return {"precision": p, "recall": r, "f1": f1}
 
+    def _mean_f1(self, pairs: Iterable[tuple]) -> Dict[str, float]:
+        ps: List[float] = []
+        rs: List[float] = []
+        fs: List[float] = []
+        for pred, gold in pairs:
+            res = self.evaluate_cut_f1(pred, gold)
+            ps.append(res["precision"])
+            rs.append(res["recall"])
+            fs.append(res["f1"])
+        if not fs:
+            return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "n": 0}
+        return {"precision": sum(ps) / len(ps), "recall": sum(rs) / len(rs), "f1": sum(fs) / len(fs), "n": len(fs)}
+
     def compute_morphological_f1(
         self, tokenizer: Any, gold_annotations: List[Dict[str, Any]]
     ) -> Dict[str, float]:
-        if not gold_annotations:
-            return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+        """Macro (per-word) boundary precision/recall/F1 of the tokenizer's split of each gold word.
+        Entries without byte-offset gold (``gold_cuts`` None: canonical, non-surface) are skipped."""
 
-        precisions = []
-        recalls = []
-        f1s = []
+        def pairs():
+            for item in gold_annotations:
+                gold = item.get("gold_cuts")
+                if gold is None:
+                    if "gold_cuts" in item:
+                        continue
+                    gold, curr = set(), 0
+                    for seg in item.get("segments", [])[:-1]:
+                        curr += len(seg.encode("utf-8"))
+                        gold.add(curr)
+                yield token_cuts(tokenizer, tokenizer.encode(item["word"])), set(gold)
 
-        for item in gold_annotations:
-            word = item["word"]
-            if "gold_cuts" in item:
-                gold_cuts = set(item["gold_cuts"])
-            else:
-                gold_cuts = set()
-                curr = 0
-                for seg in item.get("segments", [])[:-1]:
-                    curr += len(seg.encode("utf-8"))
-                    gold_cuts.add(curr)
-
-            tokens = tokenizer.encode(word)
-            pred_cuts: Set[int] = set()
-            offset = 0
-
-            for tid in tokens[:-1]:
-                tok_str = getattr(tokenizer, "id_to_token", lambda x: str(x))(tid)
-                tok_bytes = getattr(tokenizer, "id_to_bytes", lambda x: None)(tid)
-                if tok_bytes is not None:
-                    offset += len(tok_bytes)
-                elif tok_str is not None:
-                    offset += len(tok_str.encode("utf-8"))
-                else:
-                    offset += 1
-                pred_cuts.add(offset)
-
-            res = self.evaluate_cut_f1(pred_cuts, gold_cuts)
-            precisions.append(res["precision"])
-            recalls.append(res["recall"])
-            f1s.append(res["f1"])
-
-        return {
-            "precision": sum(precisions) / len(precisions),
-            "recall": sum(recalls) / len(recalls),
-            "f1": sum(f1s) / len(f1s),
-        }
+        return self._mean_f1(pairs())
 
     def extract_identifier_cuts(self, identifier: str) -> Set[int]:
         """Extracts ground-truth boundary cut set for a given code identifier."""
@@ -193,76 +196,33 @@ class IntrinsicEvaluator:
         identifiers: Optional[List[Union[str, Dict[str, Any]]]] = None,
     ) -> Dict[str, float]:
         """
-        Computes genuine subword boundary Precision, Recall, and F1 for programming identifiers.
+        Boundary precision/recall/F1 of code identifiers (gold rule: ``extract_identifier_cuts``).
+        Items are identifier strings, or dicts with ``identifier``/``word`` and optional
+        ``gold_cuts``/``segments``.
         """
         items = identifiers if identifiers is not None else DEFAULT_CODE_IDENTIFIERS
-        if not items:
-            return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-        precisions: List[float] = []
-        recalls: List[float] = []
-        f1s: List[float] = []
-
-        for item in items:
-            if isinstance(item, str):
-                ident_str = item
-                gold_cuts = extract_identifier_cuts(ident_str)
-            elif isinstance(item, dict):
-                ident_str = item.get("identifier") or item.get("word") or ""
-                if "gold_cuts" in item:
-                    gold_cuts = set(item["gold_cuts"])
-                elif "segments" in item:
-                    gold_cuts = set()
-                    curr = 0
-                    for s in item["segments"][:-1]:
-                        curr += len(s.encode("utf-8"))
-                        gold_cuts.add(curr)
+        def pairs():
+            for item in items:
+                if isinstance(item, str):
+                    ident, gold = item, None
                 else:
-                    gold_cuts = extract_identifier_cuts(ident_str)
-            else:
-                continue
+                    ident = item.get("identifier") or item.get("word") or ""
+                    gold = item.get("gold_cuts")
+                    if gold is None and "segments" in item:
+                        gold, curr = set(), 0
+                        for s in item["segments"][:-1]:
+                            curr += len(s.encode("utf-8"))
+                            gold.add(curr)
+                if gold is None:
+                    gold = extract_identifier_cuts(ident)
+                pred = token_cuts(tokenizer, tokenizer.encode(ident))
+                yield canonical_identifier_cuts(ident, pred), canonical_identifier_cuts(ident, gold)
 
-            tokens = tokenizer.encode(ident_str)
-            pred_cuts: Set[int] = set()
-
-            if hasattr(tokenizer, "decode") and len(tokens) > 1:
-                for i in range(len(tokens) - 1):
-                    try:
-                        prefix = tokenizer.decode(tokens[: i + 1])
-                        pred_cuts.add(len(prefix.encode("utf-8")))
-                    except Exception:
-                        break
-
-            if not pred_cuts and len(tokens) > 1:
-                offset = 0
-                for tid in tokens[:-1]:
-                    tok_bytes = None
-                    if hasattr(tokenizer, "id_to_bytes"):
-                        tok_bytes = tokenizer.id_to_bytes(tid)
-                    elif hasattr(tokenizer, "id_to_token"):
-                        tok_str = tokenizer.id_to_token(tid)
-                        if tok_str is not None:
-                            tok_bytes = tok_str.encode("utf-8")
-                    if tok_bytes is not None:
-                        offset += len(tok_bytes)
-                    else:
-                        offset += 1
-                    pred_cuts.add(offset)
-
-            res = self.evaluate_cut_f1(pred_cuts, gold_cuts)
-            precisions.append(res["precision"])
-            recalls.append(res["recall"])
-            f1s.append(res["f1"])
-
-        p = sum(precisions) / len(precisions) if precisions else 0.0
-        r = sum(recalls) / len(recalls) if recalls else 0.0
-        f1 = sum(f1s) / len(f1s) if f1s else 0.0
-
-        return {"precision": p, "recall": r, "f1": f1}
+        return self._mean_f1(pairs())
 
     def compute_number_fertility(self, tokenizer: Any, number_str: str) -> float:
-        tokens = tokenizer.encode(number_str)
-        return float(len(tokens))
+        return float(len(tokenizer.encode(number_str)))
 
     def compute_structural_diagnostics(
         self,
@@ -270,155 +230,145 @@ class IntrinsicEvaluator:
         number_str: str = "1234567890",
         identifiers: Optional[List[Union[str, Dict[str, Any]]]] = None,
     ) -> Dict[str, float]:
-        """
-        Computes genuine structural diagnostics:
-        1. Number fertility: number of tokens produced for numeric strings.
-        2. Identifier boundary metrics: genuine Precision, Recall, and F1 against camelCase/snake_case cuts.
-        """
-        num_fert = self.compute_number_fertility(tokenizer, number_str)
+        """Number fertility (tokens for ``number_str``) and identifier boundary P/R/F1."""
         ident_res = self.compute_identifier_f1(tokenizer, identifiers)
         return {
-            "number_fertility": num_fert,
+            "number_fertility": self.compute_number_fertility(tokenizer, number_str),
             "identifier_f1": ident_res["f1"],
             "identifier_precision": ident_res["precision"],
             "identifier_recall": ident_res["recall"],
+            "identifiers": ident_res["n"],
         }
 
     def benchmark_throughput(
-        self, tokenizer: Any, text_sample: str, num_warmup: int = 2
+        self,
+        tokenizer: Any,
+        text_sample: Union[str, Sequence[str]],
+        num_warmup: int = 1,
+        repeats: int = 5,
     ) -> Dict[str, float]:
-        raw_bytes = len(text_sample.encode("utf-8"))
-
-        for _ in range(num_warmup):
-            ids = tokenizer.encode(text_sample)
-            _ = tokenizer.decode(ids)
-
-        # Measure encode
-        t0 = time.perf_counter()
-        ids = tokenizer.encode(text_sample)
-        t_enc = max(time.perf_counter() - t0, 1e-6)
-
-        # Measure decode
-        t0 = time.perf_counter()
-        _ = tokenizer.decode(ids)
-        t_dec = max(time.perf_counter() - t0, 1e-6)
-
+        """
+        Encode/decode throughput, one ``encode``/``decode`` call per document as in practice.
+        Reports the median over ``repeats`` timed passes (after ``num_warmup`` untimed ones) of
+        total bytes / total time. No floor is applied.
+        """
+        docs = [text_sample] if isinstance(text_sample, str) else list(text_sample)
+        raw_bytes = sum(len(d.encode("utf-8")) for d in docs)
         mb = raw_bytes / (1024 * 1024)
+        enc_times: List[float] = []
+        dec_times: List[float] = []
+        for i in range(num_warmup + repeats):
+            t0 = time.perf_counter()
+            ids = [tokenizer.encode(d) for d in docs]
+            t1 = time.perf_counter()
+            for x in ids:
+                tokenizer.decode(x)
+            t2 = time.perf_counter()
+            if i >= num_warmup:
+                enc_times.append(t1 - t0)
+                dec_times.append(t2 - t1)
+        enc = statistics.median(enc_times)
+        dec = statistics.median(dec_times)
         return {
-            "encode_mb_per_sec": max(0.1, mb / t_enc),
-            "decode_mb_per_sec": max(0.1, mb / t_dec),
+            "encode_mb_per_sec": mb / enc if enc > 0 else math.inf,
+            "decode_mb_per_sec": mb / dec if dec > 0 else math.inf,
+            "throughput_bytes": raw_bytes,
+            "throughput_docs": len(docs),
+            "throughput_repeats": repeats,
         }
 
     def evaluate_suite(
         self,
         models: Dict[str, Any],
-        text_sample: str,
+        text_sample: Union[str, Sequence[str]],
         gold_annotations: List[Dict[str, Any]],
         output_dir: Optional[Union[str, Path]] = None,
+        identifiers: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        meta: Optional[Dict[str, Any]] = None,
+        repeats: int = 5,
+        throughput_docs: Optional[Sequence[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """
-        Runs the complete extended intrinsic suite across multiple tokenizers and
-        exports JSON, CSV, and Markdown leaderboards when output_dir is provided.
+        Runs the suite on ``text_sample`` (one string or a list of documents; documents are
+        encoded one by one) and writes intrinsic_leaderboard.{json,csv,md} when ``output_dir`` is
+        given. Morph F1 is reported overall and per gold ``lang``. Throughput is timed on
+        ``throughput_docs`` (default: the evaluation documents).
         """
-        results: Dict[str, Dict[str, Any]] = {}
-        raw_bytes = len(text_sample.encode("utf-8"))
-        words = [w for w in text_sample.split() if w]
+        docs = [text_sample] if isinstance(text_sample, str) else list(text_sample)
+        doc_bytes = sum(len(d.encode("utf-8")) for d in docs)
+        words = [w for d in docs for w in d.split()]
         num_words = max(1, len(words))
+        by_lang: Dict[str, List[Dict[str, Any]]] = {}
+        for g in gold_annotations:
+            by_lang.setdefault(g.get("lang") or "all", []).append(g)
 
+        results: Dict[str, Dict[str, Any]] = {}
         for name, tok in models.items():
-            tids = tok.encode(text_sample)
-            n_toks = max(1, len(tids))
-            bpt = raw_bytes / n_toks
-            fertility = sum(len(tok.encode(w)) for w in words) / num_words
-
-            renyi = self.compute_renyi_efficiency(tok, text_sample)
-            util = self.compute_vocab_utilization(tok, text_sample)
-            morph = self.compute_morphological_f1(tok, gold_annotations)
-            struct = self.compute_structural_diagnostics(tok)
-            speed = self.benchmark_throughput(tok, text_sample, num_warmup=2)
-
+            counts = [0] * tok.vocab_size
+            n_toks = 0
+            for d in docs:
+                for tid in tok.encode(d):
+                    counts[tid] += 1
+                    n_toks += 1
+            morph_by_lang = {lang: self.compute_morphological_f1(tok, items) for lang, items in sorted(by_lang.items())}
+            n_morph = sum(m["n"] for m in morph_by_lang.values())
+            morph = {k: sum(m[k] * m["n"] for m in morph_by_lang.values()) / max(1, n_morph)
+                     for k in ("precision", "recall", "f1")}
+            struct = self.compute_structural_diagnostics(tok, identifiers=identifiers)
+            speed = self.benchmark_throughput(tok, throughput_docs or docs, repeats=repeats)
+            util = self.compute_utilization_metrics(counts)
             results[name] = {
-                "vocab_size": getattr(tok, "vocab_size", 256),
-                "bytes_per_token": bpt,
-                "fertility": fertility,
-                "renyi_e_1_0": renyi["e_1_0"],
-                "renyi_e_2_0": renyi["e_2_0"],
-                "renyi_e_2_5": renyi["e_2_5"],
+                "vocab_size": tok.vocab_size,
+                "bytes_per_token": doc_bytes / max(1, n_toks),
+                "fertility": sum(len(tok.encode(w)) for w in words) / num_words,
+                "renyi_e_1_0": self.compute_renyi_from_counts(counts, 1.0),
+                "renyi_e_2_0": self.compute_renyi_from_counts(counts, 2.0),
+                "renyi_e_2_5": self.compute_renyi_from_counts(counts, 2.5),
                 "active_fraction": util["active_fraction"],
                 "dead_tokens": util["dead_tokens"],
                 "gini_coefficient": util["gini_coefficient"],
                 "morph_precision": morph["precision"],
                 "morph_recall": morph["recall"],
                 "morph_f1": morph["f1"],
+                "morph_words": n_morph,
+                "morph_f1_by_lang": {lang: m["f1"] for lang, m in morph_by_lang.items()},
+                "identifier_precision": struct["identifier_precision"],
+                "identifier_recall": struct["identifier_recall"],
                 "identifier_f1": struct["identifier_f1"],
+                "identifiers": struct["identifiers"],
                 "number_fertility": struct["number_fertility"],
-                "encode_mb_per_sec": speed["encode_mb_per_sec"],
-                "decode_mb_per_sec": speed["decode_mb_per_sec"],
+                **speed,
             }
 
         if output_dir is not None:
+            from tokenisers.benchmarks.report import render_intrinsic
+
             out_dir = Path(output_dir)
             out_dir.mkdir(parents=True, exist_ok=True)
-            with open(out_dir / "intrinsic_leaderboard.json", "w", encoding="utf-8") as f:
-                json.dump(results, f, indent=2)
-
+            doc = {"meta": meta or {}, "models": results}
+            (out_dir / "intrinsic_leaderboard.json").write_text(
+                json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
             fieldnames = [
-                "tokenizer",
-                "vocab_size",
-                "bytes_per_token",
-                "fertility",
-                "renyi_e_1_0",
-                "renyi_e_2_0",
-                "renyi_e_2_5",
-                "active_fraction",
-                "morph_f1",
-                "identifier_f1",
-                "number_fertility",
-                "encode_mb_per_sec",
-                "decode_mb_per_sec",
+                "tokenizer", "vocab_size", "bytes_per_token", "fertility", "renyi_e_1_0", "renyi_e_2_0",
+                "renyi_e_2_5", "active_fraction", "morph_f1", "identifier_f1", "number_fertility",
+                "encode_mb_per_sec", "decode_mb_per_sec",
             ]
             with open(out_dir / "intrinsic_leaderboard.csv", "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(fieldnames)
                 for m_name, vals in results.items():
-                    writer.writerow([
-                        m_name,
-                        vals["vocab_size"],
-                        f"{vals['bytes_per_token']:.4f}",
-                        f"{vals['fertility']:.4f}",
-                        f"{vals['renyi_e_1_0']:.4f}",
-                        f"{vals['renyi_e_2_0']:.4f}",
-                        f"{vals['renyi_e_2_5']:.4f}",
-                        f"{vals['active_fraction']:.4f}",
-                        f"{vals['morph_f1']:.4f}",
-                        f"{vals['identifier_f1']:.4f}",
-                        f"{vals['number_fertility']:.2f}",
-                        f"{vals['encode_mb_per_sec']:.2f}",
-                        f"{vals['decode_mb_per_sec']:.2f}",
-                    ])
-
-            md_lines = [
-                "# Extended Intrinsic Tokenizer Evaluation Leaderboard",
-                "",
-                "| Tokenizer | Bytes/Token (↑) | Fertility (↓) | Rényi $E_{1.0}$ | Rényi $E_{2.0}$ | Rényi $E_{2.5}$ | Morph F1 (↑) | Ident F1 (↑) | Encode (MB/s) | Decode (MB/s) |",
-                "| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-            ]
-            sorted_rows = sorted(
-                results.items(),
-                key=lambda kv: kv[1]["renyi_e_2_0"],
-                reverse=True,
-            )
-            for m_name, vals in sorted_rows:
-                md_lines.append(
-                    f"| `{m_name}` | {vals['bytes_per_token']:.3f} | {vals['fertility']:.3f} | "
-                    f"{vals['renyi_e_1_0']:.3f} | {vals['renyi_e_2_0']:.3f} | {vals['renyi_e_2_5']:.3f} | "
-                    f"{vals['morph_f1']:.3f} | {vals['identifier_f1']:.3f} | "
-                    f"{vals['encode_mb_per_sec']:.1f} | {vals['decode_mb_per_sec']:.1f} |"
-                )
-            (out_dir / "intrinsic_leaderboard.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+                    writer.writerow([m_name] + [vals[k] for k in fieldnames[1:]])
+            (out_dir / "intrinsic_leaderboard.md").write_text(render_intrinsic(doc) + "\n", encoding="utf-8")
 
         return results
 
 
-__all__ = ["IntrinsicEvaluator", "extract_identifier_cuts", "DEFAULT_CODE_IDENTIFIERS"]
-
+__all__ = [
+    "IntrinsicEvaluator",
+    "extract_identifier_cuts",
+    "canonical_identifier_cuts",
+    "mine_identifiers",
+    "token_cuts",
+    "DEFAULT_CODE_IDENTIFIERS",
+]

@@ -321,6 +321,9 @@ def load_benchmark_data() -> Dict[str, Any]:
                 logger.warning(f"Failed reading {p}: {e}")
 
     colab_models = colab_data.get("models", {}) if isinstance(colab_data, dict) else {}
+    # Benchmark JSON is {"meta": ..., "models": {...}}; older files were the bare model map.
+    tokka_data = tokka_data.get("models", tokka_data)
+    intrinsic_data = intrinsic_data.get("models", intrinsic_data)
 
     # Consolidate all model identifiers
     all_keys = set(tokka_data.keys()) | set(intrinsic_data.keys()) | set(colab_models.keys()) | set(ALGORITHM_METADATA.keys())

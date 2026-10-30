@@ -1,0 +1,132 @@
+"""
+Markdown leaderboards rendered from benchmark result JSON ({"meta": ..., "models": ...}).
+
+The CLIs write these next to their JSON, and scripts/gen_readme_tables.py puts the same text into
+README.md, so README numbers always come from a result file. Variants whose tokenizer is
+byte-identical to another (``meta["duplicates"]``) share one row.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Callable, Dict, List, Sequence, Tuple
+
+
+def _mb(n: Any) -> str:
+    return f"{n / 1e6:.1f} MB" if isinstance(n, (int, float)) else "?"
+
+
+def _summary(meta: Dict[str, Any]) -> str:
+    data = "SYNTHETIC offline corpus" if meta.get("synthetic_data") else "real corpus"
+    commit = (meta.get("git_commit") or "unknown")[:10] + (" (dirty)" if meta.get("git_dirty") else "")
+    parts = [
+        f"requested V = {meta.get('requested_vocab_size', '?')}",
+        f"{data}: tokenizers trained on the train split ({_mb(meta.get('train_bytes'))})",
+        f"evaluated on the held-out {meta.get('eval_split', '?')} split ({_mb(meta.get('eval_bytes'))})",
+        f"commit `{commit}`",
+        f"generated {meta.get('created_utc', '?')}",
+    ]
+    return "- " + "; ".join(parts)
+
+
+def _label(name: str, duplicates: Dict[str, str]) -> str:
+    aliases = [d for d, c in duplicates.items() if c == name]
+    return " = ".join(f"`{n}`" for n in [name, *aliases])
+
+
+def _table(
+    doc: Dict[str, Any],
+    columns: Sequence[Tuple[str, Callable[[Dict[str, Any]], str]]],
+    sort_key: Callable[[Dict[str, Any]], float],
+) -> List[str]:
+    dups = doc["meta"].get("duplicates", {})
+    rows = sorted(((n, m) for n, m in doc["models"].items() if n not in dups), key=lambda kv: sort_key(kv[1]))
+    lines = [
+        "| Tokenizer | " + " | ".join(h for h, _ in columns) + " |",
+        "| :--- |" + " ---: |" * len(columns),
+    ]
+    for name, m in rows:
+        lines.append(f"| {_label(name, dups)} | " + " | ".join(f(m) for _, f in columns) + " |")
+    if dups:
+        lines.append("")
+        lines.append("Variants joined with `=` produced byte-identical tokenizers and are one result.")
+    return lines
+
+
+def render_tokka(doc: Dict[str, Any]) -> str:
+    meta = doc["meta"]
+    langs = [k for k in next(iter(doc["models"].values()), {}) if isinstance(k, str)
+             and k not in ("macro_avg", "micro_avg", "unique_tokens", "vocab_size")]
+    cols = [
+        ("\\|V\\|", lambda m: str(m["vocab_size"])),
+        ("Macro bytes/token (↑)", lambda m: f"{m['macro_avg']['bytes_per_token']:.3f}"),
+        ("Micro bytes/token (↑)", lambda m: f"{m['micro_avg']['bytes_per_token']:.3f}"),
+        ("Macro fertility (↓)", lambda m: f"{m['macro_avg']['subword_fertility']:.3f}"),
+        ("Macro continued-token % (↓)", lambda m: f"{m['macro_avg']['continued_word_rate']:.2f}"),
+        ("Unique tokens used", lambda m: str(m["unique_tokens"])),
+    ]
+    head = [
+        _summary(meta),
+        f"- languages ({len(langs)}): {', '.join(langs)}; macro = unweighted mean over languages, "
+        "micro = totals summed over languages; unique tokens = union over languages",
+        "",
+    ]
+    return "\n".join(head + _table(doc, cols, lambda m: -m["macro_avg"]["bytes_per_token"]))
+
+
+def render_intrinsic(doc: Dict[str, Any]) -> str:
+    meta = doc["meta"]
+    cols = [
+        ("\\|V\\|", lambda m: str(m["vocab_size"])),
+        ("Bytes/token (↑)", lambda m: f"{m['bytes_per_token']:.3f}"),
+        ("Fertility (↓)", lambda m: f"{m['fertility']:.3f}"),
+        ("Rényi E1", lambda m: f"{m['renyi_e_1_0']:.3f}"),
+        ("Rényi E2.5", lambda m: f"{m['renyi_e_2_5']:.3f}"),
+        ("Morph F1 (↑)", lambda m: f"{m['morph_f1']:.3f}"),
+        ("Ident F1 (↑)", lambda m: f"{m['identifier_f1']:.3f}"),
+        ("Encode MB/s", lambda m: f"{m['encode_mb_per_sec']:.2f}"),
+        ("Decode MB/s", lambda m: f"{m['decode_mb_per_sec']:.2f}"),
+    ]
+    first = next(iter(doc["models"].values()), {})
+    morph = meta.get("morphology", {})
+    head = [
+        _summary(meta),
+        f"- morph F1: {morph.get('gold_entries', first.get('morph_words', '?'))} gold words "
+        f"({morph.get('gold_source', 'SIGMORPHON 2022 test split')}); identifier F1: "
+        f"{first.get('identifiers', '?')} identifiers mined from held-out code; throughput: median of "
+        f"{first.get('throughput_repeats', '?')} passes over {_mb(first.get('throughput_bytes'))} "
+        f"({first.get('throughput_docs', '?')} documents, one encode call each) on {meta.get('host', {}).get('cpu', '?')}",
+        "",
+    ]
+    return "\n".join(head + _table(doc, cols, lambda m: -m["renyi_e_2_5"]))
+
+
+def _pm(mean: float, sd: float) -> str:
+    return f"{mean:.3f} ± {sd:.3f}"
+
+
+def render_colab(doc: Dict[str, Any]) -> str:
+    meta = doc["meta"]
+    domains = list(meta.get("val_domains", []))
+    backend = meta.get("backend", {})
+    if backend.get("device") == "cuda":
+        where = f"Colab GPU `{backend.get('gpu')}`" if backend.get("kind") == "colab" else f"local GPU `{backend.get('gpu')}`"
+    else:
+        where = f"{backend.get('kind', '?')} CPU `{backend.get('cpu', '?')}`"
+    fb = meta.get("fallback")
+    cols = [("\\|V\\|", lambda m: str(m["vocab_size"])),
+            ("Train bytes/token", lambda m: f"{m['train_bytes_per_token']:.3f}"),
+            ("Tokens trained", lambda m: f"{m['tokens_consumed']:,}")]
+    cols += [(f"{d} BPB (↓)", (lambda d: lambda m: _pm(m["val_domains"][d]["bpb"], m["val_domains"][d]["bpb_sd"]))(d))
+             for d in domains]
+    cols.append(("Macro BPB (↓)", lambda m: f"**{_pm(m['macro_val_bpb'], m['macro_val_bpb_sd'])}**"))
+    head = [
+        _summary(meta),
+        f"- backend: {where}" + (f" — FALLBACK after Colab failed: {fb.get('error', '')}" if fb else ""),
+        f"- proxy LM ({', '.join(f'{k}={v}' for k, v in meta.get('lm', {}).items())}); fixed budget {meta.get('byte_budget', 0):,} train bytes per "
+        f"tokenizer; seeds {meta.get('seeds')} (mean ± sd)",
+        "",
+    ]
+    return "\n".join(head + _table(doc, cols, lambda m: m["macro_val_bpb"]))
+
+
+__all__ = ["render_tokka", "render_intrinsic", "render_colab"]
