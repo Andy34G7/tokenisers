@@ -1,5 +1,5 @@
 """Proxy-LM tier: init/warmup, sliding-window BPB, seeds, one implementation, truthful backend
-(B11, B12, B13, B15, B18). Everything runs on CPU with tiny models."""
+(B11, B12, B13, B15, B18) and the Colab job lifecycle (B19, B20, B21). Everything runs on CPU with tiny models."""
 
 from __future__ import annotations
 
@@ -156,20 +156,30 @@ def test_one_implementation_runs_locally_and_remotely(tmp_path, monkeypatch):
     assert colab.ProxyLanguageModel is lm.ProxyLanguageModel and colab.LM_SOURCE == Path(lm.__file__)
     fake = _fake_colab(tmp_path)
     monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
-    remote = colab.ColabOrchestrator(colab_bin=str(fake)).run_job(_job(tmp_path / "a", seeds=(0,)), gpu="T4")
+    remote = colab.ColabOrchestrator(colab_bin=str(fake)).run_job(_job(tmp_path / "a", seeds=(0,)), gpu="T4",
+                                                                  poll_interval=0.1)
     local = colab.run_local(_job(tmp_path / "b", seeds=(0,)))
     assert remote["backend"]["kind"] == "colab" and remote["backend"]["requested_gpu"] == "T4"
     assert remote["models"]["tok"]["macro_val_bpb"] == pytest.approx(local["models"]["tok"]["macro_val_bpb"])
-    calls = [json.loads(line)[0] for line in (tmp_path / "vm" / "calls.log").read_text().splitlines()]
-    assert calls[0] == "new" and calls[-1] == "stop" and "exec" in calls
+    calls = _calls(tmp_path)
+    assert calls[:2] == ["version", "new"] and calls[-1] == "stop" and "exec" in calls
     assert (tmp_path / "vm" / "content" / "lm.py").read_bytes() == colab.LM_SOURCE.read_bytes()
+    assert json.loads((tmp_path / "vm" / "content" / "status.json").read_text()) == {"state": "ok"}
+
+
+def _calls(tmp_path: Path) -> list:
+    return [json.loads(line)[0] for line in (tmp_path / "vm" / "calls.log").read_text().splitlines()]
 
 
 def _fake_colab(tmp_path: Path) -> Path:
-    """A stand-in for the colab CLI: /content on the 'VM' is $FAKE_COLAB_ROOT/content."""
+    """A stand-in for the colab CLI: /content on the 'VM' is $FAKE_COLAB_ROOT/content. Like the real
+    0.7.5 CLI, `exec` exits 0 when the executed code raises (the traceback is only printed).
+    FAKE_COLAB_FAIL=<command> makes that command exit 1; FAKE_COLAB_VERSION sets `colab version`;
+    FAKE_COLAB_DROP=n: the first n `exec` calls run the code but lose its output and exit 1
+    ("Connection was lost."); FAKE_COLAB_HANG=n: the first n `exec` calls hang before running it."""
     fake = tmp_path / "colab"
     fake.write_text(f"""#!{sys.executable}
-import json, os, shutil, subprocess, sys
+import json, os, shutil, subprocess, sys, time
 root = os.environ["FAKE_COLAB_ROOT"]
 os.makedirs(root, exist_ok=True)
 args = sys.argv[1:]
@@ -178,17 +188,118 @@ with open(os.path.join(root, "calls.log"), "a") as f:
 if args[0] == os.environ.get("FAKE_COLAB_FAIL"):
     sys.exit("simulated colab failure")
 vm = lambda p: os.path.join(root, p.lstrip("/"))
-if args[0] == "upload":
+
+def take(kind):
+    path = os.path.join(root, kind)
+    n = int(open(path).read()) if os.path.exists(path) else int(os.environ.get("FAKE_COLAB_" + kind.upper(), "0"))
+    open(path, "w").write(str(max(0, n - 1)))
+    return n > 0
+
+if args[0] == "version":
+    print("Version: " + os.environ.get("FAKE_COLAB_VERSION", "0.7.5"))
+elif args[0] == "upload":
     os.makedirs(os.path.dirname(vm(args[4])), exist_ok=True)
     shutil.copy(args[3], vm(args[4]))
 elif args[0] == "exec":
+    if take("hang"):
+        time.sleep(60)
     code = open(args[args.index("-f") + 1]).read().replace("/content", vm("/content"))
-    subprocess.run([sys.executable, "-I", "-c", code], check=True, env={{**os.environ, "CUDA_VISIBLE_DEVICES": ""}})
+    env = {{**os.environ, "CUDA_VISIBLE_DEVICES": ""}}
+    if take("drop"):
+        subprocess.run([sys.executable, "-I", "-c", code], env=env, capture_output=True)
+        sys.exit("RuntimeError: Connection was lost.")
+    subprocess.run([sys.executable, "-I", "-c", code], env=env)  # exit status ignored, as in colab 0.7.5
 elif args[0] == "download":
+    if not os.path.exists(vm(args[3])):
+        sys.exit("No such file")
     shutil.copy(vm(args[3]), args[4])
 """)
     fake.chmod(0o755)
     return fake
+
+
+def test_remote_exception_is_reported_with_its_traceback(tmp_path, monkeypatch):
+    """B20: `colab exec` exits 0 although the job raised; the job's status file carries the traceback,
+    which ColabError surfaces, and the session is still stopped."""
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    job = _job(tmp_path)
+    cfg = json.loads((job / "config.json").read_text())
+    cfg["domains"].append("REMOTE_BOOM")  # no val_REMOTE_BOOM array: run_job raises on the VM
+    (job / "config.json").write_text(json.dumps(cfg))
+    with pytest.raises(colab.ColabError, match=r"(?s)remote job failed \(error\).*Traceback.*REMOTE_BOOM"):
+        colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(job, poll_interval=0.1)
+    assert _calls(tmp_path)[-1] == "stop" and "download" not in _calls(tmp_path)
+
+
+def test_job_that_dies_without_status_is_reported_with_its_log(tmp_path, monkeypatch):
+    """B20: a job killed before writing status.json (e.g. out of memory) is 'died', with the log tail."""
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    dying = tmp_path / "src" / "lm.py"
+    dying.parent.mkdir()
+    dying.write_text("import os\nprint('DIED_HARD', flush=True)\nos._exit(9)\n")
+    monkeypatch.setattr(colab, "LM_SOURCE", dying)
+    with pytest.raises(colab.ColabError, match=r"(?s)remote job failed \(died\).*DIED_HARD"):
+        colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(_job(tmp_path), poll_interval=0.1)
+    assert _calls(tmp_path)[-1] == "stop"
+
+
+def test_job_runs_detached_and_survives_dropped_and_hung_polls(tmp_path, monkeypatch):
+    """B21: the job is launched detached and polled with short `colab exec` calls. Polls that lose
+    the connection (after the launch went through) or hang are retried; the job is launched once."""
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    monkeypatch.setenv("FAKE_COLAB_DROP", "2")
+    monkeypatch.setenv("FAKE_COLAB_HANG", "1")
+    monkeypatch.setattr(colab, "EXEC_TIMEOUT", 3.0)
+    res = colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(
+        _job(tmp_path, seeds=(0,)), poll_interval=0.1)
+    assert res["backend"]["kind"] == "colab" and "tok" in res["models"]
+    assert _calls(tmp_path).count("exec") >= 4  # 1 hung + 2 dropped + successful polls
+    log = (tmp_path / "vm" / "content" / "job.log").read_text()
+    assert log.count("tok seed=0") == 1, log  # retried launches did not start a second job
+
+
+def test_poll_failures_and_deadline_are_bounded(tmp_path, monkeypatch):
+    """B21: no single blocking call for the whole job: persistent poll failures and a job past its
+    deadline raise ColabError promptly, and the session is stopped."""
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    monkeypatch.setenv("FAKE_COLAB_FAIL", "exec")
+    orch = colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path)))
+    with pytest.raises(colab.ColabError, match="3 consecutive job polls failed.*simulated colab failure"):
+        orch.run_job(_job(tmp_path / "a"), poll_interval=0.01, max_poll_failures=3)
+    assert _calls(tmp_path).count("exec") == 3 and _calls(tmp_path)[-1] == "stop"
+    monkeypatch.delenv("FAKE_COLAB_FAIL")
+    with pytest.raises(colab.ColabError, match="did not finish within 0 s"):
+        orch.run_job(_job(tmp_path / "b"), timeout=0, poll_interval=0.01)
+    assert _calls(tmp_path)[-1] == "stop"
+
+
+def test_old_colab_cli_is_rejected_before_a_session_starts(tmp_path, monkeypatch):
+    """B19: colab 0.6.0's exec is broken; the version is checked first, with the upgrade command."""
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    monkeypatch.setenv("FAKE_COLAB_VERSION", "0.6.0")
+    orch = colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path)))
+    with pytest.raises(colab.ColabError, match=r"0\.6\.0 is too old.*>= 0\.7\.5.*uv tool upgrade google-colab-cli"):
+        orch.run_job(_job(tmp_path))
+    assert _calls(tmp_path) == ["version"]
+    monkeypatch.setenv("FAKE_COLAB_VERSION", "0.10.0")  # numeric, not string, comparison
+    assert orch.check_cli_version() == (0, 10, 0)
+
+
+def test_session_is_stopped_when_colab_new_times_out(monkeypatch):
+    """`colab new` can time out after the VM was allocated; stop must still be called."""
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd[1])
+        if cmd[1] == "new":
+            raise colab.subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        return colab.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(colab.subprocess, "run", fake_run)
+    with pytest.raises(colab.ColabError, match="`colab new` failed"):
+        with colab.ColabOrchestrator(colab_bin="colab").managed_session("s"):
+            pytest.fail("session body ran although `colab new` failed")
+    assert calls == ["new", "stop"]
 
 
 @pytest.fixture
@@ -196,7 +307,7 @@ def cli_args(tmp_path):
     return ["--offline", "--cache-dir", str(tmp_path / "cache"), "--train-bytes", "30000", "--vocab-size", "280",
             "--variants", "bpe_frequency", "wp_bpe_base", "--byte-budget", "3000", "--seeds", "0", "1",
             "--seq-len", "16", "--batch-size", "4", "--d-model", "16", "--n-layers", "1", "--n-heads", "2",
-            "--d-ffn", "32", "--output-dir", str(tmp_path / "out")]
+            "--d-ffn", "32", "--output-dir", str(tmp_path / "out"), "--poll-interval", "0.01"]
 
 
 def test_cli_fails_when_colab_fails(tmp_path, monkeypatch, cli_args, require_tokenisers):
@@ -226,8 +337,7 @@ def test_cli_records_local_fallback_and_val_split(tmp_path, monkeypatch, cli_arg
     assert set(doc["models"]) == {"bpe_frequency", "wp_bpe_base", "bpe_dropout_p0.1"}
     md = (tmp_path / "out" / "extrinsic_bpb_leaderboard.md").read_text()
     assert "FALLBACK after Colab failed" in md and "±" in md
-    calls = [json.loads(line)[0] for line in (tmp_path / "vm" / "calls.log").read_text().splitlines()]
-    assert calls[-1] == "stop"  # the session is released even though exec failed
+    assert _calls(tmp_path)[-1] == "stop"  # the session is released even though exec failed
     ds = DataPipeline(cache_dir=tmp_path / "cache", force_offline=True).prepare(train_bytes=30000)
     val_bytes = sum(len(t.encode()) for t in ds.texts("val"))
     m = doc["models"]["bpe_frequency"]

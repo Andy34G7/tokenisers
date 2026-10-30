@@ -121,6 +121,16 @@ uv run python scripts/gen_readme_tables.py
 
 `--offline` runs everything on the synthetic test corpus (labelled synthetic in the output).
 
+**Colab.** Tier 3 on Colab needs the `colab` CLI (`google-colab-cli`) **>= 0.7.5**: 0.6.0's `exec`
+is broken. The run checks `colab version` before it starts a session; upgrade with
+`uv tool upgrade google-colab-cli`. The job is not one long `colab exec`: the benchmark uploads the
+job, starts it detached on the VM (output in `/content/job.log`) and polls it every
+`--poll-interval` seconds (default 60) with short `colab exec` calls. Polls that hang or lose the
+connection are retried (5 consecutive failures abort). `colab exec` exits 0 even when the remote
+code raises, so success is read from the `status.json` the job writes last. A remote exception
+fails the run with the remote traceback; so does a job that dies without a status (log tail
+shown) or runs past `--timeout`. The session is always stopped.
+
 **Memory.** Peak training memory grows linearly with the train split and, for the merge-based
 variants, with the vocabulary size (measured on 4 MB of the real corpus at V=16k and 64k:
 `unigram_lm` 139 bytes per text byte at both sizes, `super_bpe` 78 at 16k and 100 at 64k, the
@@ -195,7 +205,7 @@ Held-out text per language:
 <!-- BEGIN GENERATED: intrinsic -->
 - requested V = 16384; real corpus: tokenizers trained on the train split (10.1 MB); evaluated on the held-out test split (0.7 MB); commit `df4c7d8edc`; generated 2026-10-30T05:15:19Z
 - arguments: `--train-bytes 10000000`
-- morph F1: 126622 gold words (SIGMORPHON 2022 test split, surface entries (eng, fra, hun, rus, spa)); identifier F1: 1499 identifiers mined from held-out code; throughput: median of 5 passes over 1.1 MB (206 documents, one encode call each) on Intel(R) Core(TM) Ultra 7 155H
+- morph F1: per-word boundary F1 on 126622 gold words (SIGMORPHON 2022 test split, surface entries (eng, fra, hun, rus, spa)), averaged per language, then over the ? languages unweighted (per language below); identifier F1: 1499 identifiers mined from held-out code; throughput: median of 5 passes over 1.1 MB (206 documents, one encode call each) on Intel(R) Core(TM) Ultra 7 155H
 
 | Tokenizer | \|V\| | Bytes/token (↑) | Fertility (↓) | Rényi E1 | Rényi E2.5 | Morph F1 (↑) | Ident F1 (↑) | Encode MB/s | Decode MB/s |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -239,3 +249,37 @@ Held-out text per language:
 | `wordpiece_pmi` | 16384 | 1.019 | 983,040 | 4.127 ± 0.044 | 5.568 ± 0.178 | 4.936 ± 0.098 | **4.877 ± 0.104** |
 | `wp_bpe_base` | 16384 | 1.009 | 993,280 | 4.176 ± 0.110 | 5.482 ± 0.155 | 5.002 ± 0.195 | **4.887 ± 0.135** |
 <!-- END GENERATED: colab -->
+
+### 4. Larger Vocabularies (V = 32,768 and 65,536)
+
+<details><summary>Tokka-Bench, V = 32,768</summary>
+
+<!-- BEGIN GENERATED: tokka_v32768 -->
+_No results committed (`benchmarks/results/v32768/tokka/tokka_matrix.json` is missing). Run `uv run python -m tokenisers.benchmarks.tokka --vocab-size 32768 --output-dir benchmarks/results/v32768/tokka`, then `uv run python scripts/gen_readme_tables.py`._
+<!-- END GENERATED: tokka_v32768 -->
+
+</details>
+
+<details><summary>Extended intrinsic evaluation, V = 32,768</summary>
+
+<!-- BEGIN GENERATED: intrinsic_v32768 -->
+_No results committed (`benchmarks/results/v32768/intrinsic/intrinsic_leaderboard.json` is missing). Run `uv run python -m tokenisers.benchmarks.intrinsic --vocab-size 32768 --output-dir benchmarks/results/v32768/intrinsic`, then `uv run python scripts/gen_readme_tables.py`._
+<!-- END GENERATED: intrinsic_v32768 -->
+
+</details>
+
+<details><summary>Tokka-Bench, V = 65,536</summary>
+
+<!-- BEGIN GENERATED: tokka_v65536 -->
+_No results committed (`benchmarks/results/v65536/tokka/tokka_matrix.json` is missing). Run `uv run python -m tokenisers.benchmarks.tokka --vocab-size 65536 --output-dir benchmarks/results/v65536/tokka`, then `uv run python scripts/gen_readme_tables.py`._
+<!-- END GENERATED: tokka_v65536 -->
+
+</details>
+
+<details><summary>Extended intrinsic evaluation, V = 65,536</summary>
+
+<!-- BEGIN GENERATED: intrinsic_v65536 -->
+_No results committed (`benchmarks/results/v65536/intrinsic/intrinsic_leaderboard.json` is missing). Run `uv run python -m tokenisers.benchmarks.intrinsic --vocab-size 65536 --output-dir benchmarks/results/v65536/intrinsic`, then `uv run python scripts/gen_readme_tables.py`._
+<!-- END GENERATED: intrinsic_v65536 -->
+
+</details>
