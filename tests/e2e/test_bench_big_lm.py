@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -95,9 +96,85 @@ def test_trainer_warmup_fraction_and_weight_decay():
 def test_big_preset_fails_loudly_without_enough_lm_text(monkeypatch):
     from tokenisers.benchmarks.colab import __main__ as cli
 
+    assert parse_args(["--preset", "big"]).lm_text_bytes >= 1.1 * BIG_PRESET["byte_budget"]
     monkeypatch.setattr(cli, "load_dataset", lambda *a: pytest.fail("loaded data before the LM-text check"))
-    with pytest.raises(SystemExit, match="LM text pool"):
-        cli.main(["--preset", "big", "--offline"])
+    with pytest.raises(SystemExit, match="set --lm-text-bytes"):
+        cli.main(["--preset", "big", "--offline", "--lm-text-bytes", "50000000"])
+
+
+@pytest.fixture
+def big_args(tmp_path):
+    """--preset big with toy sizes: offline data, 30 KB train split + LM text pool up to 80 KB."""
+    return ["--preset", "big", "--offline", "--cache-dir", str(tmp_path / "cache"), "--train-bytes", "30000",
+            "--lm-text-bytes", "80000", "--byte-budget", "50000", "--vocab-size", "280",
+            "--variants", "bpe_frequency", "--seeds", "0", "1", "--seq-len", "16", "--batch-size", "4",
+            "--d-model", "16", "--n-layers", "1", "--n-heads", "2", "--d-ffn", "32", "--concurrency", "1",
+            "--job-dir", str(tmp_path / "job"), "--output-dir", str(tmp_path / "out"), "--poll-interval", "0.05",
+            "--skip-memory-check"]
+
+
+def test_big_cli_refuses_lm_text_that_overlaps_val_or_test(monkeypatch, big_args, require_tokenisers):
+    from tokenisers.benchmarks.colab import __main__ as cli
+    from tokenisers.data import DataPipeline
+
+    real = DataPipeline.lm_pool
+    monkeypatch.setattr(DataPipeline, "lm_pool", lambda self, base, n: (
+        real(self, base, n)[0] + base.texts("test")[:1], {}))  # one leaked test document
+    monkeypatch.setattr(cli, "train_suite", lambda *a, **k: pytest.fail("trained before the overlap check"))
+    with pytest.raises(RuntimeError, match="1 validation/test documents also occur"):
+        cli.main(big_args + ["--prepare-only"])
+
+
+def test_failed_cli_run_resumes_from_its_job_dir(tmp_path, monkeypatch, big_args, require_tokenisers):
+    """--prepare-only builds the job (train split + pool, disjoint from val/test, >= the budget per
+    variant); a run that fails keeps the finished run files in --job-dir; --resume reuses the job
+    without retraining tokenizers and the (Colab CPU, --gpu none) VM trains only the missing run."""
+    from tokenisers.benchmarks.colab import __main__ as cli
+    from test_bench_proxy_lm import _fake_colab
+
+    job = tmp_path / "job"
+    cli.main(big_args + ["--prepare-only"])
+    cfg = json.loads((job / "config.json").read_text())
+    text = cfg["prepared"]["lm_text"]
+    assert text["bytes"] >= 55_000 and 0 < text["pool_bytes"] < text["bytes"] and text["pool"]["docs"] > 0
+    assert sorted(p.name for p in job.glob("*.npz")) == ["bpe_dropout_p0.1.npz", "bpe_frequency.npz"]
+    assert not (job / "runs").exists()
+    with pytest.raises(SystemExit, match="already holds a prepared job"):
+        cli.main(big_args)
+    with pytest.raises(SystemExit, match=r"different \['train'\]"):
+        cli.main(big_args + ["--resume", "--lr", "1e-2"])
+
+    real = lm._run_one
+
+    def dies_on_the_last_run(d, n, s, dev=None):
+        if (n, s) == ("bpe_dropout_p0.1", 1):
+            raise KeyboardInterrupt  # the command is interrupted
+        return real(d, n, s, dev)
+
+    monkeypatch.setattr(lm, "_run_one", dies_on_the_last_run)
+    with pytest.raises(KeyboardInterrupt):
+        cli.main(big_args + ["--resume", "--local"])
+    assert len(list((job / "runs").glob("*.json"))) == 3
+
+    monkeypatch.setattr(cli, "train_suite", lambda *a, **k: pytest.fail("--resume retrained the tokenizers"))
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm"))
+    fake = _fake_colab(tmp_path)
+    cli.main(big_args + ["--resume", "--gpu", "none", "--concurrency", "2", "--colab-bin", str(fake)])
+    log = (tmp_path / "vm" / "content" / "job.log").read_text()
+    assert "bpe_dropout_p0.1 seed=1" in log and "seed=0" not in log and "bpe_frequency" not in log, log
+    calls = [json.loads(line) for line in (tmp_path / "vm" / "calls.log").read_text().splitlines()]
+    assert ["new", "-s", calls[1][2]] == calls[1]  # no --gpu: a CPU runtime
+    first_run_upload = next(i for i, c in enumerate(calls) if c[0] == "upload" and "/runs/" in c[-1])
+    assert calls[first_run_upload - 1][0] == "exec"  # the remote runs/ dir is created first
+    doc = json.loads((tmp_path / "out" / "extrinsic_bpb_results.json").read_text())
+    assert set(doc["models"]) == {"bpe_frequency", "bpe_dropout_p0.1"}
+    assert doc["meta"]["backend"]["requested_gpu"] is None
+    assert doc["meta"]["lm_text"] == text and all(m["epochs"] < 1 for m in doc["models"].values())
+
+    src = tmp_path / "f.txt"
+    src.write_text("x")
+    up = subprocess.run([str(fake), "upload", "-s", "s", str(src), "/content/missing/f.txt"], capture_output=True)
+    assert up.returncode != 0  # like colab 0.7.5: upload does not create remote directories
 
 
 def test_finished_runs_are_downloaded_and_reused_after_a_drop(tmp_path, monkeypatch):
