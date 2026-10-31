@@ -309,7 +309,7 @@ Morph F1 by language:
 | `wp_bpe_base` | 16384 | 1.006 | 9,945,088 | 3.734 ± 0.019 | 3.829 ± 0.021 | 4.198 ± 0.044 | **3.920 ± 0.018** |
 <!-- END GENERATED: colab -->
 
-#### Big proxy LM (implemented, not yet run)
+#### Big proxy LM (implemented, not yet run on a GPU)
 
 `--preset big` selects a larger proxy LM (same architecture as above): 8 layers, d_model 512, 8 heads,
 FFN 2048, sequence length 512 (~25M non-embedding parameters, ~8.4M embedding parameters at V = 16,384).
@@ -320,12 +320,53 @@ wp_bpe_ft are left out); `--concurrency 3` (variant, seed) runs share the GPU as
 writing its own result file. Results go to `benchmarks/results/colab_big/`. Explicit flags override the
 preset.
 
+LM text. A 100 MB budget needs 110 MB of LM text (budget + 10%, each document used once), but the
+tokenizers stay the ones trained on the 52.5 MB default train split. The preset therefore adds an LM text
+pool (`--lm-text-bytes 120000000`, `DataPipeline.lm_pool`): the train split of the dataset with the same
+sources, revisions, seed and split rule but a 120 MB train budget (cached under its own key next to the
+default dataset), minus every default train/val/test document by sha256. The LM trains on 110.0 MB drawn
+from the train split plus the pool (62.1 MB of it from the pool). At runtime the CLI checks that this text
+shares no document with val or test, and that every variant's encoded LM text covers the budget. BPB is
+measured on the same val split as the small tier. The pool's provenance (its dataset manifest, document
+and byte counts) is in `meta.lm_text` of the results.
+
 ```bash
-uv run python -m tokenisers.benchmarks.colab --preset big --gpu L4
+# 1. Locally: pool, tokenizers, encodings into the job dir; no LM training.
+uv run python -m tokenisers.benchmarks.colab --preset big --prepare-only --skip-memory-check
+# 2. On Colab (L4): uploads the job, trains, downloads each finished run as it lands.
+uv run python -m tokenisers.benchmarks.colab --preset big --resume
 ```
 
-It does not run yet on the default dataset: the 100 MB budget needs ~110 MB of LM text, but the default
-train split is ~52 MB, so the run stops before training. See `docs/TODO-big-lm.md`.
+Without `--prepare-only` one command does both steps. The job (`config.json` and one compressed `.npz` of
+token ids per tokenizer) is kept in `benchmarks/results/colab_big/job/` (gitignored; `--job-dir` moves
+it). If a run fails or is interrupted, re-run it with `--resume`: no tokenizer training or encoding, and
+the finished (variant, seed) run files already downloaded are uploaded to the new session and not
+retrained. `--resume` refuses a job prepared with different model, training or data arguments;
+`--concurrency` may change (e.g. lower it after an out-of-memory error). Ctrl-C or `kill <pid>` stops
+the Colab session before the CLI exits (a job started with `&` from a script ignores SIGINT; use `kill`).
+`--gpu none` runs on a CPU runtime (for a smoke test with toy sizes).
+
+Measured on the laptop (full scale, `--prepare-only`): 372 s and 3.2 GiB peak RSS with the pool
+downloaded from Hugging Face (~3 min of that; the pool's dataset is 135 MB on disk), 254 s and 3.5 GiB
+once cached (tokenizer training 104 s, encoding 144 s). Every tokenizer reproduces the committed V = 16,384
+small-tier run exactly (validation bytes/token per domain identical). The job is 463 MB (11 files of
+41-47 MB). Smoke test on a Colab CPU runtime through the same code path (`--preset big --gpu none`,
+d_model 32, 1 layer, 200 KB budget, bpe_frequency + bpe_dropout_p0.1, 2 seeds, `--concurrency 2`): the
+first session was dropped after the two bpe_frequency runs had been downloaded; `--resume` uploaded them
+into a new session, which trained the two missing runs (11 min on the VM: one wave of two concurrent
+runs, as in the first session) and returned the full result.
+
+Upload: the job uploads these pre-encoded ids, about 5 min at ~1.5 MB/s (again after each resume into a
+new session). The alternative, uploading the LM text (~38 MB compressed) and saved tokenizers and encoding
+on the VM after building the extension there (as `benchmarks/throughput.py` does), would take ~4 min
+(~1 min build, ~2 min encoding, under a minute of upload) and needs a clean git tree and more code, so it
+is not used.
+
+Expected GPU time (estimate, not measured): ~1.3B training tokens over the 33 runs at ~230 MFLOP per
+token is ~3e17 FLOP, i.e. about 2-4 hours of L4 time at 20-40 TFLOPS sustained in bf16 (evaluation adds
+little). At Colab's L4 rate when this was written (~5 compute units per hour; check the current rate) that
+is roughly 10-20 compute units. The default `--timeout` is 6 h; a job past it stops, and `--resume`
+continues it.
 
 ### 4. Larger Vocabularies (V = 32,768 and 65,536)
 
