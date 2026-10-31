@@ -227,7 +227,8 @@ def summarize(run: Dict[str, Any], target: Optional[float]) -> Dict[str, Any]:
         train_bytes_per_token=run["train"]["bytes_per_token"], train_tokens=run["train"]["tokens"],
         train_docs=run["train"]["docs"], params=tr["params"], mbs=tr["mbs"], grad_accum_steps=tr["grad_accum_steps"],
         ms_per_step=ms, tokens_per_s=batch / ms * 1000 if ms else None,
-        eval_seconds=[round(e["seconds"], 1) for e in tr["evals"]], peak_memory_bytes=tr["peak_memory_bytes"],
+        eval_seconds=[round(e["seconds"], 1) for e in tr["evals"]], eval_targets=tr["evals"][-1]["val_targets"],
+        peak_memory_bytes=tr["peak_memory_bytes"],
         trainer_seconds=tr["process_seconds"], wall_seconds=run["seconds"], gpu=tr["gpu"], torch=tr["torch"],
     )
     return out
@@ -258,9 +259,10 @@ def flops_per_token(padded_vocab: int, n_layer: int = 12, d: int = 768, seq: int
 
 def project(doc: Dict[str, Any], steps: int = 600, eval_every: int = 50, n_tokenizers: int = 12) -> Dict[str, Any]:
     """Full-run wall time from a pilot: per tokenizer, steps x measured ms/step (scaled by FLOPs per
-    token for a vocabulary that was not trained in the pilot), evals x the warm eval time (scaled by
-    val tokens), the compile/start overhead of a trainer process and the train encoding; plus the
-    one-time setup and the decoding of the source shards the most compact tokenizer needs."""
+    token for a vocabulary that was not trained in the pilot), evals x the warm eval time per val
+    token x its full val tokens, the compile/start overhead of a trainer process and the train
+    encoding; plus the one-time setup and the decoding of the source shards the most compact
+    tokenizer needs."""
     models = doc["models"]
     trained = {n: m for n, m in models.items() if m.get("ms_per_step")}
     ref_name, ref = next(iter(trained.items()))
@@ -271,7 +273,7 @@ def project(doc: Dict[str, Any], steps: int = 600, eval_every: int = 50, n_token
         base = trained.get(name, ref)
         scale = flops_per_token(m["padded_vocab_size"]) / flops_per_token(base["padded_vocab_size"])
         ms = base["ms_per_step"] * scale
-        warm_eval = base["eval_seconds"][-1] * scale * m["val_targets"] / base["val_targets"]
+        warm_eval = base["eval_seconds"][-1] * scale * m["val_targets"] / base["eval_targets"]
         # trainer process time beyond its steps and warm evals: start-up, data loading, compilation
         overhead = (base["trainer_seconds"] - base["curve"][-1][0] * base["ms_per_step"] / 1000
                     - len(base["eval_seconds"]) * base["eval_seconds"][-1])
@@ -330,6 +332,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                         help="Time the recipe: --pilot-steps steps for --pilot-train, val encoding for every tokenizer")
     parser.add_argument("--pilot-steps", type=int, default=20)
     parser.add_argument("--pilot-train", nargs="+", default=["gpt2", "bpe_frequency"], choices=TOKENIZERS)
+    parser.add_argument("--pilot-eval-docs", type=int, default=2000,
+                        help="The pilot times its val passes on this many val documents (scaled to all in the projection)")
     parser.add_argument("--tokenizer-train-bytes", type=int, default=50_000_000,
                         help="Train-document bytes our tokenizers are trained on")
     parser.add_argument("--cache-dir", default=None, help="SIGMORPHON cache (default: the data pipeline's)")
@@ -365,7 +369,8 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit("--resume with a different --steps would mix schedules")
     cfg.update(tokenizers=[s for s in cfg["tokenizers"] if s["name"] in names], train=train,
                trainer_args=recipe_args(steps, eval_every), mbs=args.mbs or DEFAULT_MBS[args.gpu],
-               mode="pilot" if args.pilot else "full", gpu=args.gpu)
+               mode="pilot" if args.pilot else "full", gpu=args.gpu,
+               eval_docs=args.pilot_eval_docs if args.pilot else None)
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1), encoding="utf-8")
     files = [run_dir / "config.json", TRAINER, REPO / "python" / "tokenisers" / "benchmarks" / "throughput.py"]
     if any(s["kind"] == "tokenisers" for s in cfg["tokenizers"]):

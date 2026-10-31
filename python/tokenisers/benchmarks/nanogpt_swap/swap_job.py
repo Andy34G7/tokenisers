@@ -457,9 +457,13 @@ def run_job(job_dir: str) -> Dict[str, Any]:
             log(f"{name}: train {record['train']['tokens']:,} tokens from {record['train']['docs']:,} docs, "
                 f"{record['train']['bytes_per_token']:.4f} B/token, {record['train']['encode_mb_per_s']} MB/s")
             write_bin(run / "train.bin", stream)
-            write_bin(run / "val.bin", val)
             del stream
-            record["trainer"] = run_trainer(job, cfg, run, tok.n_vocab + 1, record["val"]["bytes"])
+            val_bytes = record["val"]["bytes"]
+            if cfg.get("eval_docs"):  # pilot: time the val pass on a prefix of the val documents
+                val = val[:np.flatnonzero(val == tok.sep)[cfg["eval_docs"]] + 1]
+                val_bytes = sum(len(d.encode("utf-8")) for d in source.val[:cfg["eval_docs"]])
+            write_bin(run / "val.bin", val)
+            record["trainer"] = run_trainer(job, cfg, run, tok.n_vocab + 1, val_bytes)
             ev = record["trainer"]["evals"][-1]
             log(f"{name}: step {ev['step']} val_bpb {ev['val_bpb']:.4f} ({ev['val_loss']:.4f} nats/token)")
             shutil.rmtree(run / "log", ignore_errors=True)

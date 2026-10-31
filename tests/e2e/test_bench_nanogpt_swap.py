@@ -328,7 +328,7 @@ def _colab_job(tmp_path: Path, toks, shards, mode: str = "full") -> tuple:
            "prepared": {"tokenmonster_why": "n/a"},
            "train": ["gpt2"] if mode == "pilot" else ["gpt2", "lp"],
            "trainer_args": {**swap.recipe_args(4, 2), **TINY_ARGS}, "trainer_env": {"CUDA_VISIBLE_DEVICES": ""},
-           "mbs": 2, "mode": mode, "gpu": "L4"}
+           "mbs": 2, "mode": mode, "gpu": "L4", "eval_docs": 30 if mode == "pilot" else None}
     (job / "config.json").write_text(json.dumps(cfg))
     files = [job / "config.json", job / "train_gpt2_swap.py", job / "tokenizers.tar.gz"]
     return job, cfg, files
@@ -378,6 +378,9 @@ def test_pilot_trains_some_tokenizers_and_projects_the_full_run(tmp_path, monkey
     result = _run(tmp_path, job, files)
     doc = swap.collect(job, cfg, result, "L4", {"git_commit": "abc", "git_dirty": False})
     assert "ms_per_step" in doc["models"]["gpt2"] and "ms_per_step" not in doc["models"]["lp"]
+    run = json.loads((job / "runs" / "gpt2.json").read_text())
+    ev = run["trainer"]["evals"][-1]  # timed on the first 30 val documents only
+    assert ev["val_targets"] < run["val"]["targets"] and ev["val_targets"] == doc["models"]["gpt2"]["eval_targets"]
     p = doc["projection"] = swap.project(doc)
     assert p["per_tokenizer"]["lp"]["estimated_from"] == "gpt2" and p["evals_per_run"] == 13
     assert p["total_hours"] > p["per_tokenizer"]["gpt2"]["train_hours"] > 0
