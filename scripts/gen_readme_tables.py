@@ -15,7 +15,8 @@ from pathlib import Path
 import sys
 from typing import List, Optional
 
-from tokenisers.benchmarks.report import render_colab, render_intrinsic, render_throughput, render_tokka
+from tokenisers.benchmarks.report import (render_colab, render_intrinsic, render_nanogpt_swap, render_throughput,
+                                          render_tokka)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,6 +36,8 @@ SECTIONS["throughput_colab"] = ("benchmarks/results/throughput/colab_cpu/through
                                 "tokenisers.benchmarks.throughput --job-dir DIR --colab")
 SECTIONS["throughput_local"] = ("benchmarks/results/throughput/local/throughput.json", render_throughput,
                                 "tokenisers.benchmarks.throughput --job-dir DIR")
+SECTIONS["nanogpt_swap"] = ("benchmarks/results/nanogpt_swap/nanogpt_swap.json", render_nanogpt_swap,
+                            "tokenisers.benchmarks.nanogpt_swap --job-dir DIR --gpu L4")
 
 
 def render_readme(text: str, root: Path = ROOT) -> str:
@@ -46,7 +49,7 @@ def render_readme(text: str, root: Path = ROOT) -> str:
         if path.is_file():
             body = render(json.loads(path.read_text(encoding="utf-8")))
         else:
-            body = (f"_No results committed (`{rel}` is missing). Run `uv run python -m {module}`, then "
+            body = (f"_Not yet run. No results committed (`{rel}` is missing). Run `uv run python -m {module}`, then "
                     "`uv run python scripts/gen_readme_tables.py`._")
         text = text[:i] + "\n" + body + "\n" + text[j:]
     return text

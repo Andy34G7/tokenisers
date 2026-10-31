@@ -22,6 +22,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-benchmark>=4.0.0",
     "maturin>=1.15.0",
+    "tiktoken>=0.7",  # nanogpt_swap: GPT-2 tokenizer (decoding the source shards; llm.c trainer import)
 ]
 
 [project.scripts]

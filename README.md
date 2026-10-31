@@ -624,6 +624,67 @@ extension on the VM, and runs the job there detached, polled like the proxy-LM j
 | `unigram_lm` | 65536 | 8.86 / 8.73 | 74.76 / 74.15 |
 <!-- END GENERATED: throughput_local -->
 
+### 6. Tokenizer Swap on llm.c's GPT-2 (124M) Recipe
+
+How much does the tokenizer matter when everything else is fixed? `python -m
+tokenisers.benchmarks.nanogpt_swap` trains GPT-2 small (12 layers, 12 heads x 64, d = 768, context
+1024, learned positions, pre-LayerNorm, GELU, tied embeddings, no dropout) with llm.c's PyTorch
+recipe once per tokenizer and scores validation bits per byte on the same text. The trainer is
+[`vendor/llmc/train_gpt2_swap.py`](vendor/llmc/): llm.c's `train_gpt2.py` at `f1e2ace`, changed
+only inside delimited `SWAP` blocks; the hyperparameters are those of llm.c's
+`scripts/pyrun_gpt2_124M.sh` (AdamW (0.9, 0.95), lr 6e-4, weight decay 0.1 on 2-D weights, grad
+clip 1.0, 524,288 tokens per step, bf16 autocast, SDPA flash attention, `torch.compile`). Identical
+for every tokenizer, the only changes are: the vocabulary (tokenizer + one document separator,
+padded to a multiple of 128; padded ids are kept out of the softmax as in llm.c's CUDA trainer),
+600 steps with the warmup scaled by the same fraction (700 of 18,865 -> 22) and the same cosine
+decay to 0, the micro-batch (gradient accumulation keeps 524,288 tokens per step), val BPB on the
+whole val set every 50 steps and after the last, data paths and a result file. A test checks that
+the run arguments differ from llm.c's script only in those fields and that the trainer differs
+from llm.c's file only inside `SWAP` blocks.
+
+**Tokenizers (12).** GPT-2 (tiktoken, 50,257 with `<|endoftext|>`, the baseline); TokenMonster
+`englishcode-50256` and `englishcode-32000` (`consistent` mode, as in @alexjc's TokenMonster
+speedrun record); and our 9 variants `bpe_frequency`, `wp_bpe_pig`, `wp_bpe_ppig`, `wp_bpe_npmi`,
+`super_bpe`, `unigram_lm`, `length_penalized`, `morpheme_bpe` (SIGMORPHON train-split lexicon) and
+`mdl_bits`, trained with the suite's default parameters at 50,256 tokens on the first 50 MB of
+FineWeb train documents, so that with the separator they have 50,257 like GPT-2. Each tokenizer
+gets one separator id, placed between documents exactly where GPT-2's shards have `<|endoftext|>`.
+Every prebuilt TokenMonster `englishcode` vocabulary NFD-normalizes its input and so is lossy
+(decode(encode(x)) != x on 1,053 of the 14,982 val documents; capcode also turns U+0130 into "I");
+the benchmark uses the closest lossless variant: the `nocapcode` vocabulary of the same size and
+mode with the normalization flag cleared (same tokens and ids). Every tokenizer must reproduce
+every val document exactly before it is trained.
+
+**Data.** The text is the speedrun's own pre-tokenized GPT-2 FineWeb shards
+(`kjj0/fineweb10B-gpt2`), decoded back to documents and re-encoded by each tokenizer into llm.c
+`.bin` files. Val = the 14,982 complete documents (46.5 MB) in the speedrun's val window (the first
+20 x 524,288 GPT-2 tokens of `fineweb_val_000000.bin`); BPB = NLL in bits over every val token
+(separators included) / UTF-8 bytes of those documents, with the last window padded and masked, so
+every tokenizer is scored on the same bytes. Train = the train-shard documents in order (one pass,
+no repeats), minus any document whose sha256 equals a val document's; each tokenizer's stream
+holds 600 x 524,288 tokens plus 1%. A tokenizer with more bytes per token therefore sees more text
+in the same 600 steps: compute and tokens per step are fixed, text is not. The step at which a
+curve first reaches the speedrun's target (3.28 nats per GPT-2 token, converted to BPB with GPT-2's
+bytes per token on this val text) is reported; at 600 of llm.c's ~19,000 steps it is not expected
+to be reached.
+
+```bash
+uv run python -m tokenisers.benchmarks.nanogpt_swap --job-dir /tmp/swap --prepare-only  # local CPU: tokenizers
+uv run python -m tokenisers.benchmarks.nanogpt_swap --job-dir /tmp/swap --pilot --gpu L4  # ~20 timed steps
+uv run python -m tokenisers.benchmarks.nanogpt_swap --job-dir /tmp/swap --gpu L4  # 12 x 600 steps, one session
+uv run python -m tokenisers.benchmarks.nanogpt_swap --job-dir /tmp/swap --gpu L4 --resume  # after a drop
+```
+
+One Colab GPU session (L4, A100 or H100; a T4 has no bf16) runs the tokenizers one after another;
+each finished tokenizer's result file is downloaded on the next poll, and `--resume` uploads the
+finished ones to a new session so they are not retrained. The VM builds the native extension from
+`git archive HEAD`, downloads and decodes the shards and encodes the text; only the saved
+tokenizers and the code are uploaded.
+
+<!-- BEGIN GENERATED: nanogpt_swap -->
+_Not yet run. No results committed (`benchmarks/results/nanogpt_swap/nanogpt_swap.json` is missing). Run `uv run python -m tokenisers.benchmarks.nanogpt_swap --job-dir DIR --gpu L4`, then `uv run python scripts/gen_readme_tables.py`._
+<!-- END GENERATED: nanogpt_swap -->
+
 ### Known limitations
 
 - **One scale, one split.** Everything uses one 52.5 MB train split built with split seed 0; the

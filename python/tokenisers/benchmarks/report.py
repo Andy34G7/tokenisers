@@ -228,4 +228,65 @@ def render_throughput(doc: Dict[str, Any]) -> str:
     return "\n".join(head + rows)
 
 
-__all__ = ["render_tokka", "render_intrinsic", "render_colab", "render_throughput"]
+def render_nanogpt_swap(doc: Dict[str, Any]) -> str:
+    """Tokenizer swap on llm.c's GPT-2 (124M) recipe: final val BPB and speed per tokenizer (a pilot
+    adds the projected full-run time)."""
+    meta, models = doc["meta"], doc["models"]
+    b = meta.get("backend") or {}
+    rec = meta["recipe"]
+    a = rec["args"]
+    target = meta["target"]["bpb"]
+    commit = (meta.get("git_commit") or "unknown")[:10] + (" (dirty)" if meta.get("git_dirty") else "")
+    data = meta.get("data") or {}
+    tt = meta["tokenizer_text"]
+    pilot = meta["mode"] == "pilot"
+    head = [
+        f"- {'PILOT (timing only, not a result): ' if pilot else ''}{b.get('gpu') or meta['requested_gpu']}, "
+        f"torch {b.get('torch', '?')}, Colab session `{b.get('session', '?')}`; commit `{commit}`; "
+        f"generated {meta['created_utc']}",
+        f"- recipe: `{rec['upstream']}` scripts/pyrun_gpt2_124M.sh (GPT-2 124M, tied embeddings, AdamW lr "
+        f"{a['learning_rate']}, wd {a['weight_decay']}, {a['total_batch_size']} tokens/step, bf16, compiled) with "
+        f"{a['num_iterations']} steps, warmup {a['warmup_iters']}, val every {a['val_loss_every']} steps",
+        f"- val: {data.get('val_docs', '?')} FineWeb documents ({_mb(data.get('val_bytes'))}, the speedrun's first "
+        f"{meta['source']['val_tokens']:,} GPT-2 val tokens), the same bytes for every tokenizer; BPB = NLL bits "
+        "over every val token (one separator per document included) / UTF-8 bytes",
+        f"- our tokenizers: trained on the first {tt['docs']:,} train documents ({_mb(tt['bytes'])}) at 50,256 "
+        "tokens + 1 separator; TokenMonster: " + meta["prepared"]["tokenmonster_why"],
+        f"- target: the speedrun's {meta['target']['nats_per_gpt2_token']} nats per GPT-2 token = "
+        + (f"{target:.4f} BPB on this val text" if target else "? (GPT-2 did not run)"),
+        "",
+    ]
+    if not pilot:
+        cols = "| Tokenizer | \\|V\\| | Params | Val B/token | Train B/token | Final BPB | Step at target | ms/step | tok/s |"
+        lines = [cols, "| :--- |" + " ---: |" * 8]
+        for name, m in sorted(models.items(), key=lambda kv: kv[1].get("final_bpb", math.inf)):
+            if "final_bpb" not in m:
+                continue
+            step = m["reached_target_step"]
+            lines.append(f"| `{name}` | {m['vocab_size']:,} | {m['params'] / 1e6:.1f} M | {m['val_bytes_per_token']:.3f} | "
+                         f"{m['train_bytes_per_token']:.3f} | **{m['final_bpb']:.4f}** | "
+                         f"{step if step is not None else 'not reached'} | {m['ms_per_step']:.0f} | "
+                         f"{m['tokens_per_s']:,.0f} |")
+        return "\n".join(head + lines)
+    p = doc["projection"]
+    lines = ["| Tokenizer | \\|V\\| | Val B/token | Encode MB/s | ms/step | tok/s | Peak GiB | Warm eval s "
+             "| Projected h |", "| :--- |" + " ---: |" * 8]
+    for name, m in models.items():
+        r = p["per_tokenizer"][name]
+        timed = m.get("ms_per_step") is not None
+        lines.append(
+            f"| `{name}` | {m['vocab_size']:,} | {m['val_bytes_per_token']:.3f} | {m['encode_mb_per_s']:.1f} | "
+            + (f"{m['ms_per_step']:.0f} | {m['tokens_per_s']:,.0f} | {(m['peak_memory_bytes'] or 0) / 2**30:.1f} | "
+               f"{m['eval_seconds'][-1]:.0f} | " if timed else f"({r['ms_per_step']:.0f}) | | | | ")
+            + f"{r['total_hours']:.2f} |")
+    t = meta.get("timings") or {}
+    build = (t.get("setup") or {}).get("build") or {}
+    lines += ["", f"- setup: pip {(t.get('setup') or {}).get('pip_seconds', '?')} s, extension build "
+              f"{build.get('seconds', '?')} s, downloads (s) {t.get('download')}, decode (s) {t.get('decode')}",
+              f"- projection, one session, sequential: {p['total_hours']:.1f} h for {p['tokenizers_projected']} "
+              f"tokenizers x {p['steps']} steps ({p['evals_per_run']} evals each, source text "
+              f"{p['source_text_gb']:.2f} GB); ms/step in parentheses: estimated from a timed run by FLOPs per token"]
+    return "\n".join(head + lines)
+
+
+__all__ = ["render_tokka", "render_intrinsic", "render_colab", "render_throughput", "render_nanogpt_swap"]
