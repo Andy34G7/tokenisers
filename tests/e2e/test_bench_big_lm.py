@@ -98,3 +98,21 @@ def test_big_preset_fails_loudly_without_enough_lm_text(monkeypatch):
     monkeypatch.setattr(cli, "load_dataset", lambda *a: pytest.fail("loaded data before the LM-text check"))
     with pytest.raises(SystemExit, match="LM text pool"):
         cli.main(["--preset", "big", "--offline"])
+
+
+def test_finished_runs_are_downloaded_and_reused_after_a_drop(tmp_path, monkeypatch):
+    """Each finished run file is downloaded as the job runs; a new session after a drop uploads the
+    held run files, and the VM job trains only the missing runs."""
+    from tokenisers.benchmarks import colab
+    from test_bench_proxy_lm import _fake_colab
+
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm1"))
+    job = _job(tmp_path, seeds=(0, 1))
+    first = colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(job, poll_interval=0.05)
+    assert sorted(p.name for p in (job / "runs").iterdir()) == ["tok__s0.json", "tok__s1.json"]
+    (job / "runs" / "tok__s1.json").unlink()  # s1 was in flight when the session dropped
+    monkeypatch.setenv("FAKE_COLAB_ROOT", str(tmp_path / "vm2"))  # a fresh VM
+    again = colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(job, poll_interval=0.05)
+    log = (tmp_path / "vm2" / "content" / "job.log").read_text()
+    assert "tok seed=1" in log and "tok seed=0" not in log, log
+    assert again["models"]["tok"]["macro_val_bpb_by_seed"] == first["models"]["tok"]["macro_val_bpb_by_seed"]

@@ -5,7 +5,7 @@ seq 512, batch 64 = 32,768 tokens/step, AdamW lr 6e-4, weight decay 0.1, warmup 
 bf16 autocast on CUDA when supported, 100 MB budget, seeds 0/1/2, L4, 11 variants, output
 `benchmarks/results/colab_big/`), `--concurrency N` (default 3 for big, 1 otherwise), per-run result
 files `runs/<name>__s<seed>.json` written atomically on the VM, a job that resumes from finished run files,
-and tests in `tests/e2e/test_bench_big_lm.py`. The small tier's defaults are unchanged (tested).
+incremental download of finished run files on every poll, and tests in `tests/e2e/test_bench_big_lm.py`. The small tier's defaults are unchanged (tested).
 
 Nothing has been run on Colab.
 
@@ -32,18 +32,20 @@ Proposed design, in `python/tokenisers/data/pipeline.py`:
 - Test: offline synthetic corpus, small `lm_bytes`; check default splits unchanged, pool disjoint from
   val/test by sha256, and the CLI assertion fires on an injected overlap.
 
-## 2. Incremental download in the orchestrator
+## 2. Resume across CLI invocations
 
-`ColabOrchestrator.run_job` (`python/tokenisers/benchmarks/colab/__init__.py`) still downloads only
-`result.json` at the end. The VM side already writes `runs/<name>__s<seed>.json` per finished run.
-To do:
+Done: on every poll `ColabOrchestrator` downloads finished `runs/<name>__s<seed>.json` files into the
+local job dir, and a new `run_job` on the same job dir uploads the held run files so the VM job skips
+them (tested with the fake colab CLI in `test_finished_runs_are_downloaded_and_reused_after_a_drop`).
 
-- On every status poll, list `runs/` on the VM and download any run file not yet held locally into the
-  local job dir's `runs/` (with the existing retried transfer).
-- On a dropped session, re-upload the local `runs/` with the job, so the restarted VM job skips them
-  (`lm.run_job` already skips existing run files; tested in `test_job_resumes_from_finished_run_files`).
-- Test with the fake colab CLI in `tests/e2e/test_bench_proxy_lm.py` (`_fake_colab`): drop the session
-  after one run file exists; check that file was downloaded and only the remaining runs retrain.
+Open:
+
+- The CLI (`colab/__main__.py`) builds the job in a `tempfile.mkdtemp` dir and deletes it in `finally`,
+  so held run files do not survive a failed CLI invocation. Keep the job dir (e.g. under
+  `<output_dir>/job/`) when the run fails and add a `--resume <job_dir>` that skips tokenizer training
+  and encoding. Check that config.json matches before reusing run files.
+- The real `colab upload` into `/content/runs/<file>` (a subdirectory) is untested; the fake CLI creates
+  parent dirs. If the real CLI does not, upload flat and move the files in the control script.
 
 ## 3. Smaller items
 

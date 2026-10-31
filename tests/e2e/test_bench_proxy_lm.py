@@ -308,7 +308,8 @@ def test_persistent_download_failure_is_bounded(tmp_path, monkeypatch):
         colab.ColabOrchestrator(colab_bin=str(_fake_colab(tmp_path))).run_job(
             _job(tmp_path, seeds=(0,)), poll_interval=0.01, max_poll_failures=3)
     calls = _calls(tmp_path)
-    assert calls.count("download") == 3 and calls[-1] == "stop"
+    result_downloads = (tmp_path / "vm" / "calls.log").read_text().count('"/content/result.json"')  # not per-run files
+    assert result_downloads == 3 and calls[-1] == "stop"
 
 
 def test_poll_failures_and_deadline_are_bounded(tmp_path, monkeypatch):

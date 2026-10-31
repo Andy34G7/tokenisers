@@ -77,6 +77,8 @@ try:
         out["log_tail"] = f.read().decode("utf-8", "replace")
 except OSError:
     out["log_tail"] = ""
+runs = os.path.join(d, "runs")
+out["runs"] = sorted(f for f in os.listdir(runs) if f.endswith(".json")) if os.path.isdir(runs) else []
 print({marker!r} + json.dumps(out))
 """
 
@@ -162,8 +164,19 @@ class ColabOrchestrator:
                 return json.loads(line[len(STATUS_MARKER):])
         raise ColabError(f"`colab exec` of the job control script printed no status:\n{out.strip()[-3000:]}")
 
+    def _sync_runs(self, name: str, status: Dict[str, Any], local: Path) -> None:
+        """Downloads finished per-run result files not yet held locally (one try each; the next poll
+        retries), so a dropped session loses only the runs in flight."""
+        for f in status.get("runs", []):
+            if not (local / f).exists():
+                local.mkdir(exist_ok=True)
+                try:
+                    self._colab("download", "-s", name, f"{REMOTE_DIR}/runs/{f}", str(local / f), timeout=600)
+                except ColabError:
+                    pass
+
     def _wait(self, name: str, control: Path, timeout: float, poll_interval: float,
-              max_poll_failures: int) -> Dict[str, Any]:
+              max_poll_failures: int, runs_dir: Optional[Path] = None) -> Dict[str, Any]:
         """Launches the job (first poll) and polls until it is ok/error/died; raises ColabError
         after ``max_poll_failures`` consecutive failed polls or when ``timeout`` seconds pass."""
         deadline = time.monotonic() + timeout
@@ -173,6 +186,8 @@ class ColabOrchestrator:
             try:
                 last = self._poll(name, control)
                 failures = 0
+                if runs_dir is not None:
+                    self._sync_runs(name, last, runs_dir)
             except ColabError as e:
                 failures += 1
                 if failures >= max_poll_failures:
@@ -212,6 +227,7 @@ class ColabOrchestrator:
         if files is None:
             files = [job_dir / "config.json", *sorted(job_dir.glob("*.npz"))]
         uploads: List[Path] = [script, *map(Path, files)]
+        done_runs = sorted((job_dir / "runs").glob("*.json"))  # from an earlier, dropped session: not retrained
         control = job_dir / "control.py"
         control.write_text(CONTROL_SCRIPT.format(remote_dir=REMOTE_DIR, marker=STATUS_MARKER, script=script.name),
                            encoding="utf-8")
@@ -221,7 +237,9 @@ class ColabOrchestrator:
             retry = {"attempts": max_poll_failures, "delay": poll_interval}
             for f in uploads:
                 self._colab_retry("upload", "-s", name, str(f), f"{REMOTE_DIR}/{f.name}", timeout=3600, **retry)
-            status = self._wait(name, control, timeout, poll_interval, max_poll_failures)
+            for f in done_runs:
+                self._colab_retry("upload", "-s", name, str(f), f"{REMOTE_DIR}/runs/{f.name}", timeout=600, **retry)
+            status = self._wait(name, control, timeout, poll_interval, max_poll_failures, job_dir / "runs")
             if status["state"] != "ok":
                 detail = status.get("traceback") or f"no status.json; log tail:\n{status.get('log_tail', '')}"
                 raise ColabError(f"the remote job failed ({status['state']}):\n{detail}")
