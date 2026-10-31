@@ -262,10 +262,17 @@ def project(doc: Dict[str, Any], steps: int = 600, eval_every: int = 50, n_token
     token for a vocabulary that was not trained in the pilot), evals x the warm eval time per val
     token x its full val tokens, the compile/start overhead of a trainer process and the train
     encoding; plus the one-time setup and the decoding of the source shards the most compact
-    tokenizer needs."""
+    tokenizer needs. The overhead of an untimed tokenizer is that of the last timed run with the
+    same padded vocabulary (compiled kernels are cached on the VM), else of the first (cold)."""
     models = doc["models"]
     trained = {n: m for n, m in models.items() if m.get("ms_per_step")}
     ref_name, ref = next(iter(trained.items()))
+
+    def overhead(m: Dict[str, Any]) -> float:  # trainer time beyond steps and warm evals: start, data, compile
+        return max(0.0, m["trainer_seconds"] - m["curve"][-1][0] * m["ms_per_step"] / 1000
+                   - len(m["eval_seconds"]) * m["eval_seconds"][-1])
+
+    warm = {m["padded_vocab_size"]: overhead(m) for m in trained.values()}
     n_evals = steps // eval_every + (1 if steps % eval_every else 0) + 1
     batch = 524288
     rows = {}
@@ -274,14 +281,12 @@ def project(doc: Dict[str, Any], steps: int = 600, eval_every: int = 50, n_token
         scale = flops_per_token(m["padded_vocab_size"]) / flops_per_token(base["padded_vocab_size"])
         ms = base["ms_per_step"] * scale
         warm_eval = base["eval_seconds"][-1] * scale * m["val_targets"] / base["eval_targets"]
-        # trainer process time beyond its steps and warm evals: start-up, data loading, compilation
-        overhead = (base["trainer_seconds"] - base["curve"][-1][0] * base["ms_per_step"] / 1000
-                    - len(base["eval_seconds"]) * base["eval_seconds"][-1])
+        start_s = overhead(m) if name in trained else warm.get(m["padded_vocab_size"], overhead(ref))
         train_bytes = steps * batch * 1.01 * m["val_bytes_per_token"]
         encode_s = train_bytes / (m["encode_mb_per_s"] * 1e6)
         rows[name] = {"ms_per_step": ms, "estimated_from": None if name in trained else ref_name,
                       "train_hours": steps * ms / 3.6e6, "eval_hours": n_evals * warm_eval / 3600,
-                      "compile_and_start_hours": max(0.0, overhead) / 3600, "encode_hours": encode_s / 3600}
+                      "compile_and_start_hours": start_s / 3600, "encode_hours": encode_s / 3600}
         rows[name]["total_hours"] = sum(v for k, v in rows[name].items() if k.endswith("_hours"))
     t = doc["meta"]["timings"] or {}
     setup_s = (t.get("setup", {}).get("pip_seconds", 0) + (t.get("setup", {}).get("build") or {}).get("seconds", 0))

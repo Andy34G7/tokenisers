@@ -254,6 +254,7 @@ def render_nanogpt_swap(doc: Dict[str, Any]) -> str:
         "tokens + 1 separator; TokenMonster: " + meta["prepared"]["tokenmonster_why"],
         f"- target: the speedrun's {meta['target']['nats_per_gpt2_token']} nats per GPT-2 token = "
         + (f"{target:.4f} BPB on this val text" if target else "? (GPT-2 did not run)"),
+        *([f"- note: {meta['note']}"] if meta.get("note") else []),
         "",
     ]
     if not pilot:
