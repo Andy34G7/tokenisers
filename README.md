@@ -309,6 +309,24 @@ Morph F1 by language:
 | `wp_bpe_base` | 16384 | 1.006 | 9,945,088 | 3.734 ± 0.019 | 3.829 ± 0.021 | 4.198 ± 0.044 | **3.920 ± 0.018** |
 <!-- END GENERATED: colab -->
 
+#### Big proxy LM (implemented, not yet run)
+
+`--preset big` selects a larger proxy LM (same architecture as above): 8 layers, d_model 512, 8 heads,
+FFN 2048, sequence length 512 (~25M non-embedding parameters, ~8.4M embedding parameters at V = 16,384).
+One hyperparameter set for every tokenizer: AdamW lr 6e-4, weight decay 0.1, warmup 2% of steps then
+cosine decay, gradient clip 1.0, 64 x 512 = 32,768 tokens per step, bf16 autocast when the GPU supports
+it, 100 MB byte budget per run, seeds 0/1/2. Default GPU L4; 11 variants (wordpiece_pmi, wp_bpe_base and
+wp_bpe_ft are left out); `--concurrency 3` (variant, seed) runs share the GPU as separate processes, each
+writing its own result file. Results go to `benchmarks/results/colab_big/`. Explicit flags override the
+preset.
+
+```bash
+uv run python -m tokenisers.benchmarks.colab --preset big --gpu L4
+```
+
+It does not run yet on the default dataset: the 100 MB budget needs ~110 MB of LM text, but the default
+train split is ~52 MB, so the run stops before training. See `docs/TODO-big-lm.md`.
+
 ### 4. Larger Vocabularies (V = 32,768 and 65,536)
 
 Same train and test data as sections 1 and 2; only `--vocab-size` differs. The proxy LM was not run at

@@ -30,6 +30,17 @@ from tokenisers.benchmarks.report import render_colab
 
 DOMAINS = ("english", "multilingual", "code")
 DROPOUT_VARIANT = "bpe_dropout_p0.1"
+# --preset big: defaults only, so any explicit flag still wins. The small tier is the parser's defaults.
+# 64 x 512 = 32,768 tokens per step; warmup 2% of steps, cosine decay (ByteBudgetTrainer), bf16 on CUDA.
+BIG_PRESET: Dict[str, Any] = {
+    "n_layers": 8, "d_model": 512, "n_heads": 8, "d_ffn": 2048, "seq_len": 512, "batch_size": 64,
+    "lr": 6e-4, "weight_decay": 0.1, "warmup_frac": 0.02, "bf16": True, "byte_budget": 100_000_000,
+    "gpu": "L4", "concurrency": 3, "seeds": [0, 1, 2], "output_dir": "benchmarks/results/colab_big",
+    # bpe_dropout_p0.1 is derived from bpe_frequency (kept on by default); wordpiece_pmi, wp_bpe_base and
+    # wp_bpe_ft are left out.
+    "variants": ["bpe_frequency", "wp_bpe_pig", "wp_bpe_scp", "wp_bpe_npmi", "wp_bpe_ppig", "mdl_bits",
+                 "length_penalized", "super_bpe", "morpheme_bpe", "unigram_lm"],
+}
 
 
 def _encode_docs(tok: Any, docs: List[str], dtype: Any, dropout: float | None = None) -> np.ndarray:
@@ -64,7 +75,7 @@ def _lm_train_docs(train: List[str], byte_budget: int, seed: int) -> List[str]:
     return out
 
 
-def main(argv: List[str] | None = None) -> None:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Extrinsic proxy-LM bits-per-byte benchmark")
     add_common_args(parser, "benchmarks/results/colab")
     parser.add_argument("--byte-budget", type=int, default=10_000_000,
@@ -86,11 +97,31 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--local", action="store_true", help="Run the proxy LMs locally instead of on Colab")
     parser.add_argument("--allow-local-fallback", action="store_true",
                         help="If Colab fails, run locally and record the fallback in the results")
+    parser.add_argument("--preset", choices=["small", "big"], default="small",
+                        help="small: the default tier above; big: 8x512 LM, 100 MB budget, L4, 11 variants, "
+                             "concurrency 3, output benchmarks/results/colab_big (explicit flags override)")
+    parser.add_argument("--concurrency", type=int, default=1,
+                        help="(variant, seed) runs trained at once on the one GPU, as separate processes")
+    parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--warmup-frac", type=float, default=None,
+                        help="Warmup as a fraction of steps (default: 10%% of steps, at most 200)")
+    parser.add_argument("--bf16", action="store_true", help="bf16 autocast when the GPU supports it")
     parser.add_argument("--no-dropout-variant", action="store_true",
                         help=f"Skip {DROPOUT_VARIANT} (bpe_frequency trained on BPE-dropout encodings)")
-    args = parser.parse_args(argv)
+    if parser.parse_known_args(argv)[0].preset == "big":
+        parser.set_defaults(**BIG_PRESET)
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str] | None = None) -> None:
+    args = parse_args(argv)
     start = start_provenance(__package__, argv)  # before the tree can change during a long run
 
+    if args.preset == "big" and args.train_bytes < args.byte_budget * 1.1:  # before any work
+        sys.exit(f"--preset big needs {int(args.byte_budget * 1.1):,} bytes of LM text but the tokenizer train "
+                 f"split is {args.train_bytes:,}. A separate LM text pool (same sources, disjoint from val/test) "
+                 "is not implemented yet: see docs/TODO-big-lm.md. Raising --train-bytes would also change "
+                 "the tokenizers, so it is not a fix.")
     if not args.skip_memory_check:  # before downloading/preparing anything
         check_memory(args.variants, args.train_bytes)
     ds = load_dataset(args)
@@ -123,8 +154,11 @@ def main(argv: List[str] | None = None) -> None:
               "d_ffn": args.d_ffn, "max_seq_len": args.seq_len}
         train_cfg = {"byte_budget": args.byte_budget, "seq_len": args.seq_len, "batch_size": args.batch_size,
                      "lr": args.lr, "eval_stride": max(1, args.seq_len // 2)}
+        if args.preset != "small" or args.weight_decay != 0.01 or args.warmup_frac is not None or args.bf16:
+            train_cfg.update(weight_decay=args.weight_decay, warmup_frac=args.warmup_frac, bf16=args.bf16)
         write_json(job_dir / "config.json", {"lm": lm, "train": train_cfg, "seeds": args.seeds,
-                                             "domains": list(DOMAINS), "tokenizers": tokenizers})
+                                             "domains": list(DOMAINS), "tokenizers": tokenizers,
+                                             "concurrency": args.concurrency})
 
         fallback = None
         if args.local:
