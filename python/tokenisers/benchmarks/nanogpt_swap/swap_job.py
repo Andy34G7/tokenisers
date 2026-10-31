@@ -323,7 +323,7 @@ def run_trainer(job: Path, cfg: Dict[str, Any], run: Path, vocab_size: int, val_
     while True:
         t0 = time.time()
         with open(run / "train.log", "w") as f:
-            proc = subprocess.run([sys.executable, str(job / "train_gpt2_swap.py"), *trainer_argv(cfg, mbs, run)],
+            proc = subprocess.run([sys.executable, "-u", str(job / "train_gpt2_swap.py"), *trainer_argv(cfg, mbs, run)],
                                   cwd=run, env=env, stdout=f, stderr=subprocess.STDOUT)
         seconds = time.time() - t0
         tail = (run / "train.log").read_text(errors="replace")[-3000:]

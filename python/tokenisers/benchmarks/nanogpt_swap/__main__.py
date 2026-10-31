@@ -357,8 +357,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     names = [s["name"] for s in cfg["tokenizers"] if s["name"] in args.tokenizers]
     if args.pilot:
         run_dir = job / f"pilot-{args.gpu}"
-        shutil.rmtree(run_dir, ignore_errors=True)
-        run_dir.mkdir()
+        if not args.resume:
+            shutil.rmtree(run_dir, ignore_errors=True)
+        run_dir.mkdir(exist_ok=True)
         steps, eval_every, train = args.pilot_steps, args.pilot_steps, [n for n in args.pilot_train if n in names]
     else:
         run_dir, steps, eval_every, train = job, args.steps, args.eval_every, names
