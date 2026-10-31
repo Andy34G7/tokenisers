@@ -653,7 +653,10 @@ Every prebuilt TokenMonster `englishcode` vocabulary NFD-normalizes its input an
 (decode(encode(x)) != x on 1,053 of the 14,982 val documents; capcode also turns U+0130 into "I");
 the benchmark uses the closest lossless variant: the `nocapcode` vocabulary of the same size and
 mode with the normalization flag cleared (same tokens and ids). Every tokenizer must reproduce
-every val document exactly before it is trained.
+every val document exactly before it is trained. On the val text GPT-2 gives 4.44 bytes per token,
+TokenMonster 5.32 (50,256) and 4.95 (32,000), `super_bpe` 5.03, and the other 8 of ours 2.70-2.75:
+their pre-tokenizer isolates every whitespace run as its own token, so at 524,288 tokens per step
+they see about 40% fewer bytes than GPT-2.
 
 **Data.** The text is the speedrun's own pre-tokenized GPT-2 FineWeb shards
 (`kjj0/fineweb10B-gpt2`), decoded back to documents and re-encoded by each tokenizer into llm.c
@@ -680,6 +683,10 @@ each finished tokenizer's result file is downloaded on the next poll, and `--res
 finished ones to a new session so they are not retrained. The VM builds the native extension from
 `git archive HEAD`, downloads and decodes the shards and encodes the text; only the saved
 tokenizers and the code are uploaded.
+
+Pilot timings (`--pilot`: 20 steps of GPT-2 and `bpe_frequency`, val encoding of all 12, projected
+full-run time): [L4](benchmarks/results/nanogpt_swap/pilot_l4.md),
+[A100](benchmarks/results/nanogpt_swap/pilot_a100.md).
 
 <!-- BEGIN GENERATED: nanogpt_swap -->
 _Not yet run. No results committed (`benchmarks/results/nanogpt_swap/nanogpt_swap.json` is missing). Run `uv run python -m tokenisers.benchmarks.nanogpt_swap --job-dir DIR --gpu L4`, then `uv run python scripts/gen_readme_tables.py`._
